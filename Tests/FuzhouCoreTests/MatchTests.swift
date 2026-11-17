@@ -108,6 +108,41 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(Seat.allCases.map(result.delta), [243, -81, -81, -81])
     }
 
+    func testComputerKeepsItsWaitInsteadOfDiscardingTheIsolatedLookingPairOfNeighbors() throws {
+        var match = try fixture(hands: [.east: Array(completed.dropLast())],
+                                gold: .init(.bamboo, 9), draws: [.init(.circles, 8)])
+        resolveOpening(&match)
+        let extra = try XCTUnwrap(match.drawn)
+        let (seat, move) = try XCTUnwrap(match.nextComputerMove(excluding: [.south, .west, .north]))
+        XCTAssertEqual(seat, .east)
+        XCTAssertEqual(move, .discard(extra.id))
+    }
+
+    func testComputerChowsToMakeAReadyHand() throws {
+        let hand = [1, 1, 1, 2, 3, 4, 9].map { TileKind(.characters, $0) }
+            + [2, 3, 4, 7, 7].map { TileKind(.circles, $0) }
+            + [3, 5, 7, 8].map { TileKind(.bamboo, $0) }
+        var match = try fixture(hands: [.south: hand], gold: .init(.circles, 9), draws: [.init(.bamboo, 4)])
+        resolveOpening(&match)
+        let offered = try XCTUnwrap(match.drawn)
+        XCTAssertTrue(match.apply(.discard(offered.id), by: .east))
+        let (seat, move) = try XCTUnwrap(match.nextComputerMove(excluding: [.east, .west, .north]))
+        XCTAssertEqual(seat, .south)
+        guard case .meld(.chow, _) = move else { return XCTFail("Expected a chow, got \(move)") }
+        XCTAssertTrue(match.apply(move, by: .south))
+    }
+
+    func testGoldDiscardRestrictionIsVisibleToTheDiscarder() throws {
+        let gold = TileKind(.bamboo, 9)
+        var match = try fixture(hands: [:], gold: gold, draws: [gold])
+        resolveOpening(&match)
+        XCTAssertFalse(match.table(for: .east).viewerMustSelfDraw)
+        let tile = try XCTUnwrap(match.drawn)
+        XCTAssertTrue(match.apply(.discard(tile.id), by: .east))
+        XCTAssertTrue(match.table(for: .east).viewerMustSelfDraw)
+        XCTAssertFalse(match.table(for: .south).viewerMustSelfDraw)
+    }
+
     func testSeededGamesSettleAndRoundStateResumes() throws {
         for seed in UInt64(0)..<50 {
             var random = TestRandom(seed: seed)

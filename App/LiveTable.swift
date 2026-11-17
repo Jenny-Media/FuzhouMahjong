@@ -10,18 +10,35 @@ struct LiveTable: View {
     let drawingFromReserve: Bool
     let paused: Bool
     let minimumHeight: CGFloat
+    let compact: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        VStack(spacing: 12) {
-            playerGrid
-            wallSources
-            discardFocus
-            previousDiscards
+        Group {
+            if compact {
+                HStack(alignment: .top, spacing: 12) {
+                    playerGrid
+                    VStack(spacing: 6) {
+                        discardFocus
+                        HStack(spacing: 8) {
+                            wallSources.fixedSize(horizontal: true, vertical: false)
+                            previousDiscards
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            } else {
+                VStack(spacing: 12) {
+                    playerGrid
+                    wallSources
+                    discardFocus
+                    previousDiscards
+                }
+            }
         }
-        .padding(14)
+        .padding(compact ? 10 : 14)
         .frame(maxWidth: .infinity, minHeight: minimumHeight)
         .foregroundStyle(TeaTheme.feltInk)
         .modifier(Felt())
@@ -182,7 +199,7 @@ struct LiveTable: View {
         }
         .id(latest?.id)
         .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -3)))
-        .frame(maxWidth: .infinity, minHeight: 100, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: compact ? 72 : 100, maxHeight: .infinity)
         .background(TeaTheme.feltDark.opacity(0.71), in: RoundedRectangle(cornerRadius: TeaTheme.surfaceCorner))
         .overlay {
             RoundedRectangle(cornerRadius: TeaTheme.surfaceCorner)
@@ -194,12 +211,12 @@ struct LiveTable: View {
 
     private var previousDiscards: some View {
         let previous = (table.discardTimeline ?? []).filter { $0.id != latest?.id }.suffix(6)
-        return HStack(alignment: .center, spacing: 5) {
+        return HStack(alignment: .center, spacing: compact ? 3 : 5) {
             if !previous.isEmpty {
                 Text("此前").font(.caption2).padding(.trailing, 2)
                 ForEach(previous) { discard in
                     TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
-                        .frame(width: 24, height: 31)
+                        .frame(width: compact ? 18 : 24, height: compact ? 25 : 31)
                         .opacity(claimedBy(discard) == nil ? 1 : 0.62)
                         .accessibilityLabel("\(name(of: discard.seat))打出的\(discard.tile.kind.spokenName)\(claimedBy(discard) == nil ? "" : "，已被取走")")
                 }
@@ -226,7 +243,7 @@ struct LiveTable: View {
     }
 }
 
-private struct MeldTiles: View {
+struct MeldTiles: View {
     let meld: Meld
     let width: CGFloat
 

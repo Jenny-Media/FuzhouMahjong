@@ -16,15 +16,9 @@ struct MatchResults: View {
                     let payment = result.source.map {
                         "\(displayName($0, viewer: table.viewer, names: names))支付 \(result.points) 分"
                     } ?? "其余三家各付 \(result.points) 分"
-                    banner("\(name) · \(winLabel)", value: signed(result.delta(for: table.viewer)), detail: payment)
-                    if !result.winningHand.isEmpty {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 25), spacing: 4)], spacing: 4) {
-                            ForEach(result.winningHand) { tile in
-                                TileFace(kind: tile.kind, gold: table.isGold(tile)).frame(width: 24, height: 31)
-                            }
-                        }
-                        .accessibilityLabel("胡牌牌型")
-                    }
+                    banner("\(name) · \(winLabel)", value: "\(signed(result.delta(for: table.viewer))) 分",
+                           valueLabel: "你的分差", detail: payment)
+                    winningTiles(for: winner)
                     scoreGroup("得分明细") {
                         ForEach(result.lines) { line in
                             scoreRow(line.name, amount: "\(line.points)")
@@ -48,16 +42,52 @@ struct MatchResults: View {
                                  amount: signed(player.score))
                     }
                 }
+            }
+            .padding(TeaTheme.gutter)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Group {
                 if canAdvance {
                     Button(action: next) {
                         Text(table.matchFinished ? "新的一场" : "下一局").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(TeaButtonStyle())
+                    .accessibilityIdentifier("next-hand")
                 } else {
                     Text("等待房主继续").font(.footnote).foregroundStyle(TeaTheme.muted)
+                        .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget)
                 }
             }
-            .padding(TeaTheme.gutter)
+            .padding(.horizontal, TeaTheme.gutter)
+            .padding(.vertical, 8)
+            .background(TeaTheme.canvas)
+            .overlay(alignment: .top) { Divider() }
+        }
+    }
+
+    private func winningTiles(for winner: Seat) -> some View {
+        let winningTile = result.winningTile
+        let melds = table.players.first(where: { $0.seat == winner })?.melds ?? []
+        return scoreGroup("胡牌牌型") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 28), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(result.winningHand.filter { $0.id != winningTile?.id }) { tile in
+                    TileFace(kind: tile.kind, gold: table.isGold(tile)).frame(width: 28, height: 37)
+                }
+            }
+            if let winningTile {
+                HStack(spacing: 8) {
+                    TileFace(kind: winningTile.kind, gold: table.isGold(winningTile), selected: true)
+                        .frame(width: 28, height: 37).accessibilityHidden(true)
+                    Text("和牌 · \(winningTile.kind.spokenName)").font(.caption.weight(.semibold))
+                }
+                .padding(.top, 3)
+                .accessibilityIdentifier("winning-tile")
+            }
+            if !melds.isEmpty {
+                Divider().padding(.vertical, 3)
+                Text("副露").font(.caption.weight(.semibold))
+                ForEach(melds) { meld in MeldTiles(meld: meld, width: 25) }
+            }
         }
     }
 
@@ -70,9 +100,10 @@ struct MatchResults: View {
         }
     }
 
-    private func banner(_ title: String, value: String, detail: String) -> some View {
+    private func banner(_ title: String, value: String, valueLabel: String? = nil, detail: String) -> some View {
         VStack(spacing: 6) {
             Text(title).font(.subheadline.weight(.semibold))
+            if let valueLabel { Text(valueLabel).font(.caption).foregroundStyle(TeaTheme.feltInk) }
             Text(value)
                 .font(.largeTitle.weight(.bold).monospacedDigit())
                 .foregroundStyle(TeaTheme.brass)

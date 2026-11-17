@@ -111,6 +111,11 @@ public struct TableState: Equatable, Codable, Sendable {
 
     public func isGold(_ tile: Tile) -> Bool { gold.map { tile.kind.matchesGold($0.kind) } ?? false }
 
+    // Gold discards cannot be claimed, so they remain in the player's pond for the hand.
+    public var viewerMustSelfDraw: Bool {
+        players.first(where: { $0.seat == viewer })?.discards.contains(where: isGold) == true
+    }
+
     public func wind(for seat: Seat) -> Seat { Seat.east.advanced(seat.id - dealer.id) }
 
     public var isOpeningLayout: Bool {

@@ -88,6 +88,35 @@ final class NearbyLoopbackTests: XCTestCase {
     }
 
     @MainActor
+    func testOfflineGuestCanEscapeAClosedRoomAfterBoundedRecovery() async throws {
+        let host = NearbySession(loopback: true)
+        let guest = NearbySession(loopback: true, recoveryTimeout: .milliseconds(1400))
+        defer { guest.leave(); host.leave() }
+        host.create(name: "房主")
+        try await until("loopback listener ready") { host.loopbackRoom != nil }
+        guest.join(try XCTUnwrap(host.loopbackRoom), name: "牌友")
+        try await until("guest joined") { guest.connected }
+        host.startMatch()
+        try await until("guest sees the table") { guest.table != nil }
+
+        guest.setBackgrounded(true)
+        try await until("host sees disconnected guest") { host.paused }
+        host.leave()
+        guest.setBackgrounded(false)
+        XCTAssertEqual(guest.recovery, .reconnecting)
+        try await until("automatic reconnect stops") { guest.recovery == .unavailable }
+        XCTAssertFalse(guest.connected)
+        XCTAssertTrue(guest.paused)
+
+        guest.retryRecovery()
+        XCTAssertEqual(guest.recovery, .reconnecting)
+        guest.leave()
+        XCTAssertFalse(guest.isInRoom)
+        XCTAssertNil(guest.table)
+        XCTAssertNil(guest.recovery)
+    }
+
+    @MainActor
     private func until(_ reason: String, _ condition: () -> Bool) async throws {
         let max = ContinuousClock.now + .seconds(10)
         while !condition() && ContinuousClock.now < max {

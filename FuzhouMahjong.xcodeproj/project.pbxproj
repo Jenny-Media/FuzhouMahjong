@@ -22,6 +22,7 @@
 		72F7B62793A2D71F2C0FC616 /* MatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB00A2E1053595CCED79231C /* MatchView.swift */; };
 		74EC06B1B65EF0B789A75A0E /* shuffle.wav in Resources */ = {isa = PBXBuildFile; fileRef = E7BFB09CE55A2BAA3057A8ED /* shuffle.wav */; };
 		7A915A9C09D0426D611A5CC0 /* MatchResults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCC1B56B038FE0DE31491E8 /* MatchResults.swift */; };
+		89848FEA1F59AEBA75985494 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 88EE8907E6A93E97606D3591 /* PrivacyInfo.xcprivacy */; };
 		8EC5E735AB50FDF6C0155301 /* FuzhouMahjongApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3059DC43C7E3FFA403209A5 /* FuzhouMahjongApp.swift */; };
 		9A645FC00E02737C74E6AAFA /* TableAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = F880E33A5E264E1131240B60 /* TableAudio.swift */; };
 		AB1716F840DD121326EF3CAF /* FuzhouCore in Frameworks */ = {isa = PBXBuildFile; productRef = D6D5DCDDE6EFD0A0CEC2B596 /* FuzhouCore */; };
@@ -43,6 +44,7 @@
 		59F88E239CA09EAD13179C07 /* meld.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = meld.wav; sourceTree = "<group>"; };
 		6607E458A43F0DFF33AB36D4 /* MatchSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchSession.swift; sourceTree = "<group>"; };
 		88D230152A793412A08DD100 /* draw.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = draw.wav; sourceTree = "<group>"; };
+		88EE8907E6A93E97606D3591 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		8D5BABB5CFF891D9502EEC64 /* RackTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RackTile.swift; sourceTree = "<group>"; };
 		8F5D7F294DCF1FD483E7CC4A /* OpeningDeal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningDeal.swift; sourceTree = "<group>"; };
 		9FC73357F7C2FBE19391BA91 /* discard.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = discard.wav; sourceTree = "<group>"; };
@@ -101,6 +103,7 @@
 				AB00A2E1053595CCED79231C /* MatchView.swift */,
 				587F0BF9F6FB8E3EFB9DF5C5 /* NearbyView.swift */,
 				8F5D7F294DCF1FD483E7CC4A /* OpeningDeal.swift */,
+				88EE8907E6A93E97606D3591 /* PrivacyInfo.xcprivacy */,
 				8D5BABB5CFF891D9502EEC64 /* RackTile.swift */,
 				26E8385EBD42496E8363BC33 /* ShuffleMotion.swift */,
 				F880E33A5E264E1131240B60 /* TableAudio.swift */,
@@ -168,11 +171,11 @@
 				};
 			};
 			buildConfigurationList = 9C54E1B3996004C342A203DC /* Build configuration list for PBXProject "FuzhouMahjong" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
-				en,
+				"zh-Hans",
 			);
 			mainGroup = 35F66B5CAFF0CDB3CB757147;
 			minimizedProjectReferenceProxies = 1;
@@ -195,6 +198,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E814F7AECDB7D0639137E7D5 /* Assets.xcassets in Resources */,
+				89848FEA1F59AEBA75985494 /* PrivacyInfo.xcprivacy in Resources */,
 				CC0B3F636CB4CDD0E2061F48 /* deal.wav in Resources */,
 				4A0CC925A72854B6EE30715D /* discard.wav in Resources */,
 				24352A515BB78865A7E08BAC /* draw.wav in Resources */,
@@ -234,19 +238,18 @@
 		1A7FA6CB210B27724570ED8A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 13;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "福州麻将";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = xyz.xcv58.FuzhouMahjong;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
@@ -376,19 +379,18 @@
 		BE9DE2DB2127C43750C336E7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 13;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "福州麻将";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.5;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = xyz.xcv58.FuzhouMahjong;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;

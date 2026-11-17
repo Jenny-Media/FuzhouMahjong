@@ -24,6 +24,14 @@ public enum WinningHand {
         if goldPair {
             return wild >= 2 && groups(counts, wild: wild - 2, sequencesOnly: sequencesOnly, seen: &seen)
         }
+        // Each suit contributes only complete triples, with the possible pair in one suit.
+        let suitTotals = stride(from: 0, to: 27, by: 9).map { counts[$0..<($0 + 9)].reduce(0, +) }
+        let requiredWild = suitTotals.indices.map { pairSuit in
+            suitTotals.enumerated().reduce(0) { amount, entry in
+                amount + ((entry.offset == pairSuit ? 2 : 0) + 3 - entry.element % 3) % 3
+            }
+        }.min() ?? 0
+        guard requiredWild <= wild else { return false }
         for index in counts.indices where counts[index] > 0 {
             for matching in 1...min(counts[index], 2) where wild >= 2 - matching {
                 var remainder = counts

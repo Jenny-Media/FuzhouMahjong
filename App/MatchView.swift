@@ -7,6 +7,7 @@ struct MatchView<Session: MatchSession>: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("table.sound.enabled") private var soundEnabled = true
     @AppStorage("table.sound.nearbyOwnMovesOnly") private var nearbyOwnMovesOnly = true
@@ -21,8 +22,8 @@ struct MatchView<Session: MatchSession>: View {
     @State private var drawStarted: Date?
     @State private var arranging = false
     @State private var arrangementSelection: Tile.ID?
-    @State private var handOrder: [Tile.ID]?
     @State private var rackFrame = CGRect.zero
+    @State private var goldDiscard: GoldDiscard?
 
     private var opening: Int? { session.openingRound }
     private var active: Bool { scenePhase == .active && !session.paused }
@@ -64,6 +65,18 @@ struct MatchView<Session: MatchSession>: View {
         }
         .sheet(isPresented: $showsHistory) {
             if let table = session.table { TableHistory(table: table, names: names) }
+        }
+        .alert("打出金牌？", isPresented: Binding(get: { goldDiscard != nil }, set: { if !$0 { goldDiscard = nil } }),
+               presenting: goldDiscard) { confirmation in
+            Button("取消", role: .cancel) { goldDiscard = nil }
+            Button("打出金牌", role: .destructive) {
+                if session.revision == confirmation.revision { commit(.discard(confirmation.tile.id)) }
+            }
+            .accessibilityIdentifier("confirm-gold-discard")
+        } message: { confirmation in
+            Text(confirmation.alreadyRestricted
+                 ? "\(confirmation.tile.kind.spokenName)是金牌。打出后本局仍只能自摸。"
+                 : "\(confirmation.tile.kind.spokenName)是金牌。打出金牌后，本局只能自摸。")
         }
         .task(id: OpeningRun(round: opening, active: active)) {
             guard let opening, active else { return }
@@ -109,10 +122,12 @@ struct MatchView<Session: MatchSession>: View {
             if !nowActive {
                 audio.stop()
                 drawCue = nil
+                goldDiscard = nil
             }
         }
         .onDisappear { audio.stop() }
         .onChange(of: session.revision) { _, _ in
+            goldDiscard = nil
             if let selectedID, let table = session.table,
                !table.moves.contains(.discard(selectedID)), !table.moves.contains(.replaceFlower(selectedID)) {
                 self.selectedID = nil
@@ -124,7 +139,10 @@ struct MatchView<Session: MatchSession>: View {
         }
         .onChange(of: session.table?.hand) { _, hand in
             guard let hand else { return }
-            if handOrder != nil { handOrder = orderedHand(hand).map(\.id) }
+            if session.rackOrder != nil {
+                let order = orderedHand(hand).map(\.id)
+                if order != session.rackOrder { session.rackOrder = order }
+            }
             if let arrangementSelection, !hand.contains(where: { $0.id == arrangementSelection }) {
                 self.arrangementSelection = nil
             }
@@ -133,6 +151,11 @@ struct MatchView<Session: MatchSession>: View {
 
     private struct TurnState: Equatable { var revision: Int; var ready: Bool }
     private struct OpeningRun: Equatable { var round: Int?; var active: Bool }
+    private struct GoldDiscard {
+        let tile: Tile
+        let revision: Int
+        let alreadyRestricted: Bool
+    }
     private struct DrawCue {
         let id = UUID()
         let seat: Seat
@@ -232,22 +255,34 @@ struct MatchView<Session: MatchSession>: View {
 
     private func board(_ table: TableState) -> some View {
         GeometryReader { geometry in
+            let landscape = geometry.size.width > geometry.size.height
+            let compactControls = landscape && !typeSize.isAccessibilitySize
+            let controlsLayout = compactControls
+                ? AnyLayout(HStackLayout(spacing: 12))
+                : AnyLayout(VStackLayout(spacing: 6))
+
             VStack(spacing: 8) {
-                header(table)
+                if !compactControls { header(table) }
                 GeometryReader { surface in
                     ScrollView {
                         LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
                                   drawingSeat: drawingSeat, drawStarted: drawStarted,
                                   drawingFromReserve: drawCue?.fromReserve == true, paused: session.paused,
-                                  minimumHeight: surface.size.height)
+                                  minimumHeight: surface.size.height, compact: compactControls)
                     }
                     .scrollBounceBehavior(.basedOnSize)
                     .accessibilityIdentifier("table-scroll")
                 }
                 VStack(spacing: 6) {
-                    if arranging { arrangementControls(table) }
-                    else { actions(table) }
-                    rack(table, availableWidth: max(0, geometry.size.width - TeaTheme.tableGutter * 2))
+                    controlsLayout {
+                        if compactControls {
+                            header(table).fixedSize(horizontal: true, vertical: false)
+                        }
+                        if arranging { arrangementControls(table, showsDrawn: !landscape) }
+                        else { actions(table, showsDrawn: !landscape, compact: compactControls) }
+                    }
+                    rack(table, availableWidth: max(0, geometry.size.width - TeaTheme.tableGutter * 2),
+                         landscape: landscape)
                 }
             }
             .padding(.horizontal, TeaTheme.tableGutter)
@@ -263,6 +298,9 @@ struct MatchView<Session: MatchSession>: View {
                     .monospacedDigit()
                     .font(.caption)
                     .accessibilityLabel("牌山剩余 \(table.remaining) 张")
+                if table.viewerMustSelfDraw {
+                    Text("本局只能自摸").font(.caption.weight(.semibold)).foregroundStyle(TeaTheme.loss)
+                }
             }
             Spacer(minLength: 0)
             if let gold = table.gold { goldIndicator(gold.kind) }
@@ -297,48 +335,53 @@ struct MatchView<Session: MatchSession>: View {
         return ids.first
     }
 
-    private func rack(_ table: TableState, availableWidth: CGFloat) -> some View {
-        let maxColumns = max(1, Int(availableWidth / TeaTheme.hitTarget))
-        let count = maxColumns >= 8 ? 8 : min(6, maxColumns)
-        let columns = Array(repeating: GridItem(.flexible(minimum: TeaTheme.hitTarget), spacing: 0),
-                            count: count)
+    private func rack(_ table: TableState, availableWidth: CGFloat, landscape: Bool) -> some View {
         let tiles = orderedHand(table.hand)
+        let drawn = landscape ? table.drawn : nil
+        let count = landscape ? max(1, tiles.count + (drawn == nil ? 0 : 1)) : FuzhouMatch.rackSize / 2
+        let cellWidth = min(46, availableWidth / CGFloat(count))
+        let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: 0), count: count)
         return LazyVGrid(columns: columns, spacing: 4) {
             ForEach(Array(tiles.enumerated()), id: \.element.id) { index, tile in
                 if arranging {
                     RackTile(tile: tile, isGold: table.isGold(tile), isSelected: tile.id == arrangementSelection,
-                             canSelect: true, canDiscard: false, select: {
+                             canSelect: true, canDiscard: false, rackCellWidth: cellWidth, select: {
                         selectForArrangement(tile.id, at: index)
                     }, discard: {}, reposition: { point in
                         finishReorder(tile.id, at: point, columns: count, tileCount: tiles.count)
                     }, moveEarlier: index > 0 ? { moveInHand(tile.id, to: index - 1) } : nil,
                              moveLater: index + 1 < tiles.count ? { moveInHand(tile.id, to: index + 1) } : nil)
                 } else {
-                    tileButton(tile, table: table)
+                    tileButton(tile, table: table, rackCellWidth: cellWidth)
                 }
             }
+            if let drawn {
+                tileButton(drawn, table: table, rackCellWidth: cellWidth)
+                    .accessibilityHint("本巡摸牌")
+            }
         }
+        .frame(width: cellWidth * CGFloat(count))
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { rackFrame = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("手牌")
     }
 
-    private func arrangementControls(_ table: TableState) -> some View {
+    private func arrangementControls(_ table: TableState, showsDrawn: Bool) -> some View {
         HStack(spacing: 8) {
             Text(arrangementSelection == nil ? "拖动手牌调整顺序" : "轻点目标位置")
                 .font(.subheadline)
             Spacer(minLength: 0)
-            if let drawn = table.drawn {
+            if showsDrawn, let drawn = table.drawn {
                 TileFace(kind: drawn.kind, gold: table.isGold(drawn))
                     .frame(width: 26, height: 36)
                     .accessibilityLabel("本巡摸牌，\(drawn.kind.spokenName)")
             }
             Button("自动排序") {
-                handOrder = nil
+                session.rackOrder = nil
                 arrangementSelection = nil
             }
             .buttonStyle(TeaButtonStyle(prominent: false))
-            .disabled(handOrder == nil)
+            .disabled(session.rackOrder == nil)
             .accessibilityIdentifier("rack-autosort")
         }
     }
@@ -346,14 +389,12 @@ struct MatchView<Session: MatchSession>: View {
     private func resetArrangement() {
         arranging = false
         arrangementSelection = nil
-        handOrder = nil
     }
 
     private func orderedHand(_ hand: [Tile]) -> [Tile] {
-        guard let handOrder else { return hand }
-        let byID = Dictionary(uniqueKeysWithValues: hand.map { ($0.id, $0) })
-        let placed = Set(handOrder)
-        return handOrder.compactMap { byID[$0] } + hand.filter { !placed.contains($0.id) }
+        guard let order = session.rackOrder else { return hand }
+        var remaining = Dictionary(uniqueKeysWithValues: hand.map { ($0.id, $0) })
+        return order.compactMap { remaining.removeValue(forKey: $0) } + hand.filter { remaining[$0.id] != nil }
     }
 
     private func selectForArrangement(_ id: Tile.ID, at index: Int) {
@@ -382,17 +423,18 @@ struct MatchView<Session: MatchSession>: View {
         if source != destination {
             ids.remove(at: source)
             ids.insert(id, at: destination)
-            handOrder = ids
+            session.rackOrder = ids
             if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
         }
         arrangementSelection = nil
     }
 
-    private func tileButton(_ tile: Tile, table: TableState) -> some View {
-        let canDiscard = active && table.moves.contains(.discard(tile.id))
-        let canSelect = canDiscard || (active && table.moves.contains(.replaceFlower(tile.id)))
-        return RackTile(tile: tile, isGold: table.isGold(tile), isSelected: tile.id == activeTile(table),
-                        canSelect: canSelect, canDiscard: canDiscard, select: {
+    private func tileButton(_ tile: Tile, table: TableState, rackCellWidth: CGFloat? = nil) -> some View {
+        let playable = active && !arranging
+        let canDiscard = playable && table.moves.contains(.discard(tile.id))
+        let canSelect = canDiscard || (playable && table.moves.contains(.replaceFlower(tile.id)))
+        return RackTile(tile: tile, isGold: table.isGold(tile), isSelected: !arranging && tile.id == activeTile(table),
+                        canSelect: canSelect, canDiscard: canDiscard, rackCellWidth: rackCellWidth, select: {
             guard selectedID != tile.id else { return }
             if reduceMotion { selectedID = tile.id }
             else { withAnimation(.easeOut(duration: 0.15)) { selectedID = tile.id } }
@@ -402,11 +444,12 @@ struct MatchView<Session: MatchSession>: View {
         })
     }
 
-    private func actions(_ table: TableState) -> some View {
+    private func actions(_ table: TableState, showsDrawn: Bool, compact: Bool) -> some View {
         let specials = table.moves.filter {
             switch $0 { case .win, .meld, .pass: true; default: false }
         }
-        return VStack(spacing: 8) {
+        let layout = compact ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
+        return layout {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(status(table)).font(.headline)
@@ -417,9 +460,8 @@ struct MatchView<Session: MatchSession>: View {
                     }
                 }
                 Spacer(minLength: 0)
-                if let drawn = table.drawn {
+                if showsDrawn, let drawn = table.drawn {
                     tileButton(drawn, table: table)
-                        .frame(width: TeaTheme.hitTarget)
                         .accessibilityHint("本巡摸牌")
                 }
                 if let id = activeTile(table) {
@@ -476,6 +518,17 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func send(_ move: Move) {
+        guard active, !arranging, opening == nil, let table = session.table, table.moves.contains(move) else { return }
+        if case .discard(let id) = move,
+           let tile = table.drawn?.id == id ? table.drawn : table.hand.first(where: { $0.id == id }),
+           table.isGold(tile) {
+            goldDiscard = GoldDiscard(tile: tile, revision: session.revision, alreadyRestricted: table.viewerMustSelfDraw)
+            return
+        }
+        commit(move)
+    }
+
+    private func commit(_ move: Move) {
         guard active, !arranging, opening == nil, session.table?.moves.contains(move) == true,
               session.submit(move) else { return }
         selectedID = nil

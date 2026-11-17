@@ -10,12 +10,21 @@ final class SoloMatch: MatchSession {
     private var match: FuzhouMatch?
     private(set) var revision = 0
     private(set) var openingRound: Int?
+    var rackOrder: [Tile.ID]? {
+        didSet {
+            if let rackOrder { defaults.set(rackOrder, forKey: storageKey + ".rack-order") }
+            else { defaults.removeObject(forKey: storageKey + ".rack-order") }
+        }
+    }
 
     init(storageKey: String = "solo-match.v2", defaults: UserDefaults = .standard) {
         self.storageKey = storageKey
         self.defaults = defaults
         if let saved = defaults.data(forKey: storageKey) {
             match = try? JSONDecoder().decode(FuzhouMatch.self, from: saved)
+        }
+        if match?.result == nil, match != nil {
+            rackOrder = defaults.array(forKey: storageKey + ".rack-order") as? [Tile.ID]
         }
     }
 
@@ -24,7 +33,7 @@ final class SoloMatch: MatchSession {
     var players: [RoomPlayer] { [] }
     var paused: Bool { false }
     var canAdvance: Bool { true }
-    var computerHasMove: Bool { match?.nextComputerMove(excluding: [FuzhouMatch.player]) != nil }
+    var computerHasMove: Bool { match?.hasComputerMove(excluding: [FuzhouMatch.player]) == true }
 
     func startIfNeeded() {
         guard match == nil else { return }
@@ -33,6 +42,7 @@ final class SoloMatch: MatchSession {
 
     func startNew() {
         let newMatch = FuzhouMatch()
+        rackOrder = nil
         openingRound = newMatch.roundNumber
         commit(newMatch)
     }
@@ -56,6 +66,7 @@ final class SoloMatch: MatchSession {
     func nextHand() {
         guard var updated = match, updated.result != nil else { return }
         updated.nextRound()
+        rackOrder = nil
         openingRound = updated.roundNumber
         commit(updated)
     }

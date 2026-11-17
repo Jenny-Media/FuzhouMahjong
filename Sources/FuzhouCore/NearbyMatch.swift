@@ -86,7 +86,7 @@ public struct NearbyMatch: Sendable {
     }
 
     public var computerHasMove: Bool {
-        !paused && match?.nextComputerMove(excluding: humanSeats) != nil
+        !paused && match?.hasComputerMove(excluding: humanSeats) == true
     }
 
     public mutating func advanceComputer() -> Bool {

@@ -2,6 +2,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     public static let rackSize = 16
     public static let player = Seat.south
     private static let scheduledHands = 16
+    private static let tileCopies = Dictionary(grouping: Tile.fullSet, by: \.kind).mapValues(\.count)
 
     private enum Response: Equatable, Codable, Sendable {
         case pending(Seat)
@@ -134,6 +135,18 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         return true
     }
 
+    public func hasComputerMove(excluding humans: Set<Seat>) -> Bool {
+        switch step {
+        case .finished: false
+        case .turn: !humans.contains(current) && !legalMoves(for: current).isEmpty
+        case .claim, .opening:
+            responses.contains {
+                if case .pending(let seat) = $0 { return !humans.contains(seat) }
+                return false
+            }
+        }
+    }
+
     public func nextComputerMove(excluding humans: Set<Seat>) -> (Seat, Move)? {
         if step == .finished { return nil }
         let candidates = step == .turn ? [current] : responses.map(\.seat)
@@ -150,17 +163,82 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             }) {
                 return (seat, pung)
             }
-            if moves.contains(.pass) { return (seat, .pass) }
             let tiles = combinedHand(for: seat)
+            if moves.contains(.pass) {
+                if let chow = advantageousChow(moves, seat: seat, tiles: tiles) { return (seat, chow) }
+                return (seat, .pass)
+            }
             let discardable = Set(moves.compactMap { if case .discard(let id) = $0 { id } else { nil } })
-            if let tile = tiles.filter({ discardable.contains($0.id) }).min(by: {
-                (utility($0, in: tiles), $0.id) < (utility($1, in: tiles), $1.id)
-            }) {
-                return (seat, .discard(tile.id))
+            if !discardable.isEmpty, let best = bestDiscard(from: tiles, allowed: discardable,
+                                                           meldCount: melds[seat.id].count,
+                                                           available: availableDraws(seenBy: seat)) {
+                return (seat, .discard(best.tile.id))
             }
             if let fallback = moves.first { return (seat, fallback) }
         }
         return nil
+    }
+
+    private func advantageousChow(_ moves: [Move], seat: Seat, tiles: [Tile]) -> Move? {
+        let chows = moves.compactMap { move -> [Tile.ID]? in
+            if case .meld(.chow, let ids) = move { return ids }
+            return nil
+        }
+        guard !chows.isEmpty else { return nil }
+        let available = availableDraws(seenBy: seat)
+        let count = melds[seat.id].count
+        var bestWaits = winningCopies(tiles, meldCount: count, available: available)
+        var chosen: [Tile.ID]?
+        for ids in chows {
+            let rest = tiles.filter { !ids.contains($0.id) }
+            let allowed = Set(rest.filter { !$0.kind.isFlower }.map(\.id))
+            guard let followUp = bestDiscard(from: rest, allowed: allowed, meldCount: count + 1,
+                                             available: available), followUp.waits > bestWaits else { continue }
+            bestWaits = followUp.waits
+            chosen = ids
+        }
+        return chosen.map { .meld(.chow, $0) }
+    }
+
+    private func bestDiscard(from tiles: [Tile], allowed: Set<Tile.ID>, meldCount: Int,
+                             available: [TileKind: Int]) -> (tile: Tile, waits: Int)? {
+        let legal = tiles.filter { allowed.contains($0.id) }
+        let ordinary = legal.filter { !isGold($0) }
+        var seen = Set<TileKind>()
+        var best: (tile: Tile, waits: Int, connections: Int)?
+        for tile in (ordinary.isEmpty ? legal : ordinary).sorted(by: { $0.id < $1.id })
+        where seen.insert(tile.kind).inserted {
+            let rest = tiles.filter { $0.id != tile.id }
+            let waits = winningCopies(rest, meldCount: meldCount, available: available)
+            let connections = utility(tile, in: tiles)
+            if let best, (best.waits, -best.connections) >= (waits, -connections) { continue }
+            best = (tile, waits, connections)
+        }
+        return best.map { ($0.tile, $0.waits) }
+    }
+
+    private func availableDraws(seenBy seat: Seat) -> [TileKind: Int] {
+        let indicator = gold?.kind
+        var copies = Self.tileCopies
+        let visible = combinedHand(for: seat) + ponds.flatMap { $0 }
+            + melds.flatMap { $0 }.flatMap(\.tiles) + flowers[seat.id] + [gold].compactMap { $0 }
+        for tile in Set(visible) { copies[tile.kind, default: 0] -= 1 }
+        var suited: [TileKind: Int] = [:]
+        for (kind, count) in copies where count > 0 {
+            if let indicator, kind.matchesGold(indicator) {
+                suited[indicator, default: 0] += count
+            } else if !kind.isFlower {
+                suited[kind] = count
+            }
+        }
+        return suited
+    }
+
+    private func winningCopies(_ tiles: [Tile], meldCount: Int, available: [TileKind: Int]) -> Int {
+        let hand = tiles.map(\.kind)
+        return available.reduce(0) { total, entry in
+            total + (WinningHand.isComplete(hand + [entry.key], gold: gold?.kind, melds: meldCount) ? entry.value : 0)
+        }
     }
 
     public mutating func nextRound() {

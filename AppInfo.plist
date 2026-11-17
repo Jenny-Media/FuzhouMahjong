@@ -29,6 +29,8 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_fuzhou._tcp</string>
@@ -37,5 +39,11 @@
 	<string>用于扫描牌友的福州麻将牌桌邀请二维码。</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于发现附近的福州麻将牌桌，并与你的牌友联机。</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 </dict>
 </plist>

@@ -7,6 +7,7 @@ struct RackTile: View {
     let isSelected: Bool
     let canSelect: Bool
     let canDiscard: Bool
+    var rackCellWidth: CGFloat? = nil
     let select: () -> Void
     let discard: () -> Void
     var reposition: ((CGPoint) -> Void)? = nil
@@ -17,13 +18,16 @@ struct RackTile: View {
     @GestureState private var offset: CGSize = .zero
 
     var body: some View {
-        Button(action: select) {
+        let cellWidth = rackCellWidth ?? TeaTheme.hitTarget
+        let faceWidth = max(0, cellWidth - (rackCellWidth == nil ? 4 : 1.5))
+        let faceHeight = rackCellWidth == nil ? 52 : faceWidth / TileFace.artworkAspectRatio
+
+        return Button(action: select) {
             TileFace(kind: tile.kind, gold: isGold, selected: isSelected || offset != .zero)
-                .frame(height: 52)
-                .padding(.horizontal, 2)
+                .frame(width: faceWidth, height: faceHeight)
                 .offset(x: reduceMotion ? 0 : offset.width,
                         y: reduceMotion ? 0 : offset.height - (isSelected ? 3 : 0))
-                .frame(minWidth: TeaTheme.hitTarget, minHeight: TeaTheme.hitTarget)
+                .frame(width: cellWidth, height: max(TeaTheme.hitTarget, faceHeight))
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())

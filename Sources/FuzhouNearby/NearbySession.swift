@@ -16,12 +16,21 @@ public struct DiscoveredRoom: Identifiable, Sendable {
 @MainActor
 @Observable
 public final class NearbySession: MatchSession {
+    public enum Recovery: Equatable, Sendable { case reconnecting, unavailable }
+
     static let service = "_fuzhou._tcp"
     private let advertises: Bool
+    private let recoveryTimeout: Duration
 
-    public init() { advertises = true }
+    public init() {
+        advertises = true
+        recoveryTimeout = .seconds(15)
+    }
 
-    init(loopback: Bool) { advertises = !loopback }
+    init(loopback: Bool, recoveryTimeout: Duration = .seconds(15)) {
+        advertises = !loopback
+        self.recoveryTimeout = recoveryTimeout
+    }
 
     var loopbackRoom: DiscoveredRoom? {
         guard !advertises, let host, let port = listener?.port, port != .any else { return nil }
@@ -64,6 +73,7 @@ public final class NearbySession: MatchSession {
     private var guestName = ""
     private var pendingInvite: UUID?
     private var retry: Task<Void, Never>?
+    private var recoveryDeadline: Task<Void, Never>?
     private var suspended = false
     private var didConnect = false
     private var leaving = false
@@ -74,6 +84,8 @@ public final class NearbySession: MatchSession {
     public private(set) var revision = 0
     public private(set) var notice: String?
     public private(set) var openingRound: Int?
+    public private(set) var recovery: Recovery?
+    public var rackOrder: [Tile.ID]?
 
     public var table: TableState? { update?.table }
     public var players: [RoomPlayer] { update?.players ?? [] }
@@ -196,6 +208,8 @@ public final class NearbySession: MatchSession {
             stopListener()
             retry?.cancel()
             retry = nil
+            recoveryDeadline?.cancel()
+            recoveryDeadline = nil
             let connections = links.values.map(\.wire)
             connections.forEach { $0.close() }
             guest?.wire.close()
@@ -203,10 +217,17 @@ public final class NearbySession: MatchSession {
             openListener()
         } else if target != nil {
             browse()
-            tryReconnect()
+            if didConnect { beginRecovery() }
+            else { tryReconnect() }
         } else if pendingInvite != nil {
             browse()
         }
+    }
+
+    public func retryRecovery() {
+        guard recovery == .unavailable, !suspended else { return }
+        recovery = nil
+        beginRecovery()
     }
 
     public func leave() {
@@ -232,11 +253,14 @@ public final class NearbySession: MatchSession {
         target = nil
         update = nil
         openingRound = nil
+        rackOrder = nil
         pendingInvite = nil
         connected = false
         leaving = false
+        didConnect = false
         retry?.cancel()
         retry = nil
+        clearRecovery()
         stopListener()
         let connections = links.values.map(\.wire)
         links = [:]
@@ -434,6 +458,7 @@ public final class NearbySession: MatchSession {
             case .update(let update):
                 connected = true
                 didConnect = true
+                clearRecovery()
                 notice = nil
                 wire.accepted()
                 publish(update)
@@ -441,7 +466,9 @@ public final class NearbySession: MatchSession {
                 resetRoom()
                 notice = "牌桌已满或对局已开始。"
             case .closed:
+                let hostEndedRoom = !leaving
                 resetRoom()
+                if hostEndedRoom { notice = "房主已结束牌桌。" }
             }
         } catch { wire.close() }
     }
@@ -457,13 +484,36 @@ public final class NearbySession: MatchSession {
             target = nil
             notice = "未能加入。请检查 Wi-Fi 后重试。"
         } else if target != nil {
-            notice = "正在重新连接房主…"
-            tryReconnect()
+            beginRecovery()
         }
     }
 
+    private func beginRecovery() {
+        guard !suspended, !connected, !leaving, recovery != .unavailable, let roomID = target?.id else { return }
+        recovery = .reconnecting
+        if recoveryDeadline == nil {
+            recoveryDeadline = Task { [weak self] in
+                guard let delay = self?.recoveryTimeout else { return }
+                do { try await Task.sleep(for: delay) } catch { return }
+                guard let self, target?.id == roomID, !connected, !suspended else { return }
+                recoveryDeadline = nil
+                recovery = .unavailable
+                retry?.cancel()
+                retry = nil
+                guest?.wire.close()
+            }
+        }
+        tryReconnect()
+    }
+
+    private func clearRecovery() {
+        recoveryDeadline?.cancel()
+        recoveryDeadline = nil
+        recovery = nil
+    }
+
     private func tryReconnect() {
-        guard !suspended, guest == nil, retry == nil, let target else { return }
+        guard !suspended, recovery != .unavailable, guest == nil, retry == nil, let target else { return }
         retry = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
             guard let self else { return }
@@ -488,6 +538,8 @@ public final class NearbySession: MatchSession {
     }
 
     private func publish(_ update: RoomUpdate) {
+        if self.update?.table?.roundNumber != update.table?.roundNumber ||
+            (self.update?.table?.result != nil && update.table?.result == nil) { rackOrder = nil }
         if let table = update.table, table.isOpeningLayout,
            self.update?.table?.roundNumber != table.roundNumber || self.update?.table?.result != nil {
             openingRound = table.roundNumber

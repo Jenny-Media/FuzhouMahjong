@@ -39,6 +39,9 @@ struct NearbyView: View {
                     .navigationBarTitleDisplayMode(.inline)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let recovery = session.recovery { recoveryBar(recovery) }
+        }
         .task { session.browse() }
         .onDisappear {
             if !session.isInRoom { session.stopBrowsing() }
@@ -58,6 +61,32 @@ struct NearbyView: View {
         } message: {
             Text(session.isHost ? "离开会结束所有人的对局。" : "你的座位将由电脑接替。")
         }
+    }
+
+    private func recoveryBar(_ state: NearbySession.Recovery) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if state == .reconnecting {
+                Label("正在重新连接房主…", systemImage: "wifi.exclamationmark")
+                    .font(.subheadline.weight(.semibold))
+            } else {
+                Text("暂时无法连接房主").font(.subheadline.weight(.semibold))
+                Text("牌桌可能已经结束。可以重试，或返回大厅。")
+                    .font(.footnote).foregroundStyle(TeaTheme.muted)
+            }
+            HStack(spacing: 8) {
+                if state == .unavailable {
+                    Button("重试") { session.retryRecovery() }.buttonStyle(TeaButtonStyle())
+                }
+                Button("返回大厅") { session.leave() }
+                    .buttonStyle(TeaButtonStyle(prominent: false))
+                    .accessibilityIdentifier("recovery-lobby")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, TeaTheme.gutter)
+        .padding(.vertical, 8)
+        .background(TeaTheme.canvas)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     private var lobby: some View {
