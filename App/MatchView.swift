@@ -337,33 +337,58 @@ struct MatchView<Session: MatchSession>: View {
 
     private func rack(_ table: TableState, availableWidth: CGFloat, landscape: Bool) -> some View {
         let tiles = orderedHand(table.hand)
-        let drawn = landscape ? table.drawn : nil
-        let count = landscape ? max(1, tiles.count + (drawn == nil ? 0 : 1)) : FuzhouMatch.rackSize / 2
-        let cellWidth = min(46, availableWidth / CGFloat(count))
+        let count = landscape ? FuzhouMatch.rackSize : FuzhouMatch.rackSize / 2
+        let slotCount = landscape ? count + 1 : count
+        let cellWidth = min(46, availableWidth / CGFloat(slotCount))
         let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: 0), count: count)
-        return LazyVGrid(columns: columns, spacing: 4) {
-            ForEach(Array(tiles.enumerated()), id: \.element.id) { index, tile in
-                if arranging {
-                    RackTile(tile: tile, isGold: table.isGold(tile), isSelected: tile.id == arrangementSelection,
-                             canSelect: true, canDiscard: false, rackCellWidth: cellWidth, select: {
-                        selectForArrangement(tile.id, at: index)
-                    }, discard: {}, reposition: { point in
-                        finishReorder(tile.id, at: point, columns: count, tileCount: tiles.count)
-                    }, moveEarlier: index > 0 ? { moveInHand(tile.id, to: index - 1) } : nil,
-                             moveLater: index + 1 < tiles.count ? { moveInHand(tile.id, to: index + 1) } : nil)
-                } else {
-                    tileButton(tile, table: table, rackCellWidth: cellWidth)
+        return HStack(alignment: .bottom, spacing: 0) {
+            LazyVGrid(columns: columns, spacing: 4) {
+                ForEach(Array(tiles.enumerated()), id: \.element.id) { index, tile in
+                    if arranging {
+                        RackTile(tile: tile, isGold: table.isGold(tile), isSelected: tile.id == arrangementSelection,
+                                 canSelect: true, canDiscard: false, rackCellWidth: cellWidth, select: {
+                            selectForArrangement(tile.id, at: index)
+                        }, discard: {}, reposition: { point in
+                            finishReorder(tile.id, at: point, columns: count, tileCount: tiles.count)
+                        }, moveEarlier: index > 0 ? { moveInHand(tile.id, to: index - 1) } : nil,
+                                 moveLater: index + 1 < tiles.count ? { moveInHand(tile.id, to: index + 1) } : nil)
+                    } else {
+                        tileButton(tile, table: table, rackCellWidth: cellWidth)
+                    }
                 }
             }
-            if let drawn {
-                tileButton(drawn, table: table, rackCellWidth: cellWidth)
-                    .accessibilityHint("本巡摸牌")
+            .frame(width: cellWidth * CGFloat(count))
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { rackFrame = $0 }
+
+            if landscape {
+                drawSlot(table.drawn, table: table, rackCellWidth: cellWidth)
             }
         }
-        .frame(width: cellWidth * CGFloat(count))
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { rackFrame = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("手牌")
+    }
+
+    private func drawSlot(_ tile: Tile?, table: TableState, rackCellWidth: CGFloat? = nil) -> some View {
+        let cellWidth = rackCellWidth ?? TeaTheme.hitTarget
+        let cellHeight = max(TeaTheme.hitTarget, RackTile.faceSize(for: rackCellWidth).height)
+        return VStack(spacing: 2) {
+            Text("摸牌")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(TeaTheme.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .opacity(tile == nil ? 0 : 1)
+                .accessibilityHidden(true)
+            Group {
+                if let tile {
+                    tileButton(tile, table: table, rackCellWidth: rackCellWidth, isDrawn: true)
+                } else {
+                    Color.clear.accessibilityHidden(true)
+                }
+            }
+            .frame(width: cellWidth, height: cellHeight)
+        }
+        .frame(width: cellWidth)
     }
 
     private func arrangementControls(_ table: TableState, showsDrawn: Bool) -> some View {
@@ -372,9 +397,7 @@ struct MatchView<Session: MatchSession>: View {
                 .font(.subheadline)
             Spacer(minLength: 0)
             if showsDrawn, let drawn = table.drawn {
-                TileFace(kind: drawn.kind, gold: table.isGold(drawn))
-                    .frame(width: 26, height: 36)
-                    .accessibilityLabel("本巡摸牌，\(drawn.kind.spokenName)")
+                drawSlot(drawn, table: table)
             }
             Button("自动排序") {
                 session.rackOrder = nil
@@ -429,11 +452,13 @@ struct MatchView<Session: MatchSession>: View {
         arrangementSelection = nil
     }
 
-    private func tileButton(_ tile: Tile, table: TableState, rackCellWidth: CGFloat? = nil) -> some View {
+    private func tileButton(_ tile: Tile, table: TableState, rackCellWidth: CGFloat? = nil,
+                            isDrawn: Bool = false) -> some View {
         let playable = active && !arranging
         let canDiscard = playable && table.moves.contains(.discard(tile.id))
         let canSelect = canDiscard || (playable && table.moves.contains(.replaceFlower(tile.id)))
         return RackTile(tile: tile, isGold: table.isGold(tile), isSelected: !arranging && tile.id == activeTile(table),
+                        isDrawn: isDrawn,
                         canSelect: canSelect, canDiscard: canDiscard, rackCellWidth: rackCellWidth, select: {
             guard selectedID != tile.id else { return }
             if reduceMotion { selectedID = tile.id }
@@ -461,8 +486,7 @@ struct MatchView<Session: MatchSession>: View {
                 }
                 Spacer(minLength: 0)
                 if showsDrawn, let drawn = table.drawn {
-                    tileButton(drawn, table: table)
-                        .accessibilityHint("本巡摸牌")
+                    drawSlot(drawn, table: table)
                 }
                 if let id = activeTile(table) {
                     let isFlower = table.moves.contains(.replaceFlower(id))

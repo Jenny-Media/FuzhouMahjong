@@ -5,6 +5,7 @@ struct RackTile: View {
     let tile: Tile
     let isGold: Bool
     let isSelected: Bool
+    var isDrawn = false
     let canSelect: Bool
     let canDiscard: Bool
     var rackCellWidth: CGFloat? = nil
@@ -17,24 +18,30 @@ struct RackTile: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var offset: CGSize = .zero
 
+    static func faceSize(for rackCellWidth: CGFloat?) -> CGSize {
+        let faceWidth = max(0, (rackCellWidth ?? TeaTheme.hitTarget) - (rackCellWidth == nil ? 4 : 1.5))
+        let faceHeight = rackCellWidth == nil ? 52 : faceWidth / TileFace.artworkAspectRatio
+        return CGSize(width: faceWidth, height: faceHeight)
+    }
+
     var body: some View {
         let cellWidth = rackCellWidth ?? TeaTheme.hitTarget
-        let faceWidth = max(0, cellWidth - (rackCellWidth == nil ? 4 : 1.5))
-        let faceHeight = rackCellWidth == nil ? 52 : faceWidth / TileFace.artworkAspectRatio
+        let face = Self.faceSize(for: rackCellWidth)
+        let tileLabel = isGold ? "\(tile.kind.spokenName)，金牌" : tile.kind.spokenName
 
         return Button(action: select) {
             TileFace(kind: tile.kind, gold: isGold, selected: isSelected || offset != .zero)
-                .frame(width: faceWidth, height: faceHeight)
+                .frame(width: face.width, height: face.height)
                 .offset(x: reduceMotion ? 0 : offset.width,
                         y: reduceMotion ? 0 : offset.height - (isSelected ? 3 : 0))
-                .frame(width: cellWidth, height: max(TeaTheme.hitTarget, faceHeight))
+                .frame(width: cellWidth, height: max(TeaTheme.hitTarget, face.height))
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
         .disabled(!canSelect)
         .highPriorityGesture(placement, including: canDiscard || reposition != nil ? .all : .none)
         .zIndex(offset != .zero ? 1 : 0)
-        .accessibilityLabel(isGold ? "\(tile.kind.spokenName)，金牌" : tile.kind.spokenName)
+        .accessibilityLabel(isDrawn ? "本巡摸牌，\(tileLabel)" : tileLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("tile-\(tile.id)")
         .accessibilityActions {

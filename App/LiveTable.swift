@@ -98,9 +98,9 @@ struct LiveTable: View {
                 .accessibilityIdentifier("seat-melds-\(player.seat.id)")
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 49, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: compact ? 44 : 49, alignment: .topLeading)
         .padding(.horizontal, 7)
-        .padding(.vertical, 6)
+        .padding(.vertical, compact ? 4 : 6)
         .background(TeaTheme.feltDark.opacity(acting ? 0.88 : 0.67), in: RoundedRectangle(cornerRadius: 9))
         .overlay {
             RoundedRectangle(cornerRadius: 9)
