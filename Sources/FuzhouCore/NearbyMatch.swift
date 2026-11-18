@@ -13,6 +13,10 @@ public struct RoomUpdate: Equatable, Codable, Sendable {
     public var revision: Int
     public var table: TableState?
     public var paused: Bool
+    var matchRuleset: FuzhouRuleset? = nil
+    public var houseRules: FuzhouHouseRules? = nil
+
+    public var ruleset: FuzhouRuleset { matchRuleset ?? table?.ruleset ?? .legacy }
 }
 
 /// The host owns the wall and validates moves. A guest receives only their projected update.
@@ -24,6 +28,8 @@ public struct NearbyMatch: Sendable {
 
     private var reservations: [Reservation]
     private var match: FuzhouMatch?
+    private let ruleset: FuzhouRuleset
+    private let houseRules: FuzhouHouseRules?
     private var moveFloor = 0
     public private(set) var revision = 0
 
@@ -33,7 +39,9 @@ public struct NearbyMatch: Sendable {
     public var canStart: Bool { !started && reservations.count >= 2 }
     public var humanSeats: Set<Seat> { Set(reservations.map(\.player.seat)) }
 
-    public init(hostName: String) {
+    public init(hostName: String, ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) {
+        self.ruleset = houseRules?.baseRuleset ?? ruleset
+        self.houseRules = houseRules
         reservations = [Reservation(key: UUID(), player: .init(seat: .east, name: hostName, connected: true))]
     }
 
@@ -70,13 +78,14 @@ public struct NearbyMatch: Sendable {
 
     public mutating func start() -> Bool {
         guard canStart else { return false }
-        match = FuzhouMatch()
+        match = FuzhouMatch(ruleset: ruleset, houseRules: houseRules)
         bump()
         return true
     }
 
     public func update(for seat: Seat) -> RoomUpdate {
-        RoomUpdate(viewer: seat, players: players, revision: revision, table: match?.table(for: seat), paused: paused)
+        RoomUpdate(viewer: seat, players: players, revision: revision, table: match?.table(for: seat),
+                   paused: paused, matchRuleset: ruleset, houseRules: houseRules)
     }
 
     @discardableResult

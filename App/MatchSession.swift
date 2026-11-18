@@ -29,12 +29,12 @@ final class SoloMatch: MatchSession {
     var canAdvance: Bool { true }
     var computerHasMove: Bool { match?.hasComputerMove(excluding: [FuzhouMatch.player]) == true }
 
-    @discardableResult func startIfNeeded() -> Bool {
+    @discardableResult func startIfNeeded(ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) -> Bool {
         if match != nil { return true }
-        return startNew()
+        return startNew(ruleset: ruleset, houseRules: houseRules)
     }
-    @discardableResult func startNew() -> Bool {
-        begin(FuzhouMatch())
+    @discardableResult func startNew(ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) -> Bool {
+        begin(FuzhouMatch(ruleset: ruleset, houseRules: houseRules))
     }
     private func begin(_ updated: FuzhouMatch) -> Bool {
         guard let data = try? JSONEncoder().encode(updated),

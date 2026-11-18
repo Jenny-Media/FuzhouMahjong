@@ -1,8 +1,45 @@
+import Foundation
+
 public enum Seat: Int, CaseIterable, Codable, Identifiable, Sendable {
     case east, south, west, north
 
     public var id: Int { rawValue }
     public func advanced(_ count: Int) -> Seat { Seat.allCases[(rawValue + count + 4) % 4] }
+}
+
+public enum FuzhouRuleset: String, Codable, Hashable, Sendable {
+    case pureSuit, oldThree, legacy
+
+    public static let builtIn: [Self] = [.pureSuit, .oldThree]
+}
+
+public struct FuzhouHouseRules: Codable, Hashable, Identifiable, Sendable {
+    public enum DiscardPayment: String, CaseIterable, Codable, Sendable {
+        case discarder, allOpponents
+    }
+
+    public enum Flush: String, CaseIterable, Codable, Sendable {
+        case disabled, wildcard, faceValue
+    }
+
+    public let id: UUID
+    public var name: String
+    public var keepDealerOnDraw: Bool
+    public var discardPayment: DiscardPayment
+    public var flush: Flush
+    public var stackBonuses: Bool
+
+    public init(name: String, keepDealerOnDraw: Bool = false, discardPayment: DiscardPayment = .discarder,
+                flush: Flush = .wildcard, stackBonuses: Bool = false) {
+        id = UUID()
+        self.name = name
+        self.keepDealerOnDraw = keepDealerOnDraw
+        self.discardPayment = discardPayment
+        self.flush = flush
+        self.stackBonuses = stackBonuses
+    }
+
+    var baseRuleset: FuzhouRuleset { flush == .disabled ? .oldThree : .pureSuit }
 }
 
 public enum MeldKind: String, Codable, CaseIterable, Sendable {
@@ -29,6 +66,30 @@ public enum Move: Equatable, Codable, Hashable, Sendable {
 
 public enum WinKind: String, Codable, Sendable { case selfDraw, discard, robGold }
 
+public enum WinPattern: String, Codable, Identifiable, Sendable {
+    case robGold, threeGold, goldenPair, pureSuit
+
+    public var id: Self { self }
+
+    public var title: String {
+        switch self {
+        case .robGold: "抢金"
+        case .threeGold: "三金倒"
+        case .goldenPair: "金雀（金对）"
+        case .pureSuit: "清一色"
+        }
+    }
+
+    public var bonus: Int {
+        switch self {
+        case .robGold: 30
+        case .threeGold: 40
+        case .goldenPair: 60
+        case .pureSuit: 240
+        }
+    }
+}
+
 public struct RoundResult: Equatable, Codable, Sendable {
     public struct Line: Equatable, Codable, Identifiable, Sendable {
         public var id: String { name }
@@ -38,10 +99,14 @@ public struct RoundResult: Equatable, Codable, Sendable {
 
     public var winner: Seat?
     public var kind: WinKind?
+    /// The sole payer, when the settlement charges one player.
     public var source: Seat?
     public var winningTile: Tile?
     public var winningHand: [Tile] = []
     public var lines: [Line]
+    var matchedPatterns: [WinPattern]? = nil
+    var pureSuitUsesFaceValues: Bool? = nil
+    public var patterns: [WinPattern] { matchedPatterns ?? [] }
     public var points: Int { lines.reduce(0) { $0 + $1.points } }
 
     public func delta(for seat: Seat) -> Int {
@@ -103,6 +168,15 @@ public struct TableState: Equatable, Codable, Sendable {
     public var result: RoundResult?
     public var discardTimeline: [TableDiscard]? = nil
     public var lastDraw: TableDraw? = nil
+    var matchRuleset: FuzhouRuleset? = nil
+    public var houseRules: FuzhouHouseRules? = nil
+
+    public var ruleset: FuzhouRuleset { matchRuleset ?? .legacy }
+
+    public var canDeclareThreeGold: Bool {
+        guard ruleset != .legacy, step == .turn, let drawn, let gold else { return false }
+        return WinningHand.hasThreeGold((hand + [drawn]).map(\.kind), gold: gold.kind)
+    }
 
     public var latestDiscard: TableDiscard? {
         if step == .claim, let offeredTile { return TableDiscard(seat: current, tile: offeredTile) }

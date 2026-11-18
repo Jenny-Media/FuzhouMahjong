@@ -28,7 +28,7 @@ struct OpeningDeal: View {
         var title: String {
             switch self {
             case .shuffle: "正在洗牌"
-            case .stacking: "正在砌牌"
+            case .stacking: "正在摆牌"
             case .deal, .settled: "正在发牌"
             }
         }

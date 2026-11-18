@@ -41,7 +41,7 @@ struct RackTile: View {
         .disabled(!canSelect)
         .highPriorityGesture(placement, including: canDiscard || reposition != nil ? .all : .none)
         .zIndex(offset != .zero ? 1 : 0)
-        .accessibilityLabel(isDrawn ? "本巡摸牌，\(tileLabel)" : tileLabel)
+        .accessibilityLabel(isDrawn ? "刚摸到，\(tileLabel)" : tileLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("tile-\(tile.id)")
         .accessibilityActions {

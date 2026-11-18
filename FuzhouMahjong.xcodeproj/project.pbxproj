@@ -17,6 +17,7 @@
 		1D7E0B8B0AB80254A244863A /* meld.wav in Resources */ = {isa = PBXBuildFile; fileRef = 59F88E239CA09EAD13179C07 /* meld.wav */; };
 		1D9447A8BD24F6171492D658 /* PurchaseFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD6EC24B27F2D70711401700 /* PurchaseFlowTests.swift */; };
 		24352A515BB78865A7E08BAC /* draw.wav in Resources */ = {isa = PBXBuildFile; fileRef = 88D230152A793412A08DD100 /* draw.wav */; };
+		2EDFA2C58A5B2F53E5AFE786 /* RuleOdds.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFDB6B3A490211EF317F5FDA /* RuleOdds.swift */; };
 		33740972B56EF96D92CAECA3 /* LiveTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB8BEF56EA7EFE126CC8C53 /* LiveTable.swift */; };
 		395E38A2B6EEAB1D06A31F97 /* TileFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF52DE60C8F3F2339851A75D /* TileFace.swift */; };
 		3DF695986221511559E75CF7 /* DrawPickup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E40B293A1DA162DAFE3643A8 /* DrawPickup.swift */; };
@@ -34,6 +35,7 @@
 		9A645FC00E02737C74E6AAFA /* TableAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = F880E33A5E264E1131240B60 /* TableAudio.swift */; };
 		9A9D55FB5BB50BB6C9D8088E /* FuzhouCore in Frameworks */ = {isa = PBXBuildFile; productRef = F32AA28DD6D09BAA11298B61 /* FuzhouCore */; };
 		A4C5B6AC559B27ECC0A7441B /* PurchaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2AF21576D2A802DE9F9B814 /* PurchaseView.swift */; };
+		A872B12BE6A1DCD66488260C /* CustomRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B5F54F0B45C8C24C16E168 /* CustomRules.swift */; };
 		AB1716F840DD121326EF3CAF /* FuzhouCore in Frameworks */ = {isa = PBXBuildFile; productRef = D6D5DCDDE6EFD0A0CEC2B596 /* FuzhouCore */; };
 		B67863D0CB40D80C746E8CF8 /* FoldLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */; };
 		CC0B3F636CB4CDD0E2061F48 /* deal.wav in Resources */ = {isa = PBXBuildFile; fileRef = A31F82099C976632E7E997E9 /* deal.wav */; };
@@ -85,6 +87,7 @@
 		A31F82099C976632E7E997E9 /* deal.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = deal.wav; sourceTree = "<group>"; };
 		AB00A2E1053595CCED79231C /* MatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchView.swift; sourceTree = "<group>"; };
 		AD6EC24B27F2D70711401700 /* PurchaseFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchaseFlowTests.swift; sourceTree = "<group>"; };
+		AFDB6B3A490211EF317F5FDA /* RuleOdds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleOdds.swift; sourceTree = "<group>"; };
 		B144A418CDF5D8AA50827047 /* TableFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableFlowTests.swift; sourceTree = "<group>"; };
 		B4E33F096EF56DB090D04C00 /* InviteScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteScanner.swift; sourceTree = "<group>"; };
 		BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldLayout.swift; sourceTree = "<group>"; };
@@ -95,6 +98,7 @@
 		EF52DE60C8F3F2339851A75D /* TileFace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileFace.swift; sourceTree = "<group>"; };
 		F2AF21576D2A802DE9F9B814 /* PurchaseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchaseView.swift; sourceTree = "<group>"; };
 		F329492C6B675BB95CE6A188 /* FuzhouMahjong.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FuzhouMahjong.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F4B5F54F0B45C8C24C16E168 /* CustomRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomRules.swift; sourceTree = "<group>"; };
 		F880E33A5E264E1131240B60 /* TableAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableAudio.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -161,6 +165,7 @@
 			isa = PBXGroup;
 			children = (
 				1341A781DB8EE5A24CC07824 /* Assets.xcassets */,
+				F4B5F54F0B45C8C24C16E168 /* CustomRules.swift */,
 				E40B293A1DA162DAFE3643A8 /* DrawPickup.swift */,
 				BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */,
 				E3059DC43C7E3FFA403209A5 /* FuzhouMahjongApp.swift */,
@@ -175,6 +180,7 @@
 				F2AF21576D2A802DE9F9B814 /* PurchaseView.swift */,
 				8D5BABB5CFF891D9502EEC64 /* RackTile.swift */,
 				86444A5042E90190736FD0A3 /* RuleGuide.swift */,
+				AFDB6B3A490211EF317F5FDA /* RuleOdds.swift */,
 				26E8385EBD42496E8363BC33 /* ShuffleMotion.swift */,
 				F880E33A5E264E1131240B60 /* TableAudio.swift */,
 				E785A5197FED77CAA078C5FE /* Theme.swift */,
@@ -369,6 +375,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A872B12BE6A1DCD66488260C /* CustomRules.swift in Sources */,
 				3DF695986221511559E75CF7 /* DrawPickup.swift in Sources */,
 				B67863D0CB40D80C746E8CF8 /* FoldLayout.swift in Sources */,
 				8EC5E735AB50FDF6C0155301 /* FuzhouMahjongApp.swift in Sources */,
@@ -382,6 +389,7 @@
 				A4C5B6AC559B27ECC0A7441B /* PurchaseView.swift in Sources */,
 				F8E31689128D619FAEE1AFA3 /* RackTile.swift in Sources */,
 				84274608CEF764B378CB64DA /* RuleGuide.swift in Sources */,
+				2EDFA2C58A5B2F53E5AFE786 /* RuleOdds.swift in Sources */,
 				D7738BC7D6909502ECCE29D3 /* ShuffleMotion.swift in Sources */,
 				9A645FC00E02737C74E6AAFA /* TableAudio.swift in Sources */,
 				02EEBA5D8874707FE89B199A /* Theme.swift in Sources */,
@@ -437,7 +445,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "福州麻将";
@@ -614,7 +622,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "福州麻将";

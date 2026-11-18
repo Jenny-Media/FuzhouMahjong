@@ -17,10 +17,13 @@ private struct HomeView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("nearby.nickname") private var nickname = ""
     @AppStorage("table.tileStyle") private var tileStyle = TileStyle.classic
+    @AppStorage("solo.ruleset") private var ruleset = FuzhouRuleset.pureSuit
+    @AppStorage("solo.customRulesetID") private var customRulesetID = ""
     @State private var access: GameAccess
     @State private var session: SoloMatch
     @State private var secondSession: SoloMatch
     @State private var nearby: NearbySession
+    @State private var rulesetLibrary = RulesetLibrary()
     @State private var path: [Route] = []
     private enum HomeSheet: Identifiable {
         case settings, purchase(AccessReason)
@@ -48,7 +51,7 @@ private struct HomeView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         if session.canResume {
-                            Button("新开一局", systemImage: "plus.circle") {
+                            Button("另开一张单机牌桌", systemImage: "plus.circle") {
                                 access.refreshClock()
                                 if !access.canBeginSoloHand { sheet = .purchase(.solo) }
                                 else if secondSession.canResume { confirmsRestart = true }
@@ -57,7 +60,7 @@ private struct HomeView: View {
                             .accessibilityIdentifier("new-solo-game")
                         }
                         if secondSession.canResume {
-                            Button("返回第二张牌桌", systemImage: "arrow.counterclockwise") { path.append(.secondSolo) }
+                            Button("继续第二张单机牌桌", systemImage: "arrow.counterclockwise") { path.append(.secondSolo) }
                                 .accessibilityIdentifier("resume-second-solo-game")
                         }
                         Button("玩法", systemImage: "book") { path.append(.rules) }
@@ -75,22 +78,23 @@ private struct HomeView: View {
                 case .purchase(let reason): PurchaseSheet(reason: reason)
                 }
             }
-            .confirmationDialog("重新开始第二张牌桌？", isPresented: $confirmsRestart, titleVisibility: .visible) {
+            .confirmationDialog("重开第二张单机牌桌？", isPresented: $confirmsRestart, titleVisibility: .visible) {
                 Button("重新开始", role: .destructive) { openNewSoloGame() }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("第二张牌桌的进度会重置，原来的单机牌桌会保留。")
+                Text("第二桌会从东一局重新开始。第一桌的进度会保留。")
             }
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .solo: MatchView(session: session)
                 case .secondSolo: MatchView(session: secondSession)
                 case .nearby: NearbyView(session: nearby)
-                case .rules: RuleGuide()
+                case .rules: RuleGuide(ruleset: ruleset, houseRules: selectedHouseRules)
                 }
             }
         }
         .environment(access)
+        .environment(rulesetLibrary)
         .environment(\.tileStyle, tileStyle)
         .preferredColorScheme(.dark)
         .tint(TeaTheme.brass)
@@ -119,6 +123,8 @@ private struct HomeView: View {
         }
     }
 
+    private var selectedHouseRules: FuzhouHouseRules? { rulesetLibrary.preset(for: customRulesetID) }
+
     private var home: some View {
         GeometryReader { geometry in
             let wide = geometry.size.width >= 580 && geometry.size.width > geometry.size.height
@@ -140,15 +146,18 @@ private struct HomeView: View {
     private var playModes: some View {
         VStack(spacing: 10) {
             Button {
-                if session.startIfNeeded() { path.append(.solo) }
+                if session.startIfNeeded(ruleset: ruleset, houseRules: selectedHouseRules) { path.append(.solo) }
                 else { sheet = .purchase(.solo) }
             } label: {
                 modeRow(session.canResume ? "继续单机" : "单机对战",
-                        detail: session.canResume ? "回到上次保存的牌局" : "与三位电脑玩家对局",
+                        detail: session.table.map { "继续上次的牌局 · \($0.houseRules?.name ?? $0.ruleset.title)" }
+                            ?? "和三位电脑玩家一起打牌",
                         icon: session.canResume ? "arrow.counterclockwise" : "person.fill")
             }
             .buttonStyle(TeaButtonStyle())
             .accessibilityIdentifier("practice-entry")
+
+            RulesetPicker(title: "新单机牌桌的玩法", selection: $ruleset, selectedCustomID: $customRulesetID)
 
             Button { path.append(.nearby) } label: {
                 modeRow(nearby.isInRoom ? "返回附近牌桌" : "附近联机",
@@ -173,7 +182,7 @@ private struct HomeView: View {
     }
 
     private func openNewSoloGame() {
-        if secondSession.startNew() { path.append(.secondSolo) }
+        if secondSession.startNew(ruleset: ruleset, houseRules: selectedHouseRules) { path.append(.secondSolo) }
         else { sheet = .purchase(.solo) }
     }
 
@@ -245,7 +254,7 @@ private struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("游戏权限") {
+                Section("版本与购买") {
                     NavigationLink {
                         PurchaseView(reason: .settings)
                     } label: {
@@ -284,15 +293,15 @@ private struct SettingsView: View {
                 Section("操作反馈") {
                     Toggle("触感", isOn: $hapticsEnabled)
                     Toggle("牌桌音效", isOn: $soundEnabled)
-                    Toggle("同桌只播自己的操作", isOn: $nearbyOwnMovesOnly)
+                    Toggle("联机时只播自己的音效", isOn: $nearbyOwnMovesOnly)
                         .disabled(!soundEnabled)
-                    Text("附近联机时仅播放自己的摸牌、出牌、吃碰杠和胡牌音效。")
+                    Text("开启后，附近联机时只会听到自己摸牌、出牌、吃、碰、杠和胡牌的音效。")
                         .font(.footnote)
                 }
                 .listRowBackground(TeaTheme.surface)
                 Section("附近联机") {
                     TextField("牌桌昵称", text: $nickname)
-                    Text("附近牌友会看到此昵称。").font(.footnote)
+                    Text("创建或加入附近牌桌时，牌友可以看到你的昵称。").font(.footnote)
                 }
                 .listRowBackground(TeaTheme.surface)
                 Section("支持与隐私") {

@@ -29,14 +29,14 @@ struct InviteScanner: View {
                     .ignoresSafeArea(edges: .bottom)
                 } else if failed {
                     ContentUnavailableView("无法使用相机", systemImage: "qrcode.viewfinder",
-                                           description: Text("你仍可从附近牌桌列表加入，或输入牌友的邀请码。"))
+                                           description: Text("可以从附近牌桌列表加入，也可以输入牌友发来的邀请码。"))
                 } else {
                     ProgressView("正在打开相机…")
                 }
             }
             .modifier(HingeSafeContent())
             .teaBackdrop()
-            .navigationTitle("扫描邀请码")
+            .navigationTitle("扫描邀请二维码")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
         }

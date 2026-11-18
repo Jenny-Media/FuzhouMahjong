@@ -3,6 +3,133 @@ import XCTest
 
 @MainActor
 final class TableFlowTests: XCTestCase {
+    func testCustomRulesPreviewUpdatesForDraftChoices() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["-play-access.archive.v1", "", "-table.custom-rulesets.v1", "<5b5d>", "-solo.ruleset", "pureSuit"]
+        app.launch()
+
+        let menu = app.buttons["custom-rules-menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        app.buttons["manage-custom-rules"].tap()
+        app.buttons["add-custom-rules"].tap()
+
+        let payment = element("custom-discard-payment", in: app)
+        XCTAssertTrue(payment.waitForExistence(timeout: 5))
+        payment.tap()
+        app.buttons["其余三家各付分"].tap()
+        XCTAssertTrue(element("custom-payment-example", in: app).label.contains("赢家得 60 分"))
+
+        let flush = element("custom-flush-rule", in: app)
+        for _ in 0..<3 where !flush.isHittable { app.swipeUp() }
+        XCTAssertTrue(flush.isHittable)
+        let initialEstimate = element("custom-flush-estimate", in: app).label
+        flush.tap()
+        app.buttons["金按牌面"].tap()
+        XCTAssertNotEqual(element("custom-flush-estimate", in: app).label, initialEstimate)
+
+        let stacking = app.switches["叠加特殊加分"]
+        for _ in 0..<3 where !stacking.isHittable { app.swipeUp() }
+        XCTAssertTrue(stacking.isHittable)
+        stacking.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        capture("custom-rules-examples")
+        let bonus = element("custom-bonus-example", in: app)
+        let combined = expectation(for: NSPredicate(format: "label CONTAINS %@", "加 300 分"), evaluatedWith: bonus)
+        XCTAssertEqual(XCTWaiter.wait(for: [combined], timeout: 4), .completed, bonus.label)
+        let reference = app.buttons["custom-rules-reference"]
+        for _ in 0..<3 where !reference.isHittable { app.swipeUp() }
+        reference.tap()
+        let title = app.staticTexts["rule-lesson-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "计分与概率")
+        XCTAssertTrue(app.staticTexts["rule-odds-method"].label.contains("4 位电脑玩家模拟"))
+        XCTAssertTrue(element("rule-odds-robGold", in: app).exists)
+        XCTAssertTrue(element("rule-odds-pureSuit", in: app).exists)
+        capture("custom-rules-odds")
+    }
+
+    func testCreateAndReuseTwoCustomRulesets() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        let existing = (1...3).map { FuzhouHouseRules(name: "Existing \($0)") }
+        let fixture = try JSONEncoder().encode(existing).map { String(format: "%02x", $0) }.joined()
+        app.launchArguments = ["-play-access.archive.v1", "", "-table.custom-rulesets.v1", "<\(fixture)>"]
+        let suffix = UUID().uuidString.prefix(4)
+        let family = "Family \(suffix)"
+        let friends = "Friends \(suffix)"
+        app.launch()
+
+        let menu = app.buttons["custom-rules-menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        app.buttons["manage-custom-rules"].tap()
+        let add = app.buttons["add-custom-rules"]
+        for name in [family, friends] {
+            XCTAssertTrue(add.waitForExistence(timeout: 5))
+            add.tap()
+            let field = app.textFields["custom-rules-name"]
+            XCTAssertTrue(field.waitForExistence(timeout: 5))
+            field.tap()
+            field.typeText(name)
+            if name == family { app.switches["流局连庄"].tap() }
+            app.buttons["save-custom-rules"].tap()
+        }
+        XCTAssertTrue(add.waitForExistence(timeout: 5))
+        XCTAssertFalse(add.isEnabled)
+        XCTAssertTrue(app.staticTexts["custom-rules-limit"].exists)
+        app.buttons["完成"].tap()
+        XCTAssertTrue(menu.label.contains(friends))
+
+        app.terminate()
+        app.launchArguments = ["-play-access.archive.v1", ""]
+        app.launch()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        XCTAssertTrue(menu.label.contains(friends))
+        menu.tap()
+        XCTAssertTrue(app.buttons[friends].exists)
+        app.buttons[family].tap()
+        app.buttons["practice-entry"].tap()
+        let skip = app.buttons["skip-opening"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 5))
+        skip.tap()
+        app.buttons["table-rules"].tap()
+        let activeRules = app.staticTexts["active-ruleset"]
+        XCTAssertTrue(activeRules.waitForExistence(timeout: 5))
+        XCTAssertTrue(activeRules.label.contains(family))
+    }
+
+    func testNewSoloRulesetSelectionDoesNotChangeAnActiveMatch() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["-play-access.archive.v1", ""]
+        app.launch()
+
+        let oldThree = app.buttons["老三样"]
+        XCTAssertTrue(oldThree.waitForExistence(timeout: 5))
+        oldThree.tap()
+        app.buttons["practice-entry"].tap()
+        let skip = app.buttons["skip-opening"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 5))
+        skip.tap()
+        app.buttons["table-rules"].tap()
+        let activeRules = app.staticTexts["active-ruleset"]
+        XCTAssertTrue(activeRules.waitForExistence(timeout: 5))
+        XCTAssertTrue(activeRules.label.contains("老三样"))
+        app.buttons["完成"].tap()
+        app.buttons["BackButton"].tap()
+
+        app.buttons["加清一色"].tap()
+        XCTAssertTrue(app.buttons["practice-entry"].label.contains("老三样"))
+        app.buttons["practice-entry"].tap()
+        app.buttons["table-rules"].tap()
+        XCTAssertTrue(activeRules.waitForExistence(timeout: 5))
+        XCTAssertTrue(activeRules.label.contains("老三样"))
+    }
+
     func testOpeningAndSkippingKeepTheBoardAndRackInPlace() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -173,7 +300,7 @@ final class TableFlowTests: XCTestCase {
 
     private func match(seed: UInt64, after moves: Int) throws -> FuzhouMatch {
         var random = FixtureRandom(seed: seed)
-        var match = FuzhouMatch(using: &random)
+        var match = FuzhouMatch(using: &random, ruleset: .legacy)
         for _ in 0..<moves { try playFixtureMove(in: &match) }
         return match
     }

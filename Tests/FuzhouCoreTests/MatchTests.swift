@@ -39,6 +39,176 @@ final class MatchTests: XCTestCase {
         XCTAssertTrue(reveal.flatMap(\.members).allSatisfy { $0.represents == nil })
     }
 
+    func testBuiltInOpeningCreditsFlippedHonorsAndFlowersToDealer() throws {
+        let gold = TileKind(.bamboo, 9)
+        let bonusFlips = [TileKind(.wind, 4), .init(.dragon, 2), .init(.season, 1)]
+        for ruleset in FuzhouRuleset.builtIn {
+            var match = try fixture(hands: [:], gold: gold, draws: [.init(.circles, 9)],
+                                    ruleset: ruleset, openingTail: bonusFlips)
+            XCTAssertEqual(match.gold?.kind, gold)
+            resolveOpening(&match)
+            let table = match.table(for: .east)
+            XCTAssertEqual(table.ruleset, ruleset)
+            XCTAssertEqual(table.players.map(\.flowerCount), [3, 0, 0, 0])
+            XCTAssertEqual(table.drawn?.kind, .init(.circles, 9))
+            XCTAssertTrue(table.hand.allSatisfy { !$0.kind.isFlower })
+        }
+    }
+
+    func testBuiltInThreeGoldWinsWithoutACompleteHand() throws {
+        let gold = TileKind(.bamboo, 9)
+        let loose = [1, 2, 4, 5, 7].map { TileKind(.characters, $0) }
+            + [1, 2, 4, 5, 7].map { TileKind(.circles, $0) }
+            + [1, 2, 4, 7].map { TileKind(.bamboo, $0) }
+        XCTAssertFalse(WinningHand.isComplete(loose + [gold, gold, gold], gold: gold))
+        for ruleset in FuzhouRuleset.builtIn {
+            var match = try fixture(hands: [.east: loose + [gold, gold]], gold: gold, draws: [gold], ruleset: ruleset)
+            resolveOpening(&match)
+            XCTAssertTrue(match.table(for: .east).canDeclareThreeGold)
+            XCTAssertFalse(match.table(for: .south).canDeclareThreeGold)
+            XCTAssertTrue(match.apply(.win, by: .east))
+            let result = try XCTUnwrap(match.result)
+            XCTAssertEqual(result.kind, .selfDraw)
+            XCTAssertEqual(result.patterns, [.threeGold])
+            XCTAssertEqual(result.lines.last, .init(name: "三金倒", points: 40))
+            XCTAssertEqual(result.winningHand.count(where: { $0.kind == gold }), 3)
+            XCTAssertNil(WinningHand.groups(for: result, melds: [], gold: gold))
+        }
+    }
+
+    func testBuiltInResultsShowBothPatternsForOffSuitGoldPairFlush() throws {
+        let gold = TileKind(.bamboo, 9)
+        let oneSuit = [1, 2, 3, 2, 3, 4, 4, 5, 6, 6, 7, 8, 7, 8, 9].map { TileKind(.characters, $0) }
+        for ruleset in FuzhouRuleset.builtIn {
+            var match = try fixture(hands: [.east: Array(oneSuit.dropLast()) + [gold, gold]],
+                                    gold: gold, draws: [try XCTUnwrap(oneSuit.last)], ruleset: ruleset)
+            resolveOpening(&match)
+            XCTAssertTrue(match.apply(.win, by: .east))
+            let result = try XCTUnwrap(match.result)
+            let groups = try XCTUnwrap(WinningHand.groups(for: result, melds: [], gold: gold))
+            let pair = try XCTUnwrap(groups.first { $0.kind == .pair })
+            XCTAssertEqual(pair.members.map(\.tile.kind), [gold, gold])
+            if ruleset == .pureSuit {
+                XCTAssertEqual(result.patterns, [.goldenPair, .pureSuit])
+                XCTAssertTrue(pair.members.allSatisfy { $0.represents?.suit == .characters })
+                XCTAssertFalse(result.lines.contains { $0.name == WinPattern.goldenPair.title })
+                XCTAssertEqual(result.lines.last, .init(name: "清一色", points: 240))
+            } else {
+                XCTAssertEqual(result.patterns, [.goldenPair])
+                XCTAssertEqual(result.lines.last, .init(name: "金雀（金对）", points: 60))
+            }
+        }
+    }
+
+    func testBuiltInFlushIncludesExposedMelds() {
+        let kind = TileKind(.bamboo, 9)
+        let gold = Tile(id: 100, kind: kind)
+        let remainder = [1, 2, 3, 2, 3, 4, 4, 5, 6, 6, 7, 8].map { TileKind(.characters, $0) } + [kind, kind]
+        let hand = remainder.enumerated().map { Tile(id: $0.offset, kind: $0.element) }
+        for suit in [Suit.characters, .circles] {
+            let chow = (7...9).map { Tile(id: $0 + 20, kind: .init(suit, $0)) }
+            let result = FuzhouScoring.modern(hand: hand, melds: [Meld(kind: .chow, tiles: chow, from: .east)],
+                                               flowers: [], gold: gold, dealer: false, continuation: 0,
+                                               kind: .discard, ruleset: .pureSuit)
+            XCTAssertEqual(result.patterns, suit == .characters ? [.goldenPair, .pureSuit] : [.goldenPair])
+        }
+    }
+
+    func testBuiltInGoldPairBeatsNearerOrdinaryClaim() throws {
+        let west = [1, 2, 3, 4, 5, 6].map { TileKind(.circles, $0) }
+            + [3, 4, 5, 6, 7, 8].map { TileKind(.characters, $0) }
+            + [3, 4, 9, 9].map { TileKind(.bamboo, $0) }
+        var match = try fixture(hands: [.south: Array(completed.dropLast()), .west: west],
+                                gold: .init(.bamboo, 9), draws: [.init(.bamboo, 5)], ruleset: .oldThree)
+        resolveOpening(&match)
+        XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .east))
+        XCTAssertTrue(match.apply(.win, by: .south))
+        XCTAssertTrue(match.apply(.win, by: .west))
+        passEveryoneElse(&match, except: .west)
+        XCTAssertEqual(match.result?.winner, .west)
+        XCTAssertEqual(match.result?.patterns, [.goldenPair])
+    }
+
+    func testSavesWithoutARulesetKeepLegacyRules() throws {
+        XCTAssertEqual(FuzhouMatch().ruleset, .pureSuit)
+        var legacy = try fixture(hands: [:], gold: .init(.wind, 4), draws: [])
+        let archived = try JSONEncoder().encode(legacy)
+        XCTAssertFalse(String(decoding: archived, as: UTF8.self).contains("matchRuleset"))
+        legacy = try JSONDecoder().decode(FuzhouMatch.self, from: archived)
+        XCTAssertEqual(legacy.ruleset, .legacy)
+        XCTAssertEqual(legacy.gold?.kind, .init(.wind, 4))
+    }
+
+    func testCustomDiscardSettlementCanChargeAllThreeOpponents() throws {
+        for payment in FuzhouHouseRules.DiscardPayment.allCases {
+            let rules = FuzhouHouseRules(name: "周末", discardPayment: payment, flush: .disabled)
+            var match = try fixture(hands: [.south: Array(completed.dropLast())], gold: .init(.bamboo, 9),
+                                    draws: [.init(.bamboo, 5)], ruleset: .oldThree, houseRules: rules)
+            resolveOpening(&match)
+            XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .east))
+            XCTAssertTrue(match.apply(.win, by: .south))
+            passEveryoneElse(&match, except: .south)
+            let result = try XCTUnwrap(match.result)
+            XCTAssertEqual(result.kind, .discard)
+            let expected = payment == .discarder ? [-10, 10, 0, 0] : [-10, 30, -10, -10]
+            XCTAssertEqual(Seat.allCases.map(result.delta), expected)
+            XCTAssertEqual(match.scores, expected)
+        }
+    }
+
+    func testCustomDrawCanRepeatFinalDealerAndRulesSurviveSaveAndNewMatch() throws {
+        let encoder = JSONEncoder()
+        for keepDealer in [false, true] {
+            var rules = FuzhouHouseRules(name: "家庭玩法", keepDealerOnDraw: keepDealer)
+            let match = FuzhouMatch(houseRules: rules)
+            rules.name = "后来改的名称"
+            var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(match)) as? [String: Any])
+            snapshot["dealerTurns"] = 15
+            snapshot["step"] = "finished"
+            snapshot["result"] = try JSONSerialization.jsonObject(with: encoder.encode(RoundResult.draw))
+            var reloaded = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: snapshot))
+            XCTAssertEqual(reloaded.matchFinished, !keepDealer)
+            reloaded.nextRound()
+            XCTAssertEqual(reloaded.roundNumber, keepDealer ? 2 : 1)
+            XCTAssertEqual(reloaded.continuation, keepDealer ? 1 : 0)
+            XCTAssertEqual(reloaded.dealerTurns, keepDealer ? 15 : 0)
+            XCTAssertEqual(reloaded.table(for: .south).houseRules?.name, "家庭玩法")
+            XCTAssertEqual(reloaded.houseRules?.id, rules.id)
+        }
+    }
+
+    func testCustomWildcardsAndBonusStackingAffectTheSameWinningHand() throws {
+        let gold = TileKind(.bamboo, 9)
+        let oneSuit = [1, 2, 3, 2, 3, 4, 4, 5, 6, 6, 7, 8, 7, 8, 9].map { TileKind(.characters, $0) }
+        for flush in FuzhouHouseRules.Flush.allCases {
+            let rules = FuzhouHouseRules(name: "周末", flush: flush, stackBonuses: true)
+            var match = try fixture(hands: [.east: Array(oneSuit.dropLast()) + [gold, gold]], gold: gold,
+                                    draws: [try XCTUnwrap(oneSuit.last)], ruleset: rules.baseRuleset, houseRules: rules)
+            resolveOpening(&match)
+            XCTAssertTrue(match.apply(.win, by: .east))
+            let result = try XCTUnwrap(match.result)
+            XCTAssertEqual(result.patterns, flush == .wildcard ? [.goldenPair, .pureSuit] : [.goldenPair])
+            XCTAssertEqual(result.lines.first { $0.name == WinPattern.goldenPair.title }?.points, 60)
+            XCTAssertEqual(result.lines.first { $0.name == WinPattern.pureSuit.title }?.points, flush == .wildcard ? 240 : nil)
+        }
+    }
+
+    func testFaceValueFlushShowsTheNaturalGroupsAndOnlyCompatibleBonuses() throws {
+        let gold = TileKind(.characters, 9)
+        let ranks = [1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6, 1, 1]
+        let natural = ranks.map { TileKind(.characters, $0) }
+        let rules = FuzhouHouseRules(name: "原牌清一色", flush: .faceValue, stackBonuses: true)
+        var match = try fixture(hands: [.east: natural + [gold, gold]], gold: gold, draws: [gold],
+                                ruleset: .pureSuit, houseRules: rules)
+        resolveOpening(&match)
+        XCTAssertTrue(match.apply(.win, by: .east))
+        let result = try XCTUnwrap(match.result)
+        XCTAssertEqual(result.patterns, [.threeGold, .pureSuit])
+        let groups = try XCTUnwrap(WinningHand.groups(for: result, melds: [], gold: gold))
+        XCTAssertTrue(groups.flatMap(\.members).allSatisfy { $0.represents == nil })
+        XCTAssertTrue(groups.contains { $0.kind == .triplet && $0.members.map(\.tile.kind) == [gold, gold, gold] })
+    }
+
     func testWinningGroupsShowThePairWinningCopyAndGoldSubstitutionWithOpenSets() throws {
         let north = TileKind(.wind, 4)
         let winningKind = TileKind(.circles, 6)
@@ -195,7 +365,8 @@ final class MatchTests: XCTestCase {
     func testSeededGamesSettleAndRoundStateResumes() throws {
         for seed in UInt64(0)..<50 {
             var random = TestRandom(seed: seed)
-            var match = FuzhouMatch(using: &random)
+            let ruleset: FuzhouRuleset = seed.isMultiple(of: 2) ? .pureSuit : .oldThree
+            var match = FuzhouMatch(using: &random, ruleset: ruleset)
             for _ in 0..<250 where match.result == nil {
                 let (seat, move) = try XCTUnwrap(match.nextComputerMove(excluding: []))
                 XCTAssertTrue(match.apply(move, by: seat))
@@ -207,6 +378,7 @@ final class MatchTests: XCTestCase {
             let firstDealer = match.dealer
             let repeats = match.result?.winner == firstDealer
             match.nextRound()
+            XCTAssertEqual(match.ruleset, ruleset)
             XCTAssertEqual(match.roundNumber, 2)
             XCTAssertEqual(match.dealer, repeats ? firstDealer : firstDealer.advanced(1))
             XCTAssertEqual(match.scores.reduce(0, +), 0)
@@ -265,7 +437,9 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(match.table(for: .east).step, .turn)
     }
 
-    private func fixture(hands: [Seat: [TileKind]], gold: TileKind, draws: [TileKind]) throws -> FuzhouMatch {
+    private func fixture(hands: [Seat: [TileKind]], gold: TileKind, draws: [TileKind],
+                         ruleset: FuzhouRuleset = .legacy, openingTail: [TileKind] = [],
+                         houseRules: FuzhouHouseRules? = nil) throws -> FuzhouMatch {
         var available = Tile.fullSet
         func take(_ kind: TileKind) throws -> Tile {
             let i = try XCTUnwrap(available.firstIndex { $0.kind == kind }, "fixture has too many \(kind)")
@@ -273,6 +447,7 @@ final class MatchTests: XCTestCase {
         }
         let indicator = try take(gold)
         let drawTiles = try draws.map(take)
+        let tail = try openingTail.map(take)
         var starting: [Seat: [Tile]] = [:]
         for seat in Seat.allCases {
             if let specified = hands[seat] {
@@ -287,11 +462,13 @@ final class MatchTests: XCTestCase {
                 starting[seat]?.append(available.remove(at: i))
             }
         }
-        let spare = available.removeLast()
-        let reserve = Array(available.suffix(16)) + [indicator, spare]
-        available.removeLast(16)
+        let flipOrder = ruleset == .legacy ? [indicator, available.removeLast()] : [indicator] + tail.reversed()
+        let otherReserveCount = 18 - flipOrder.count
+        let reserve = Array(available.suffix(otherReserveCount)) + flipOrder
+        available.removeLast(otherReserveCount)
         let dealOrder = (0..<16).flatMap { index in Seat.allCases.map { starting[$0]![index] } }
-        return FuzhouMatch(deck: available + drawTiles.reversed() + dealOrder.reversed() + reserve)
+        return FuzhouMatch(deck: available + drawTiles.reversed() + dealOrder.reversed() + reserve,
+                           ruleset: ruleset, houseRules: houseRules)
     }
 }
 

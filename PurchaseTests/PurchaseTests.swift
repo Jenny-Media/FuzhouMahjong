@@ -7,6 +7,69 @@ import XCTest
 @testable import FuzhouMahjong
 
 @MainActor
+final class CustomRulesPersistenceTests: XCTestCase {
+    func testFivePresetLimitAllowsEditsAndFreesASlotOnDelete() throws {
+        let suite = "CustomRulesPersistenceTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let library = RulesetLibrary(defaults: defaults)
+        for index in 1...5 { XCTAssertTrue(library.save(FuzhouHouseRules(name: "Preset \(index)"))) }
+        let loaded = RulesetLibrary(defaults: defaults)
+        let extra = FuzhouHouseRules(name: "Preset 6")
+        XCTAssertFalse(loaded.canAddPreset)
+        XCTAssertFalse(loaded.save(extra))
+        XCTAssertEqual(loaded.presets.count, 5)
+
+        var edited = try XCTUnwrap(loaded.presets.first)
+        edited.name = "Renamed"
+        XCTAssertTrue(loaded.save(edited))
+        XCTAssertEqual(loaded.presets.first, edited)
+        XCTAssertTrue(loaded.delete(edited.id))
+        XCTAssertTrue(loaded.canAddPreset)
+        XCTAssertTrue(loaded.save(extra))
+        XCTAssertEqual(RulesetLibrary(defaults: defaults).presets.count, 5)
+    }
+
+    func testExistingLibraryAboveTheLimitKeepsItsPresets() throws {
+        let suite = "CustomRulesPersistenceTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let existing = (1...6).map { FuzhouHouseRules(name: "Existing \($0)") }
+        defaults.set(try JSONEncoder().encode(existing), forKey: "table.custom-rulesets.v1")
+        let library = RulesetLibrary(defaults: defaults)
+        XCTAssertEqual(library.presets, existing)
+        XCTAssertFalse(library.canAddPreset)
+        var edited = try XCTUnwrap(library.presets.last)
+        edited.name = "Edited"
+        XCTAssertTrue(library.save(edited))
+        XCTAssertEqual(library.presets.count, 6)
+    }
+
+    func testSavedRulesCanBeEditedAndDeletedIndependently() throws {
+        let suite = "CustomRulesPersistenceTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let library = RulesetLibrary(defaults: defaults)
+        var family = FuzhouHouseRules(name: " Family ", keepDealerOnDraw: true)
+        let friends = FuzhouHouseRules(name: "Friends", flush: .faceValue, stackBonuses: true)
+        XCTAssertTrue(library.save(family))
+        XCTAssertTrue(library.save(friends))
+        XCTAssertFalse(library.save(FuzhouHouseRules(name: "family")))
+
+        let loaded = RulesetLibrary(defaults: defaults)
+        XCTAssertEqual(loaded.presets.map(\.name), ["Family", "Friends"])
+        family.name = "Family revised"
+        XCTAssertTrue(loaded.save(family))
+        XCTAssertEqual(loaded.preset(for: family.id.uuidString), family)
+        XCTAssertTrue(loaded.delete(family.id))
+        XCTAssertEqual(RulesetLibrary(defaults: defaults).presets, [friends])
+    }
+}
+
+@MainActor
 final class PurchaseTests: XCTestCase {
     private var session: SKTestSession!
     private var defaults: UserDefaults!

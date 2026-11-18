@@ -13,8 +13,8 @@
           "locale": "en_US"
         },
         {
-          "description": "14天内单机和开桌不限次数，到期不自动扣费。",
-          "displayName": "14天免费体验",
+          "description": "14 天内单机不限局数，也可以创建附近牌桌。到期不会自动扣费。",
+          "displayName": "14 天免费体验",
           "locale": "zh_Hans"
         }
       ],
@@ -33,7 +33,7 @@
           "locale": "en_US"
         },
         {
-          "description": "无限单机和永久开桌，牌友免费加入。一次购买，无订阅。",
+          "description": "只需付一次。单机不限局数，也可创建附近牌桌。牌友可以免费加入。",
           "displayName": "永久解锁完整版",
           "locale": "zh_Hans"
         }

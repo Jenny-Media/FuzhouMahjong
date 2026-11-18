@@ -17,23 +17,23 @@ struct MatchResults: View {
                 if let winner = result.winner {
                     let name = displayName(winner, viewer: table.viewer, names: names)
                     let payment = result.source.map {
-                        "\(displayName($0, viewer: table.viewer, names: names))支付 \(result.points) 分"
+                        "\(displayName($0, viewer: table.viewer, names: names))付 \(result.points) 分"
                     } ?? "其余三家各付 \(result.points) 分"
-                    banner("\(name) · \(result.kind?.label ?? "胡")", value: "\(signed(result.delta(for: table.viewer))) 分",
-                           valueLabel: "你的分差", detail: payment)
+                    banner("\(name) · \(result.winTitle)", value: "\(signed(result.delta(for: table.viewer))) 分",
+                           valueLabel: "你的积分变化", detail: payment)
                     winningTiles(for: winner)
-                    scoreGroup("得分明细") {
+                    scoreGroup("每份得分") {
                         ForEach(result.lines) { line in
                             scoreRow(line.name, amount: "\(line.points)")
                         }
-                        scoreRow("合计", amount: "\(result.points)", emphasized: true)
+                        scoreRow("每份合计", amount: "\(result.points)", emphasized: true)
                             .accessibilityIdentifier("score-total")
                     }
                 } else {
-                    banner("牌山已尽", value: "流局", detail: "四家比分不变")
+                    banner("本局无人胡牌", value: "流局", detail: "四家积分不变")
                 }
 
-                scoreGroup("本局分差") {
+                scoreGroup("本局积分变化") {
                     ForEach(Seat.allCases) { seat in
                         let delta = result.delta(for: seat)
                         scoreRow("\(table.wind(for: seat).wind) · \(displayName(seat, viewer: table.viewer, names: names))",
@@ -60,12 +60,13 @@ struct MatchResults: View {
                         .accessibilityIdentifier("return-to-table")
                     if canAdvance {
                         Button(action: next) {
-                            Text(advanceTitle ?? (table.matchFinished ? "新的一场" : "下一局")).frame(maxWidth: .infinity)
+                            Text(advanceTitle ?? (table.matchFinished ? "新开一场" : "下一局")).frame(maxWidth: .infinity)
                         }
                         .buttonStyle(TeaButtonStyle())
                         .accessibilityIdentifier("next-hand")
                     } else {
-                        Text("等待房主继续").font(.footnote).foregroundStyle(TeaTheme.muted)
+                        Text(table.matchFinished ? "等待房主开新一场" : "等待房主开下一局")
+                            .font(.footnote).foregroundStyle(TeaTheme.muted)
                             .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget)
                     }
                 }
@@ -80,7 +81,7 @@ struct MatchResults: View {
     }
 
     private func winningTiles(for winner: Seat) -> some View {
-        scoreGroup("胡牌牌型") {
+        scoreGroup("胡牌的牌组") {
             WinningGroups(table: table, result: result, winner: winner, boardSize: nil)
         }
     }
@@ -143,7 +144,7 @@ struct WinningHandReveal: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 6) {
-                    Text("\(name) · \(result.kind?.label ?? "胡")")
+                    Text("\(name) · \(result.winTitle)")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(TeaTheme.brass)
                         .multilineTextAlignment(.center)
@@ -172,8 +173,33 @@ private struct WinningGroups: View {
     @ScaledMetric(relativeTo: .caption2) private var captionHeight: CGFloat = 13
 
     var body: some View {
+        let labels = result.patterns.filter { $0 != .robGold && $0 != .threeGold }
+        VStack(alignment: boardSize == nil ? .leading : .center, spacing: 5) {
+            if !labels.isEmpty {
+                Text(labels.map(\.title).joined(separator: " · "))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(TeaTheme.brass)
+                    .accessibilityIdentifier("winning-patterns")
+            }
+            revealedGroups
+        }
+    }
+
+    @ViewBuilder private var revealedGroups: some View {
         let melds = table.players.first { $0.seat == winner }?.melds ?? []
-        if let groups = WinningHand.groups(for: result, melds: melds, gold: table.gold?.kind) {
+        if result.patterns == [.threeGold] {
+            VStack(alignment: boardSize == nil ? .leading : .center, spacing: 6) {
+                Text("自摸时集齐三张金，直接胡牌")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(TeaTheme.feltInk)
+                    .accessibilityIdentifier("three-gold-explanation")
+                HStack(spacing: 4) {
+                    ForEach(result.winningHand.filter(table.isGold)) { tile in
+                        revealedTile(tile, represents: nil, width: 28, compact: boardSize != nil)
+                    }
+                }
+            }
+        } else if let groups = WinningHand.groups(for: result, melds: melds, gold: table.gold?.kind) {
             let gap: CGFloat = 4
             let compact = boardSize != nil
             let labelWidth: CGFloat = compact ? 25 : typeSize.isAccessibilitySize ? 56 : 32
@@ -188,7 +214,7 @@ private struct WinningGroups: View {
                                  spacing: gap, alignment: .topLeading)]
 
             VStack(alignment: compact ? .center : .leading, spacing: 5) {
-                Text("五组牌 ＋ 一对将牌")
+                Text("五组牌和一对将牌")
                     .font(compact ? .caption2 : .footnote)
                     .foregroundStyle(TeaTheme.muted)
                 LazyVGrid(columns: grid, alignment: .leading, spacing: gap) {
@@ -228,7 +254,7 @@ private struct WinningGroups: View {
     private func groupCard(_ group: WinningHand.Group, tileWidth: CGFloat, labelWidth: CGFloat, compact: Bool) -> some View {
         let completesHand = group.members.contains { $0.id == result.winningTile?.id }
         let replacements = group.members.compactMap { member in
-            member.represents.map { "\(member.tile.kind.spokenName)代\($0.spokenName)" }
+            member.represents.map { "\(member.tile.kind.spokenName)当\($0.spokenName)" }
         }
         let shape = RoundedRectangle(cornerRadius: 5)
         return VStack(alignment: .leading, spacing: 2) {
@@ -279,7 +305,7 @@ private struct WinningGroups: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if winning {
-                    Text(compact ? "和" : "和牌")
+                    Text(compact ? "胡" : "胡牌")
                         .font(.system(size: compact ? 8 : 9, weight: .bold))
                         .foregroundStyle(TeaTheme.brassInk)
                         .padding(.horizontal, 2)
@@ -287,7 +313,7 @@ private struct WinningGroups: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(winning ? "和牌，" : "")\(tile.kind.spokenName)\(gold ? "，金牌" : "")\(represents.map { "，代\($0.spokenName)" } ?? "")")
+            .accessibilityLabel("\(winning ? "用这张牌胡牌，" : "")\(tile.kind.spokenName)\(gold ? "，金牌" : "")\(represents.map { "，当作\($0.spokenName)" } ?? "")")
             .accessibilityIdentifier(winning ? "revealed-winning-tile" : "revealed-tile-\(tile.id)")
     }
 }
@@ -313,11 +339,17 @@ private extension WinningHand.Group.Kind {
     }
 }
 
+extension RoundResult {
+    var winTitle: String {
+        patterns.contains(.threeGold) ? WinPattern.threeGold.title : kind?.label ?? "胡"
+    }
+}
+
 extension WinKind {
     var label: String {
         switch self {
         case .selfDraw: "自摸"
-        case .discard: "胡"
+        case .discard: "接炮胡"
         case .robGold: "抢金"
         }
     }

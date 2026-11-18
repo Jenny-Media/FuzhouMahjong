@@ -9,9 +9,12 @@ import UIKit
 struct NearbyView: View {
     let session: NearbySession
     @Environment(GameAccess.self) private var access
+    @Environment(RulesetLibrary.self) private var rulesetLibrary
     @State private var purchaseReason: AccessReason?
 
     @AppStorage("nearby.nickname") private var nickname = ""
+    @AppStorage("nearby.ruleset") private var ruleset = FuzhouRuleset.pureSuit
+    @AppStorage("nearby.customRulesetID") private var customRulesetID = ""
     @Environment(\.openURL) private var openURL
     @State private var showsInvite = false
     @State private var showsScanner = false
@@ -27,7 +30,7 @@ struct NearbyView: View {
                             Menu {
                                 if session.isHost {
                                     ForEach(session.players.filter { !$0.connected }) { player in
-                                        Button("电脑接替 \(player.name)") { session.substitute(player.seat) }
+                                        Button("让电脑接替\(player.name)") { session.substitute(player.seat) }
                                     }
                                 }
                                 Button("离开牌桌", role: .destructive) { confirmsLeave = true }
@@ -64,7 +67,7 @@ struct NearbyView: View {
             Button("离开牌桌", role: .destructive) { session.leave() }
             Button("继续对局", role: .cancel) {}
         } message: {
-            Text(session.isHost ? "离开会结束所有人的对局。" : "你的座位将由电脑接替。")
+            Text(session.isHost ? "离开后，所有人的牌局都会结束。" : "离开后，你的位置会由电脑接替。")
         }
     }
 
@@ -74,8 +77,8 @@ struct NearbyView: View {
                 Label("正在重新连接房主…", systemImage: "wifi.exclamationmark")
                     .font(.subheadline.weight(.semibold))
             } else {
-                Text("暂时无法连接房主").font(.subheadline.weight(.semibold))
-                Text("牌桌可能已经结束。可以重试，或返回大厅。")
+                Text("暂时连不上房主").font(.subheadline.weight(.semibold))
+                Text("牌桌可能已关闭。你可以重试，或返回大厅。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
             }
             HStack(spacing: 8) {
@@ -122,7 +125,7 @@ struct NearbyView: View {
                 if let search = session.inviteSearch {
                     HStack(spacing: 8) {
                         if search == .unavailable {
-                            Button("重试邀请") { session.retryInviteSearch() }
+                            Button("重新查找邀请牌桌") { session.retryInviteSearch() }
                                 .buttonStyle(TeaButtonStyle())
                         }
                         Button("取消查找") { session.cancelInviteSearch() }
@@ -152,9 +155,12 @@ struct NearbyView: View {
                 .frame(minHeight: TeaTheme.hitTarget)
                 .teaPanel(corner: TeaTheme.controlCorner)
 
+            RulesetPicker(title: "新牌桌的玩法", selection: $ruleset, selectedCustomID: $customRulesetID)
+
             Button {
-                if access.authorizeHosting() { session.create(name: nickname) }
-                else { purchaseReason = .hosting }
+                if access.authorizeHosting() {
+                    session.create(name: nickname, ruleset: ruleset, houseRules: rulesetLibrary.preset(for: customRulesetID))
+                } else { purchaseReason = .hosting }
             } label: {
                 Text("创建牌桌").frame(maxWidth: .infinity)
             }
@@ -203,11 +209,11 @@ struct NearbyView: View {
                     .disabled(inviteRoom == nil)
                 }
                 Button { showsScanner = true } label: {
-                    Label("扫描邀请码", systemImage: "qrcode.viewfinder")
+                    Label("扫描邀请二维码", systemImage: "qrcode.viewfinder")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(TeaButtonStyle(prominent: false))
-                Text("请与房主保持靠近，并开启 Wi-Fi。")
+                Text("请靠近房主，并打开 Wi-Fi。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -224,13 +230,21 @@ struct NearbyView: View {
 
     private var roster: some View {
         Group {
+            if let update = session.update {
+                Label("玩法 · \(update.houseRules?.name ?? update.ruleset.title)", systemImage: "list.bullet.rectangle")
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("room-ruleset")
+                if let houseRules = update.houseRules {
+                    Text(houseRules.summary).font(.footnote).foregroundStyle(TeaTheme.muted)
+                }
+            }
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(session.players) { player in
                     HStack {
                         SeatBadge(seat: player.seat, highlighted: player.seat == .east)
                         Text(player.name)
                         Spacer()
-                        Text(player.seat == .east ? "房主" : player.connected ? "已准备" : "正在重新连接")
+                        Text(player.seat == .east ? "房主" : player.connected ? "已入座" : "已断开，等待重连")
                             .font(.caption).foregroundStyle(TeaTheme.muted)
                     }
                     .frame(minHeight: TeaTheme.hitTarget)
@@ -240,7 +254,7 @@ struct NearbyView: View {
             .padding(.vertical, 6)
             .teaPanel()
             if session.isHost {
-                Text(session.canStart ? "空位将由电脑玩家补齐。" : "等待至少一位牌友加入。")
+                Text(session.canStart ? "开局时，空位会由电脑补上。" : "至少有一位牌友入座后才可以开局。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
                 Button {
                     if access.authorizeHosting() { session.startMatch() }
@@ -252,7 +266,7 @@ struct NearbyView: View {
                 Button("分享邀请") { showsInvite = true }
                     .buttonStyle(TeaButtonStyle(prominent: false))
             } else if session.connected {
-                Text("等待房主开始").font(.footnote).foregroundStyle(TeaTheme.muted)
+                Text("等待房主开局").font(.footnote).foregroundStyle(TeaTheme.muted)
             }
             Button("离开牌桌") { session.leave() }
                 .buttonStyle(TeaButtonStyle(prominent: false))
@@ -280,7 +294,7 @@ private struct InviteView: View {
                     }
                     Text(id.uuidString.prefix(4))
                         .font(TeaTheme.display.monospaced()).foregroundStyle(TeaTheme.brass)
-                    Text("请牌友在「附近联机」中扫描二维码，或输入上方的邀请码。")
+                    Text("请牌友打开「附近联机」，扫描二维码，或输入上方的 4 位邀请码。")
                         .font(.subheadline).multilineTextAlignment(.center)
                 }
                 .padding(18)

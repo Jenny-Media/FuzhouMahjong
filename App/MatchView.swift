@@ -60,8 +60,8 @@ struct MatchView<Session: MatchSession>: View {
                     }
                     .disabled(session.table?.hand.isEmpty != false)
                     .accessibilityIdentifier("rack-arrange")
-                    .accessibilityHint(arranging ? "返回出牌" : "拖动手牌调整顺序")
-                    Button("牌河", systemImage: "square.grid.3x3") { showsHistory = true }
+                    .accessibilityHint(arranging ? "结束理牌，回到对局" : "拖动手牌可以调整顺序")
+                    Button("出牌记录", systemImage: "square.grid.3x3") { showsHistory = true }
                 }
             }
         }
@@ -70,7 +70,10 @@ struct MatchView<Session: MatchSession>: View {
             if let table = session.table { TableHistory(table: table, names: names) }
         }
         .sheet(item: $guideLesson) { lesson in
-            NavigationStack { RuleGuide(startingAt: lesson, showsCloseButton: true) }
+            NavigationStack {
+                RuleGuide(startingAt: lesson, showsCloseButton: true,
+                          ruleset: session.table?.ruleset ?? .legacy, houseRules: session.table?.houseRules)
+            }
         }
         .alert("打出金牌？", isPresented: Binding(get: { goldDiscard != nil }, set: { if !$0 { goldDiscard = nil } }),
                presenting: goldDiscard) { confirmation in
@@ -81,8 +84,8 @@ struct MatchView<Session: MatchSession>: View {
             .accessibilityIdentifier("confirm-gold-discard")
         } message: { confirmation in
             Text(confirmation.alreadyRestricted
-                 ? "\(confirmation.tile.kind.spokenName)是金牌。打出后本局仍只能自摸。"
-                 : "\(confirmation.tile.kind.spokenName)是金牌。打出金牌后，本局只能自摸。")
+                 ? "你这局已只能自摸。确定要打出\(confirmation.tile.kind.spokenName)金牌吗？"
+                 : "\(confirmation.tile.kind.spokenName)是金牌。打出后，这局只能自摸。")
         }
         .task(id: OpeningRun(round: opening, active: active && !showsScorecard, reduceMotion: reduceMotion)) {
             guard let opening, active, !showsScorecard else { return }
@@ -185,8 +188,8 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private var advanceTitle: String? {
-        if session.players.isEmpty { return access.canBeginSoloHand ? nil : "解锁完整版 · 继续单机" }
-        return access.canHost ? nil : "解锁完整版 · 继续做房主"
+        if session.players.isEmpty { return access.canBeginSoloHand ? nil : "解锁后继续单机" }
+        return access.canHost ? nil : "解锁后继续开桌"
     }
 
     private func nextHand() {
@@ -594,7 +597,7 @@ struct MatchView<Session: MatchSession>: View {
         let cellHeight = max(TeaTheme.hitTarget, RackTile.faceSize(for: rackCellWidth).height)
         let visible = tile != nil && opening == nil && !localDrawInFlight(table)
         return VStack(spacing: 2) {
-            Text("摸牌")
+            Text("刚摸到")
                 .font(.caption2.weight(.semibold))
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .foregroundStyle(TeaTheme.muted)
@@ -730,19 +733,19 @@ struct MatchView<Session: MatchSession>: View {
     private func status(_ table: TableState) -> String {
         if let dealStage { return dealStage.title }
         if let result = table.result {
-            return result.winner.map { "\(displayName($0, viewer: table.viewer, names: names)) · \(result.kind?.label ?? "胡")" } ?? "流局"
+            return result.winner.map { "\(displayName($0, viewer: table.viewer, names: names)) · \(result.winTitle)" } ?? "流局"
         }
-        if session.paused { return "等待玩家重新连接" }
-        if arranging { return arrangementSelection == nil ? "拖动手牌调整顺序" : "轻点目标位置" }
-        if table.moves.contains(.win), table.step == .opening { return "可以抢金" }
-        if table.step == .opening { return "等待抢金选择" }
-        if table.step == .claim { return table.moves.isEmpty ? "等待牌友选择" : "可以响应弃牌" }
+        if session.paused { return "等待牌友重新连接" }
+        if arranging { return arrangementSelection == nil ? "拖动手牌调整顺序" : "点一下要移到的位置" }
+        if table.moves.contains(.win), table.step == .opening { return "可以抢金，也可以过" }
+        if table.step == .opening { return "等待牌友决定是否抢金" }
+        if table.step == .claim { return table.moves.isEmpty ? "等待牌友要牌或过牌" : "可以要这张牌，也可以过" }
         let name = displayName(table.current, viewer: table.viewer, names: names)
         if let drawFlight, drawCue?.seat == table.current {
             return drawFlight.fromReserve ? "\(name)正在补牌" : "\(name)正在摸牌"
         }
-        if table.current == table.viewer { return "轮到你出牌" }
-        return "\(name)正在选牌"
+        if table.current == table.viewer { return "轮到你了" }
+        return "轮到\(name)了"
     }
 
     @ViewBuilder
@@ -785,11 +788,15 @@ struct MatchView<Session: MatchSession>: View {
     private func title(_ move: Move, table: TableState) -> String {
         switch move {
         case .win:
-            switch table.step { case .opening: "抢金"; case .claim: "胡"; default: "自摸" }
+            switch table.step {
+            case .opening: "抢金"
+            case .claim: "胡"
+            default: table.canDeclareThreeGold ? "三金倒" : "自摸"
+            }
         case .pass: "过"
         case .meld(let kind, let ids):
             if kind == .chow {
-                "吃 \(table.hand.filter { ids.contains($0.id) }.map(\.kind.spokenName).joined(separator: "・"))"
+                "吃 \(table.hand.filter { ids.contains($0.id) }.map(\.kind.spokenName).joined(separator: "、"))"
             } else {
                 "\(kind.label) \(table.hand.first { ids.contains($0.id) }?.kind.spokenName ?? "")"
             }
@@ -859,7 +866,7 @@ private struct TableHistory: View {
             }
             .modifier(HingeSafeContent())
             .teaBackdrop()
-            .navigationTitle("牌河与副露")
+            .navigationTitle("出牌与亮牌记录")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
         }

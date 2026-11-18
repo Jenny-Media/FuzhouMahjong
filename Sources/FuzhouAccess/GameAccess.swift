@@ -137,8 +137,8 @@ public final class GameAccess {
             }
             switch (trialProduct != nil, lifetimeProduct != nil) {
             case (true, true): catalogMessage = nil
-            case (false, true): catalogMessage = hasUsedTrial ? nil : "App Store 暂未提供免费体验。请重新读取购买信息。"
-            case (_, false): catalogMessage = "App Store 未返回完整版价格。请检查媒体与购买项目的账号和地区，再重新读取。"
+            case (false, true): catalogMessage = hasUsedTrial ? nil : "暂时无法获取免费体验。请重新获取购买信息。"
+            case (_, false): catalogMessage = "暂时无法获取完整版价格。请检查 App Store 账号和地区，再试一次。"
             }
             if products.count < 2 {
                 let returned = loaded.map(\.id).sorted().joined(separator: ", ")
@@ -148,13 +148,13 @@ public final class GameAccess {
             guard !Task.isCancelled else { return }
             let error = error as NSError
             Self.storeLog.error("Product request failed: \(error.domain, privacy: .public) \(error.code)")
-            catalogMessage = "暂时无法读取 App Store 的购买信息。请检查网络后重试。"
+            catalogMessage = "暂时无法获取购买信息。请检查网络后重试。"
         }
     }
     public func purchase(_ productID: String) async {
         guard !busy, !loadingProducts, [Self.trialID, Self.lifetimeID].contains(productID) else { return }
         if productID == Self.trialID, hasUsedTrial {
-            message = "14天免费体验已经开启过，恢复购买不会重新开始计时。"
+            message = "你已经开启过 14 天免费体验。恢复购买不会重新开始计时。"
             return
         }
         busy = true
@@ -163,23 +163,23 @@ public final class GameAccess {
         if products[productID] == nil { await loadProducts() }
         guard let product = products[productID] else { return }
         if productID == Self.trialID, lifetimeProduct == nil {
-            message = "请先联网读取完整版价格，再确认开启免费体验。"
+            message = "请先联网获取完整版价格，再确认开始免费体验。"
             return
         }
         do { await complete(try await product.purchase(), productID: productID) }
         catch StoreKitError.userCancelled { message = nil }
         catch Product.PurchaseError.purchaseNotAllowed {
-            message = "此设备或账号当前不允许 App 内购买。请检查设备的购买限制。"
+            message = "这台设备或账号暂时无法进行 App 内购买。请检查设备上的购买限制。"
         } catch Product.PurchaseError.productUnavailable {
-            catalogMessage = "当前 App Store 暂时无法提供此项目。请重新读取购买信息。"
+            catalogMessage = "App Store 暂时无法提供此项目。请重新获取购买信息。"
             products.removeValue(forKey: productID)
         } catch StoreKitError.notAvailableInStorefront {
-            catalogMessage = "此项目在当前 App Store 地区不可购买。请重新读取购买信息。"
+            catalogMessage = "你所在的 App Store 地区暂不提供此项目。请检查账号地区。"
             products.removeValue(forKey: productID)
         } catch {
             let error = error as NSError
             Self.storeLog.error("Purchase failed for \(productID, privacy: .public): \(error.domain, privacy: .public) \(error.code)")
-            message = "购买未完成，请稍后重试。已有权限没有改变。"
+            message = "购买未完成。请稍后再试。"
         }
     }
     public func complete(_ result: Product.PurchaseResult, productID: String? = nil) async {
@@ -188,13 +188,13 @@ public final class GameAccess {
         case .userCancelled: message = nil
         case .pending:
             if let productID { pending.insert(productID) }
-            message = "正在等待购买批准。批准后会自动更新权限。"
+            message = "正在等待购买批准。批准后会自动解锁。"
         @unknown default: message = "购买尚未完成，请稍后重试。"
         }
     }
     private func accept(_ result: VerificationResult<Transaction>) async {
         guard case .verified(let transaction) = result else {
-            message = "无法验证这笔购买，请重试或恢复购买。"
+            message = "暂时无法确认这笔购买。请重试或点「恢复购买」。"
             return
         }
         guard [Self.trialID, Self.lifetimeID].contains(transaction.productID),
@@ -208,7 +208,7 @@ public final class GameAccess {
         }
         offlineCacheAvailable = vault?.write(license) ?? true
         refreshClock()
-        message = transaction.revocationDate == nil ? "权限已更新。已开启的权限可以离线使用。" : "购买已退款或撤销，当前这一局可以继续完成。"
+        message = transaction.revocationDate == nil ? "购买记录已更新。" : "购买已退款或撤销。你可以打完当前这一局。"
         await transaction.finish()
     }
     public func restore() async {
@@ -219,8 +219,8 @@ public final class GameAccess {
         do {
             try await AppStore.sync()
             await refreshEntitlements()
-            message = tier == .lifetime ? "已恢复完整版权限。" : tier != .free ? "已恢复免费体验。" : "恢复完成，未找到有效的完整版权限或体验。"
-        } catch { message = "暂时无法恢复购买。请联网后重试，已有权限没有改变。" }
+            message = tier == .lifetime ? "已恢复完整版。" : tier != .free ? "已恢复免费体验。" : "没找到完整版购买记录或仍有效的免费体验。"
+        } catch { message = "暂时无法恢复购买。请联网后重试。" }
     }
 }
 

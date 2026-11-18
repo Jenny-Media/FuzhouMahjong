@@ -115,7 +115,7 @@ struct LiveTable: View {
 
                 meldSummary(player.melds, width: meldWidth, columns: vertical ? 2 : 3)
                     .accessibilityElement(children: .contain)
-                    .accessibilityLabel("\(name)的副露")
+                    .accessibilityLabel("\(name)亮出的牌组")
                     .accessibilityIdentifier("seat-melds-\(seat.id)")
                     .accessibilityHidden(player.melds.isEmpty)
                     .overlay {
@@ -188,7 +188,7 @@ struct LiveTable: View {
                             let claimed = claimedBy(discard) != nil
                             TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
                                 .opacity(claimed ? 0.55 : 1)
-                                .accessibilityLabel("\(name(of: discard.seat))打出的\(discard.tile.kind.spokenName)\(claimed ? "，已被取走" : "")")
+                                .accessibilityLabel("\(name(of: discard.seat))打出的\(discard.tile.kind.spokenName)\(claimed ? "，已被别人拿走" : "")")
                         } else {
                             Color.clear.accessibilityHidden(true)
                         }
@@ -197,7 +197,7 @@ struct LiveTable: View {
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("之前的弃牌，按出牌顺序")
+            .accessibilityLabel("按顺序排列的出牌记录")
         }
         .frame(width: width, height: stripHeight)
     }
@@ -274,7 +274,7 @@ struct LiveTable: View {
                 .id(latest.id)
                 .transition(.opacity)
             } else if opening == nil {
-                Text("等待弃牌").font(.caption).foregroundStyle(TeaTheme.muted)
+                Text("等待第一张出牌").font(.caption).foregroundStyle(TeaTheme.muted)
                     .transition(.opacity)
             }
         }

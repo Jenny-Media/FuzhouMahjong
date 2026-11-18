@@ -17,16 +17,20 @@ public enum WinningHand {
 
     public static func groups(for result: RoundResult, melds: [Meld], gold: TileKind?) -> [Group]? {
         guard result.winner != nil else { return nil }
-        let joker = result.kind == .robGold ? nil : gold
+        let faceValueFlush = result.pureSuitUsesFaceValues == true
+        let joker = result.kind == .robGold || faceValueFlush ? nil : gold
+        let flushSuit = result.patterns.contains(.pureSuit)
+            ? singleSuit(in: result.winningHand, melds: melds, gold: joker) : nil
         let kinds = result.winningHand.map(\.kind)
         let names = result.lines.map(\.name)
         let sequencesOnly = names.contains(FuzhouScoring.sequenceHandName)
-        let goldPair = names.contains(FuzhouScoring.goldenPairName) ||
+        let goldPair = result.patterns.contains(.goldenPair) || names.contains(FuzhouScoring.goldenPairName) ||
             (sequencesOnly && names.contains(FuzhouScoring.threeGoldName))
         let goldTriplet = names.contains(FuzhouScoring.goldenDragonName)
         var path: [Pattern]? = []
         if solve(kinds, gold: joker, melds: melds.count, sequencesOnly: sequencesOnly,
-                 goldPair: goldPair, goldTriplet: goldTriplet, path: &path) {
+                 goldPair: goldPair && !faceValueFlush, goldTriplet: goldTriplet,
+                 naturalPair: faceValueFlush && goldPair ? gold : nil, path: &path) {
             if goldTriplet { path?.append(Pattern(kind: .triplet, slots: [.gold(nil), .gold(nil), .gold(nil)])) }
         } else {
             // Older settlements can carry scoring labels that do not describe a particular partition.
@@ -52,6 +56,7 @@ public enum WinningHand {
                 case .gold(let index):
                     guard let tile = wild.popLast() else { return nil }
                     let target = index.map { TileKind(Suit.allCases[$0 / 9], $0 % 9 + 1) }
+                        ?? flushSuit.map { TileKind($0, tile.kind.rank) }
                     members.append(.init(tile: tile, represents: target == tile.kind ? nil : target))
                 }
             }
@@ -68,12 +73,23 @@ public enum WinningHand {
         return resultGroups
     }
 
+    static func hasThreeGold(_ tiles: [TileKind], gold: TileKind) -> Bool {
+        tiles.count(where: { $0.matchesGold(gold) }) >= 3
+    }
+
+    static func singleSuit(in hand: [Tile], melds: [Meld], gold: TileKind?) -> Suit? {
+        let natural = hand.filter { tile in gold.map { !tile.kind.matchesGold($0) } ?? true }
+        let suits = Set((natural + melds.flatMap(\.tiles)).map(\.kind.suit))
+        guard suits.count == 1, let suit = suits.first, suit.rawValue <= Suit.bamboo.rawValue else { return nil }
+        return suit
+    }
+
     static func isComplete(_ tiles: [TileKind], gold: TileKind?, melds: Int = 0,
                            sequencesOnly: Bool = false, goldPair: Bool = false,
-                           goldTriplet: Bool = false) -> Bool {
+                           goldTriplet: Bool = false, naturalPair: TileKind? = nil) -> Bool {
         var path: [Pattern]?
         return solve(tiles, gold: gold, melds: melds, sequencesOnly: sequencesOnly,
-                     goldPair: goldPair, goldTriplet: goldTriplet, path: &path)
+                     goldPair: goldPair, goldTriplet: goldTriplet, naturalPair: naturalPair, path: &path)
     }
 
     private struct Pattern {
@@ -95,7 +111,7 @@ public enum WinningHand {
     // A nil path skips reconstruction during normal gameplay and AI searches.
     private static func solve(_ tiles: [TileKind], gold: TileKind?, melds: Int,
                               sequencesOnly: Bool, goldPair: Bool, goldTriplet: Bool,
-                              path: inout [Pattern]?) -> Bool {
+                              naturalPair: TileKind? = nil, path: inout [Pattern]?) -> Bool {
         guard (0...5).contains(melds), tiles.count == 17 - melds * 3 else { return false }
 
         var counts = Array(repeating: 0, count: 27)
@@ -114,6 +130,13 @@ public enum WinningHand {
         if goldTriplet {
             guard melds < 5, wild >= 3, !sequencesOnly else { return false }
             wild -= 3
+        }
+        if let naturalPair {
+            guard let index = naturalPair.suitedIndex, counts[index] >= 2 else { return false }
+            counts[index] -= 2
+            guard findSets(counts, wild: wild, sequencesOnly: sequencesOnly, seen: &seen, path: &path) else { return false }
+            path?.append(.matching(.pair, index: index, natural: 2, total: 2))
+            return true
         }
         if goldPair {
             guard wild >= 2, findSets(counts, wild: wild - 2, sequencesOnly: sequencesOnly,

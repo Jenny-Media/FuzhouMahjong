@@ -156,12 +156,12 @@ public final class NearbySession: MatchSession {
         rooms = []
     }
 
-    public func create(name: String) {
+    public func create(name: String, ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) {
         guard !isInRoom else { return }
-        guard hostingAllowed() else { notice = "创建牌桌需要有效的体验或完整版权限，加入牌友的牌桌始终免费。"; return }
+        guard hostingAllowed() else { notice = "开启免费体验或解锁完整版后，可以创建牌桌。加入牌友的牌桌免费。"; return }
         cancelInviteSearch()
         let name = NearbyMatch.normalizedName(name)
-        host = HostedRoom(name: name, match: NearbyMatch(hostName: name))
+        host = HostedRoom(name: name, match: NearbyMatch(hostName: name, ruleset: ruleset, houseRules: houseRules))
         notice = nil
         broadcast()
         openListener()
@@ -186,7 +186,7 @@ public final class NearbySession: MatchSession {
         } else {
             pendingInvite = id
             inviteSearch = .searching
-            notice = "正在查找邀请中的牌桌…"
+            notice = "正在查找牌友邀请你加入的牌桌…"
             browse()
             startInviteDeadline()
         }
@@ -214,12 +214,12 @@ public final class NearbySession: MatchSession {
             guard let self, self.pendingInvite == pendingInvite, inviteSearch == .searching, !suspended else { return }
             inviteDeadline = nil
             inviteSearch = .unavailable
-            notice = "未找到邀请中的牌桌。请确认房主仍在附近、牌桌仍开放，并已开启 Wi-Fi。"
+            notice = "没找到这张牌桌。请打开 Wi-Fi，并确认房主在附近，牌桌还没关闭。"
         }
     }
 
     public func startMatch() {
-        guard hostingAllowed() else { notice = "体验已结束，解锁完整版后可以继续做房主。"; return }
+        guard hostingAllowed() else { notice = "当前无法开局。解锁完整版后可以继续做房主。"; return }
         guard listener != nil, host?.match.start() == true else { return }
         broadcast()
     }
@@ -396,7 +396,7 @@ public final class NearbySession: MatchSession {
                     case .waiting:
                         notice = "请确认 Wi-Fi 已开启，并允许本地网络访问。"
                     case .failed:
-                        notice = "无法开启牌桌，请检查本地网络权限。"
+                        notice = "无法创建牌桌。请在设置中检查本地网络访问权限。"
                         stopListener()
                     default: break
                     }
@@ -404,7 +404,7 @@ public final class NearbySession: MatchSession {
             }
             open.start(queue: .main)
         } catch {
-            notice = "无法开启牌桌，请检查本地网络权限。"
+            notice = "无法创建牌桌。请在设置中检查本地网络访问权限。"
         }
     }
 
@@ -525,7 +525,7 @@ public final class NearbySession: MatchSession {
             wire.ended = { [weak self] wire in self?.guestLost(wire) }
             wire.start()
         } catch {
-            notice = "无法连接牌桌。请重新选择。"
+            notice = "连不上这张牌桌。请在列表中重新选择。"
             target = nil
         }
     }
@@ -565,7 +565,7 @@ public final class NearbySession: MatchSession {
             resetRoom()
         } else if !didConnect, !suspended {
             target = nil
-            notice = "未能加入。请检查 Wi-Fi 后重试。"
+            notice = "没能加入牌桌。请检查 Wi-Fi，再试一次。"
         } else if target != nil {
             beginRecovery()
         }

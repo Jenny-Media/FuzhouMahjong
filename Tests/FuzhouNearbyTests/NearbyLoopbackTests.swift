@@ -10,15 +10,19 @@ final class NearbyLoopbackTests: XCTestCase {
         defer { host.leave(); guest.leave() }
         guest.create(name: "Free")
         XCTAssertFalse(guest.isHost)
-        host.create(name: "Paid")
+        let houseRules = FuzhouHouseRules(name: "周末", keepDealerOnDraw: true, discardPayment: .allOpponents, flush: .disabled)
+        host.create(name: "Paid", houseRules: houseRules)
         for _ in 0..<100 where host.loopbackRoom == nil { try await Task.sleep(for: .milliseconds(20)) }
         guest.join(try XCTUnwrap(host.loopbackRoom), name: "Free")
         for _ in 0..<100 where guest.players.count < 2 { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(guest.players.count, 2)
+        XCTAssertEqual(guest.update?.ruleset, .oldThree)
+        XCTAssertEqual(guest.update?.houseRules, houseRules)
         XCTAssertFalse(guest.canAdvance)
         host.startMatch()
         for _ in 0..<100 where guest.table == nil { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertNotNil(guest.table)
+        XCTAssertEqual(guest.table?.ruleset, .oldThree)
+        XCTAssertEqual(guest.table?.houseRules, houseRules)
     }
 
     @MainActor

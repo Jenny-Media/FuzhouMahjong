@@ -1,8 +1,20 @@
 import FuzhouCore
 import SwiftUI
 
+extension FuzhouRuleset {
+    var title: String {
+        switch self {
+        case .pureSuit: "加清一色"
+        case .oldThree: "老三样"
+        case .legacy: "原版规则"
+        }
+    }
+}
+
 struct RuleGuide: View {
     let showsCloseButton: Bool
+    let ruleset: FuzhouRuleset
+    let houseRules: FuzhouHouseRules?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -13,14 +25,17 @@ struct RuleGuide: View {
     @State private var replay = 0
     @AccessibilityFocusState private var lessonFocused: Bool
 
-    init(startingAt lesson: RuleLesson = .turn, showsCloseButton: Bool = false) {
+    init(startingAt lesson: RuleLesson = .turn, showsCloseButton: Bool = false,
+         ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) {
         self.showsCloseButton = showsCloseButton
+        self.ruleset = ruleset
+        self.houseRules = houseRules
         _lesson = State(initialValue: lesson)
     }
 
     var body: some View {
         let frames = lesson.frames(claim: claim)
-        let frame = frames[reduceMotion ? frames.count - 1 : min(phase, frames.count - 1)]
+        let title = houseRules.map { $0.name.isEmpty ? "自定义预览" : $0.name } ?? ruleset.title
         let wide = verticalSizeClass == .compact && !typeSize.isAccessibilitySize
         let layout = wide
             ? AnyLayout(HStackLayout(alignment: .top, spacing: 20))
@@ -28,37 +43,46 @@ struct RuleGuide: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                Text("玩法 · \(title)")
+                    .font(.caption.weight(.semibold)).foregroundStyle(TeaTheme.brass)
+                    .accessibilityIdentifier("active-ruleset")
                 Text(lesson.title).font(TeaTheme.display)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("rule-lesson-title")
                     .accessibilityFocused($lessonFocused)
-                layout {
-                    VStack(alignment: .trailing, spacing: 6) {
-                        if lesson == .claims {
-                            Picker("副露示范", selection: $claim) {
-                                ForEach(Claim.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                if lesson == .scoring {
+                    RuleReference(ruleset: ruleset, houseRules: houseRules)
+                } else if !frames.isEmpty {
+                    let frame = frames[reduceMotion ? frames.count - 1 : min(phase, frames.count - 1)]
+                    layout {
+                        VStack(alignment: .trailing, spacing: 6) {
+                            if lesson == .claims {
+                                Picker("吃、碰、杠示例", selection: $claim) {
+                                    ForEach(Claim.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                                }
+                                .pickerStyle(.segmented)
+                                .accessibilityIdentifier("rule-claim-picker")
                             }
-                            .pickerStyle(.segmented)
-                            .accessibilityIdentifier("rule-claim-picker")
+                            RuleDiagram(frame: frame, description: frames[frames.count - 1].description)
+                                .id(Example(lesson: lesson, claim: claim))
+                            if !reduceMotion {
+                                Button("重播", systemImage: "arrow.counterclockwise") { replay += 1 }
+                                    .buttonStyle(TeaButtonStyle(prominent: false))
+                                    .accessibilityIdentifier("rule-replay")
+                            }
                         }
-                        RuleDiagram(frame: frame, description: frames[frames.count - 1].description)
-                            .id(Example(lesson: lesson, claim: claim))
-                        if !reduceMotion {
-                            Button("重播", systemImage: "arrow.counterclockwise") { replay += 1 }
-                                .buttonStyle(TeaButtonStyle(prominent: false))
-                                .accessibilityIdentifier("rule-replay")
-                        }
-                    }
-                    .frame(maxWidth: wide ? 360 : .infinity)
+                        .frame(maxWidth: wide ? 360 : .infinity)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(lesson.explanation(claim: claim))
-                        Text(lesson.detail).font(.subheadline).foregroundStyle(TeaTheme.muted)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(lesson.explanation(claim: claim))
+                            Text(lesson.detail(for: ruleset, houseRules: houseRules))
+                                .font(.subheadline).foregroundStyle(TeaTheme.muted)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .teaPanel()
                     }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-                    .teaPanel()
                 }
             }
             .padding(TeaTheme.gutter)
@@ -74,7 +98,7 @@ struct RuleGuide: View {
                 ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu("目录", systemImage: "list.bullet") {
+                Menu("玩法目录", systemImage: "list.bullet") {
                     ForEach(RuleLesson.allCases, id: \.self) { page in
                         Button(page.title) { open(page) }
                     }
@@ -90,7 +114,7 @@ struct RuleGuide: View {
             await Task.yield()
             guard !Task.isCancelled else { return }
             lessonFocused = true
-            guard !reduceMotion else { return }
+            guard !reduceMotion, frames.count > 1 else { return }
             for next in 1..<frames.count {
                 do { try await Task.sleep(for: .milliseconds(760)) }
                 catch { return }
@@ -109,7 +133,7 @@ struct RuleGuide: View {
             }
             Spacer(minLength: 0)
             if let next = RuleLesson(rawValue: lesson.rawValue + 1) {
-                Button("下一步") { open(next) }
+                Button(next == .scoring ? next.title : "下一步") { open(next) }
                     .buttonStyle(TeaButtonStyle())
                     .accessibilityIdentifier("rule-next")
             } else {
@@ -162,7 +186,7 @@ private struct RuleDiagram: View {
         .modifier(Felt(inlaid: true))
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("牌例")
+        .accessibilityLabel("牌张示例")
         .accessibilityValue(description)
     }
 
@@ -195,7 +219,7 @@ private struct RuleDiagram: View {
 
 enum RuleLesson: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
-    case turn, flowers, claims, gold, winning
+    case turn, flowers, claims, gold, winning, scoring
 
     var title: String {
         switch self {
@@ -204,26 +228,43 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
         case .claims: "吃、碰、杠"
         case .gold: "金牌与抢金"
         case .winning: "怎样胡牌"
+        case .scoring: "计分与概率"
         }
     }
 
     fileprivate func explanation(claim: Claim) -> String {
         switch self {
-        case .turn: "每人开局有 16 张底牌。轮到你先摸一张，再选一张打出。标有「摸牌」的是刚摸到的牌。"
-        case .flowers: "摸到风牌、中发白、花牌或季节牌时，通常会亮出这张牌，再从补牌区补一张。示范里先亮出梅，再补进三筒。"
+        case .turn: "开局每人拿 16 张牌。轮到你时，通常是先摸一张，再打一张。刚摸到的牌单独放在手牌旁边。"
+        case .flowers: "东南西北、中发白、梅兰竹菊、春夏秋冬通常都算花牌。摸到花牌时，先亮出来，再从牌尾补一张。图中亮出的是梅，补到的是三筒。"
         case .claims: claim.explanation
-        case .gold: "开局翻出本局金牌。金牌能在胡牌时当作百搭。图中的二筒是金牌，可以代替七万，与六万、八万组成顺子。"
-        case .winning: "凑齐五组牌和一对相同的牌就能胡。每组可以是同花色的三张连牌、三张相同的牌，或一组杠。"
+        case .gold: "开局翻一张牌来定本局的金牌。胡牌时，手里的金牌可以代替别的牌。图中用二筒金代替七万，组成六万、七万、八万的顺子。"
+        case .winning: "普通胡牌需要凑齐五组牌和一对相同的牌。这一对叫将牌。每组可以是同一花色连着的三张牌（顺子）、三张相同的牌（刻子），或者一组杠。"
+        case .scoring: ""
         }
     }
 
-    var detail: String {
+    func detail(for ruleset: FuzhouRuleset, houseRules: FuzhouHouseRules?) -> String {
         switch self {
-        case .turn: "轻点一张手牌再按「出牌」，也可以直接把它向上滑出。"
-        case .flowers: "这些牌如果也是金牌，可以留作百搭，也可以选「补花」。"
-        case .claims: "多人要同一张弃牌时，胡牌优先，其次是碰和杠，最后是吃。"
-        case .gold: "翻到梅兰菊竹或春夏秋冬时，这八种都是金牌。金牌不能用来吃、碰、杠，别人打出的金牌也不能接炮。打出金牌后本局只能自摸。开局若翻出的牌正好能让你胡，可以抢金。"
-        case .winning: "已经亮出的副露也算一组。自己摸到完成胡牌的那张叫自摸。接别人刚打出的牌胡牌，叫接炮。"
+        case .turn:
+            "点一张手牌，再点「出牌」。也可以直接把那张牌向上滑出去。" + (houseRules.map { "\n\n\($0.summary)。" } ?? "")
+        case .flowers:
+            ruleset == .legacy ? "在原版规则里，摸到也算金牌的花牌时，可以留作金牌，也可以选择补花。"
+                : "这套玩法共有 36 张花牌。开局从庄家开始轮流补花。如果补到的还是花牌，等其他玩家补完这一轮再补。"
+        case .claims:
+            "多人要同一张牌时，先看胡牌，再看碰或杠，最后才是吃。" +
+                (ruleset == .legacy ? "" : "有多人要胡时，金雀优先。同等优先级下，按出牌顺序取排在前面的一家。")
+        case .gold:
+            (ruleset == .legacy ? "原版规则翻到梅兰菊竹或春夏秋冬时，这八种牌都算金牌。"
+                : "只有万、筒、条能当金牌。翻到花牌时，庄家把它收作自己的花牌，再翻一张，直到翻出万、筒或条。") +
+                "\n\n手里的金牌不能用来吃、碰或杠。自己打出金牌后，这局只能自摸。别人打出的金牌也不能拿来胡牌。" +
+                "\n\n开局时，如果翻出的牌能让你凑齐五组牌和一对将牌，就可以抢金。抢金时，每张牌都按牌面计算。"
+        case .winning:
+            if ruleset == .legacy {
+                "已经亮出的牌组也算在五组里。自己摸到胡牌的那张牌叫自摸。用别人刚打出的牌胡牌叫接炮。"
+            } else {
+                "已经亮出的牌组也算在五组里。自摸时，手里集齐三张金就能直接胡，这叫三金倒。胡牌时用两张金作将牌，叫金雀。下一页有各牌型的加分和计分示例。"
+            }
+        case .scoring: ""
         }
     }
 
@@ -271,8 +312,9 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
             let pair = [single, RuleTile(17, .characters, 9, highlighted: true)]
             return [
                 RuleFrame(top: top, bottom: RuleLane("还差一张九万配成一对", groups: groups + [[single]])),
-                RuleFrame(top: top, bottom: RuleLane("五组牌和一对齐了", groups: groups + [pair]))
+                RuleFrame(top: top, bottom: RuleLane("凑齐五组牌和一对将牌", groups: groups + [pair]))
             ]
+        case .scoring: return []
         }
     }
 }
@@ -284,9 +326,9 @@ private enum Claim: String, CaseIterable {
 
     var explanation: String {
         switch self {
-        case .chow: "只能吃上家刚打出的牌。用手里的五万、七万，接上家的六万，凑成同花色的三张连牌。"
-        case .pung: "手里有两张相同的牌时，可以碰任何一家刚打出的同一张牌，凑成三张。"
-        case .kong: "用手里三张相同的牌，可以接别人的弃牌成明杠。手里已有四张可以暗杠，也可以用摸到的同一张牌给碰加杠。杠完再从补牌区补一张。"
+        case .chow: "上家是按出牌顺序排在你前面的一家。只能吃上家刚打出的牌。比如手里有五万和七万，上家打出六万，就可以吃成一组顺子。"
+        case .pung: "手里有两张相同的牌，任意一家刚打出第三张时，你就可以碰。碰完亮出这组牌，再打一张。"
+        case .kong: "手里有三张相同的牌，别人刚打出第四张，可以明杠。自己摸齐四张，可以暗杠。已经碰过一组，再摸到第四张，可以加杠。杠完从牌尾补一张，再出牌。"
         }
     }
 
@@ -307,7 +349,7 @@ private enum Claim: String, CaseIterable {
         }
         var frames = [RuleFrame(top: RuleLane(self == .chow ? "上家打出六万" : "牌友打出六万", [discard]),
                                 bottom: RuleLane("手牌示例", hand))]
-        frames.append(RuleFrame(top: self == .kong ? RuleLane("补牌区", [RuleTile(5)]) : RuleLane("弃牌已接走"),
+        frames.append(RuleFrame(top: self == .kong ? RuleLane("从牌尾补一张", [RuleTile(5)]) : RuleLane("拿走打出的牌"),
                                 bottom: RuleLane("亮出这一组", meld)))
         if self == .kong {
             frames.append(RuleFrame(top: RuleLane("补进手牌", [RuleTile(5, .circles, 4, highlighted: true)]),
