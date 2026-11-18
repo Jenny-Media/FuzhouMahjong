@@ -4,6 +4,123 @@ import FuzhouCore
 
 final class NearbyLoopbackTests: XCTestCase {
     @MainActor
+    func testFreeGuestCanJoinHostButCannotCreateOrAdvanceItsOwnRoom() async throws {
+        let host = NearbySession(loopback: true)
+        let guest = NearbySession(loopback: true, hostingAllowed: { false })
+        defer { host.leave(); guest.leave() }
+        guest.create(name: "Free")
+        XCTAssertFalse(guest.isHost)
+        host.create(name: "Paid")
+        for _ in 0..<100 where host.loopbackRoom == nil { try await Task.sleep(for: .milliseconds(20)) }
+        guest.join(try XCTUnwrap(host.loopbackRoom), name: "Free")
+        for _ in 0..<100 where guest.players.count < 2 { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(guest.players.count, 2)
+        XCTAssertFalse(guest.canAdvance)
+        host.startMatch()
+        for _ in 0..<100 where guest.table == nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNotNil(guest.table)
+    }
+
+    @MainActor
+    func testHostTrialExpiringBeforeStartCannotDealButRoomCanRemainOpen() async throws {
+        var allowed = true
+        let host = NearbySession(loopback: true, hostingAllowed: { allowed })
+        let guest = NearbySession(loopback: true)
+        defer { host.leave(); guest.leave() }
+        host.create(name: "Trial")
+        for _ in 0..<100 where host.loopbackRoom == nil { try await Task.sleep(for: .milliseconds(20)) }
+        guest.join(try XCTUnwrap(host.loopbackRoom), name: "Guest")
+        for _ in 0..<100 where host.players.count < 2 { try await Task.sleep(for: .milliseconds(20)) }
+        allowed = false
+        host.startMatch()
+        XCTAssertTrue(host.isHost)
+        XCTAssertNil(host.table)
+        allowed = true
+        host.startMatch()
+        XCTAssertNotNil(host.table)
+    }
+
+    @MainActor
+    func testDiscoveryResumesAfterForegroundOnlyWhileRequested() {
+        let session = NearbySession(hostingAllowed: { false })
+        defer { session.stopBrowsing() }
+        session.browse()
+        XCTAssertTrue(session.isBrowsing)
+        session.setBackgrounded(true)
+        XCTAssertFalse(session.isBrowsing)
+        session.setBackgrounded(false)
+        XCTAssertTrue(session.isBrowsing)
+
+        session.stopBrowsing()
+        session.setBackgrounded(true)
+        session.setBackgrounded(false)
+        XCTAssertFalse(session.isBrowsing)
+    }
+
+    @MainActor
+    func testMissingInviteTimesOutAndCanRetryOrCancel() async throws {
+        let session = NearbySession(loopback: true, inviteTimeout: .milliseconds(160))
+        defer { session.stopBrowsing() }
+        session.joinInvite(UUID(), name: "牌友")
+        XCTAssertEqual(session.inviteSearch, .searching)
+        try await until("missing invite reaches a bounded result") { session.inviteSearch == .unavailable }
+        XCTAssertFalse(session.isInRoom)
+
+        session.retryInviteSearch()
+        XCTAssertEqual(session.inviteSearch, .searching)
+        session.setBackgrounded(true)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(session.inviteSearch, .searching)
+        session.setBackgrounded(false)
+        try await until("invite search resumes its deadline") { session.inviteSearch == .unavailable }
+
+        session.retryInviteSearch()
+        session.cancelInviteSearch()
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertNil(session.inviteSearch)
+        XCTAssertNil(session.notice)
+    }
+
+    @MainActor
+    func testHostedComputersProgressWithoutAViewAndPauseForAnOfflineGuest() async throws {
+        let host = NearbySession(loopback: true)
+        let guest = NearbySession(loopback: true)
+        defer { guest.leave(); host.leave() }
+        host.create(name: "房主")
+        try await until("listener ready") { host.loopbackRoom != nil }
+        guest.join(try XCTUnwrap(host.loopbackRoom), name: "牌友")
+        try await until("guest joined") { guest.connected }
+        host.startMatch()
+        try await until("guest receives the hand") { guest.table != nil }
+        host.finishOpening(1)
+        guest.finishOpening(1)
+        XCTAssertTrue(host.managesComputerTurns)
+
+        for _ in 0..<20 {
+            let revision = try XCTUnwrap(host.update?.revision)
+            try await until("guest is up to date") { guest.update?.revision == revision }
+            if host.computerHasMove {
+                guest.setBackgrounded(true)
+                try await until("offline guest pauses the host") { host.paused }
+                let pausedTable = host.table
+                try await Task.sleep(for: .milliseconds(1500))
+                XCTAssertEqual(host.table, pausedTable)
+                guest.setBackgrounded(false)
+                try await until("guest reconnects") { guest.connected && !host.paused }
+                let resumedRevision = host.update?.revision
+                try await until("computer acts without a MatchView") { host.update?.revision != resumedRevision }
+                return
+            }
+            let actor = try XCTUnwrap([host, guest].first { $0.table?.moves.isEmpty == false })
+            let moves = try XCTUnwrap(actor.table?.moves)
+            let move = moves.contains(.pass) ? Move.pass : try XCTUnwrap(moves.last)
+            XCTAssertTrue(actor.submit(move))
+            try await until("human action accepted") { host.update?.revision != revision }
+        }
+        XCTFail("No computer response reached")
+    }
+
+    @MainActor
     func testFourClientsPlayAndReconnectAcrossRealEncryptedSockets() async throws {
         let host = NearbySession(loopback: true)
         let guests = (0..<3).map { _ in NearbySession(loopback: true) }

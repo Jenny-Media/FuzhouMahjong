@@ -17,19 +17,28 @@ public struct DiscoveredRoom: Identifiable, Sendable {
 @Observable
 public final class NearbySession: MatchSession {
     public enum Recovery: Equatable, Sendable { case reconnecting, unavailable }
+    public enum InviteSearch: Equatable, Sendable { case searching, unavailable }
 
     static let service = "_fuzhou._tcp"
     private let advertises: Bool
     private let recoveryTimeout: Duration
+    private let inviteTimeout: Duration
 
-    public init() {
+    @ObservationIgnored private let hostingAllowed: @MainActor () -> Bool
+
+    public init(hostingAllowed: @escaping @MainActor () -> Bool) {
+        self.hostingAllowed = hostingAllowed
         advertises = true
         recoveryTimeout = .seconds(15)
+        inviteTimeout = .seconds(15)
     }
 
-    init(loopback: Bool, recoveryTimeout: Duration = .seconds(15)) {
+    init(loopback: Bool, recoveryTimeout: Duration = .seconds(15), inviteTimeout: Duration = .seconds(15),
+         hostingAllowed: @escaping @MainActor () -> Bool = { true }) {
+        self.hostingAllowed = hostingAllowed
         advertises = !loopback
         self.recoveryTimeout = recoveryTimeout
+        self.inviteTimeout = inviteTimeout
     }
 
     var loopbackRoom: DiscoveredRoom? {
@@ -74,6 +83,9 @@ public final class NearbySession: MatchSession {
     private var pendingInvite: UUID?
     private var retry: Task<Void, Never>?
     private var recoveryDeadline: Task<Void, Never>?
+    private var inviteDeadline: Task<Void, Never>?
+    private var computerTurn: Task<Void, Never>?
+    private var wantsDiscovery = false
     private var suspended = false
     private var didConnect = false
     private var leaving = false
@@ -85,6 +97,7 @@ public final class NearbySession: MatchSession {
     public private(set) var notice: String?
     public private(set) var openingRound: Int?
     public private(set) var recovery: Recovery?
+    public private(set) var inviteSearch: InviteSearch?
     public var rackOrder: [Tile.ID]?
 
     public var table: TableState? { update?.table }
@@ -92,6 +105,8 @@ public final class NearbySession: MatchSession {
     public var paused: Bool { suspended || (host == nil && !connected) || update?.paused == true }
     public var canAdvance: Bool { host != nil }
     public var computerHasMove: Bool { !paused && host?.match.computerHasMove == true }
+    public var managesComputerTurns: Bool { true }
+    public var isBrowsing: Bool { browser != nil }
     public var isHost: Bool { host != nil }
     public var isInRoom: Bool { host != nil || target != nil }
     public var roomName: String? { host?.name ?? target?.name }
@@ -99,6 +114,7 @@ public final class NearbySession: MatchSession {
     public var canStart: Bool { !suspended && host?.match.canStart == true }
 
     public func browse() {
+        wantsDiscovery = true
         guard advertises, !suspended, browser == nil else { return }
         let search = NWBrowser(for: .bonjourWithTXTRecord(type: Self.service, domain: nil),
                                using: Self.parameters())
@@ -108,12 +124,12 @@ public final class NearbySession: MatchSession {
                 guard let self, let search, browser === search else { return }
                 switch state {
                 case .ready:
-                    if !isInRoom { notice = nil }
+                    if !isInRoom, inviteSearch == nil { notice = nil }
                 case .waiting:
                     if !isInRoom { notice = "请确认 Wi-Fi 已开启，并在设置中允许本地网络访问。" }
                 case .failed:
                     notice = "无法查找附近牌桌。请检查 Wi-Fi 和本地网络权限。"
-                    stopBrowsing()
+                    closeBrowser()
                 default: break
                 }
             }
@@ -128,6 +144,12 @@ public final class NearbySession: MatchSession {
     }
 
     public func stopBrowsing() {
+        wantsDiscovery = false
+        cancelInviteSearch()
+        closeBrowser()
+    }
+
+    private func closeBrowser() {
         let current = browser
         browser = nil
         current?.cancel()
@@ -136,6 +158,8 @@ public final class NearbySession: MatchSession {
 
     public func create(name: String) {
         guard !isInRoom else { return }
+        guard hostingAllowed() else { notice = "创建牌桌需要有效的体验或完整版权限，加入牌友的牌桌始终免费。"; return }
+        cancelInviteSearch()
         let name = NearbyMatch.normalizedName(name)
         host = HostedRoom(name: name, match: NearbyMatch(hostName: name))
         notice = nil
@@ -145,7 +169,7 @@ public final class NearbySession: MatchSession {
 
     public func join(_ room: DiscoveredRoom, name: String) {
         guard !isInRoom else { return }
-        pendingInvite = nil
+        cancelInviteSearch()
         target = room
         guestName = NearbyMatch.normalizedName(name)
         seatKey = UUID()
@@ -161,12 +185,41 @@ public final class NearbySession: MatchSession {
             join(room, name: guestName)
         } else {
             pendingInvite = id
+            inviteSearch = .searching
             notice = "正在查找邀请中的牌桌…"
             browse()
+            startInviteDeadline()
+        }
+    }
+
+    public func retryInviteSearch() {
+        guard let pendingInvite else { return }
+        joinInvite(pendingInvite, name: guestName)
+    }
+
+    public func cancelInviteSearch() {
+        inviteDeadline?.cancel()
+        inviteDeadline = nil
+        pendingInvite = nil
+        if inviteSearch != nil, !isInRoom { notice = nil }
+        inviteSearch = nil
+    }
+
+    private func startInviteDeadline() {
+        inviteDeadline?.cancel()
+        guard let pendingInvite, inviteSearch == .searching, !suspended else { return }
+        let delay = inviteTimeout
+        inviteDeadline = Task { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, self.pendingInvite == pendingInvite, inviteSearch == .searching, !suspended else { return }
+            inviteDeadline = nil
+            inviteSearch = .unavailable
+            notice = "未找到邀请中的牌桌。请确认房主仍在附近、牌桌仍开放，并已开启 Wi-Fi。"
         }
     }
 
     public func startMatch() {
+        guard hostingAllowed() else { notice = "体验已结束，解锁完整版后可以继续做房主。"; return }
         guard listener != nil, host?.match.start() == true else { return }
         broadcast()
     }
@@ -187,10 +240,11 @@ public final class NearbySession: MatchSession {
 
     public func finishOpening(_ round: Int) {
         if openingRound == round { openingRound = nil }
+        scheduleComputerTurn()
     }
 
     public func nextHand() {
-        if !paused, host?.match.nextHand() == true { broadcast() }
+        if host != nil, hostingAllowed(), !paused, host?.match.nextHand() == true { broadcast() }
     }
 
     public func substitute(_ seat: Seat) {
@@ -203,8 +257,12 @@ public final class NearbySession: MatchSession {
         guard suspended != inBackground else { return }
         suspended = inBackground
         revision += 1
+        computerTurn?.cancel()
+        computerTurn = nil
         if suspended {
-            stopBrowsing()
+            closeBrowser()
+            inviteDeadline?.cancel()
+            inviteDeadline = nil
             stopListener()
             retry?.cancel()
             retry = nil
@@ -219,8 +277,11 @@ public final class NearbySession: MatchSession {
             browse()
             if didConnect { beginRecovery() }
             else { tryReconnect() }
-        } else if pendingInvite != nil {
-            browse()
+        }
+        if !suspended, wantsDiscovery { browse() }
+        if !suspended {
+            startInviteDeadline()
+            scheduleComputerTurn()
         }
     }
 
@@ -254,7 +315,9 @@ public final class NearbySession: MatchSession {
         update = nil
         openingRound = nil
         rackOrder = nil
-        pendingInvite = nil
+        cancelInviteSearch()
+        computerTurn?.cancel()
+        computerTurn = nil
         connected = false
         leaving = false
         didConnect = false
@@ -295,7 +358,7 @@ public final class NearbySession: MatchSession {
                                             endpoint: result.endpoint, publicKey: key)
         }
         rooms = available.values.sorted { ($0.name, $0.code) < ($1.name, $1.code) }
-        if let pendingInvite, let room = available[pendingInvite], !isInRoom {
+        if let pendingInvite, inviteSearch == .searching, let room = available[pendingInvite], !isInRoom {
             join(room, name: guestName)
         } else if let target, let discovered = available[target.id],
                   discovered.publicKey == target.publicKey, guest == nil {
@@ -415,6 +478,22 @@ public final class NearbySession: MatchSession {
             if let seat = link.seat {
                 sendToGuest(.update(host.match.update(for: seat)), wire: link.wire)
             }
+        }
+        scheduleComputerTurn()
+    }
+
+    private func scheduleComputerTurn() {
+        computerTurn?.cancel()
+        computerTurn = nil
+        guard computerHasMove, openingRound == nil, let roomID = host?.id else { return }
+        let expectedRevision = update?.revision
+        let delay = table?.step == .turn ? Int.random(in: 1150...1420) : Int.random(in: 220...360)
+        computerTurn = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
+            guard let self, !Task.isCancelled, host?.id == roomID,
+                  update?.revision == expectedRevision, openingRound == nil, computerHasMove else { return }
+            computerTurn = nil
+            advanceComputer()
         }
     }
 

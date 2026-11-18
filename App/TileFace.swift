@@ -37,24 +37,38 @@ struct TileFace: View {
             let width = min(geometry.size.width, geometry.size.height * Self.artworkAspectRatio)
             let height = width / Self.artworkAspectRatio
             let shape = RoundedRectangle(cornerRadius: width * 0.13)
+            let modern = tileStyle == .modern
+            let selectionWidth: CGFloat = modern ? 2.5 : 2
 
             ZStack {
                 Image(kind.artworkName(for: tileStyle))
                     .resizable()
                     .accessibilityHidden(true)
-                if gold { shape.fill(TeaTheme.goldShade.opacity(0.46)).blendMode(.multiply) }
+                if gold && !modern { shape.fill(TeaTheme.goldShade.opacity(0.46)).blendMode(.multiply) }
             }
             .frame(width: width, height: height)
             .clipShape(shape)
-            .overlay { shape.strokeBorder(selected ? TeaTheme.brass : .clear, lineWidth: selected ? 2 : 0) }
+            .overlay {
+                if gold && modern {
+                    shape.inset(by: selected ? selectionWidth : 0)
+                        .strokeBorder(TeaTheme.modernTileGoldEdge, lineWidth: min(2, width * 0.085))
+                }
+                if selected {
+                    shape.strokeBorder(modern ? TeaTheme.modernTileSelection : TeaTheme.brass,
+                                       lineWidth: selectionWidth)
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 if gold, width >= 26 {
                     Text("金")
                         .font(.system(size: min(11, width * 0.27), weight: .bold))
-                        .foregroundStyle(TeaTheme.porcelain)
-                        .padding(2)
-                        .background(TeaTheme.wood, in: RoundedRectangle(cornerRadius: 3))
-                        .offset(x: 1, y: -2)
+                        .foregroundStyle(modern ? TeaTheme.brassInk : TeaTheme.porcelain)
+                        .padding(.horizontal, modern ? 3 : 2)
+                        .padding(.vertical, modern ? 1 : 2)
+                        .background(modern ? TeaTheme.modernTileGoldBadge : TeaTheme.wood,
+                                    in: RoundedRectangle(cornerRadius: 3))
+                        .offset(x: modern ? 0 : 1, y: modern ? 0 : -2)
+                        .accessibilityHidden(true)
                 }
             }
             .shadow(color: .black.opacity(0.24), radius: selected ? 3 : 1, y: selected ? 3 : 1)

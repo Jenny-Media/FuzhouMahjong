@@ -1,4 +1,5 @@
 import Foundation
+import FuzhouAccess
 import FuzhouCore
 import Observation
 
@@ -6,25 +7,18 @@ import Observation
 @Observable
 final class SoloMatch: MatchSession {
     private let storageKey: String
-    private let defaults: UserDefaults
+    private let access: GameAccess
     private var match: FuzhouMatch?
     private(set) var revision = 0
     private(set) var openingRound: Int?
-    var rackOrder: [Tile.ID]? {
-        didSet {
-            if let rackOrder { defaults.set(rackOrder, forKey: storageKey + ".rack-order") }
-            else { defaults.removeObject(forKey: storageKey + ".rack-order") }
-        }
-    }
+    var rackOrder: [Tile.ID]? { didSet { persist() } }
 
-    init(storageKey: String = "solo-match.v2", defaults: UserDefaults = .standard) {
+    init(access: GameAccess, storageKey: String = "solo-match.v2") {
         self.storageKey = storageKey
-        self.defaults = defaults
-        if let saved = defaults.data(forKey: storageKey) {
-            match = try? JSONDecoder().decode(FuzhouMatch.self, from: saved)
-        }
-        if match?.result == nil, match != nil {
-            rackOrder = defaults.array(forKey: storageKey + ".rack-order") as? [Tile.ID]
+        self.access = access
+        if let save = access.soloSave(key: storageKey) {
+            match = try? JSONDecoder().decode(FuzhouMatch.self, from: save.match)
+            if match?.result == nil { rackOrder = save.rackOrder }
         }
     }
 
@@ -35,47 +29,47 @@ final class SoloMatch: MatchSession {
     var canAdvance: Bool { true }
     var computerHasMove: Bool { match?.hasComputerMove(excluding: [FuzhouMatch.player]) == true }
 
-    func startIfNeeded() {
-        guard match == nil else { return }
-        startNew()
+    @discardableResult func startIfNeeded() -> Bool {
+        if match != nil { return true }
+        return startNew()
     }
-
-    func startNew() {
-        let newMatch = FuzhouMatch()
+    @discardableResult func startNew() -> Bool {
+        begin(FuzhouMatch())
+    }
+    private func begin(_ updated: FuzhouMatch) -> Bool {
+        guard let data = try? JSONEncoder().encode(updated),
+              access.beginSoloHand(key: storageKey, match: data) else { return false }
+        match = updated
         rackOrder = nil
-        openingRound = newMatch.roundNumber
-        commit(newMatch)
+        openingRound = updated.roundNumber
+        revision += 1
+        return true
     }
-
     func finishOpening(_ round: Int) {
         if openingRound == round { openingRound = nil }
     }
-
     func submit(_ move: Move) -> Bool {
         guard var updated = match, updated.apply(move, by: FuzhouMatch.player) else { return false }
         commit(updated)
         return true
     }
-
     func advanceComputer() {
         guard var updated = match, let (seat, move) = updated.nextComputerMove(excluding: [FuzhouMatch.player]),
               updated.apply(move, by: seat) else { return }
         commit(updated)
     }
-
     func nextHand() {
         guard var updated = match, updated.result != nil else { return }
         updated.nextRound()
-        rackOrder = nil
-        openingRound = updated.roundNumber
-        commit(updated)
+        _ = begin(updated)
     }
-
     private func commit(_ updated: FuzhouMatch) {
         match = updated
         revision += 1
-        if let data = try? JSONEncoder().encode(updated) {
-            defaults.set(data, forKey: storageKey)
-        }
+        persist()
+    }
+    private func persist() {
+        guard let match, let data = try? JSONEncoder().encode(match) else { return }
+        access.saveSolo(key: storageKey, match: data, rackOrder: rackOrder)
     }
 }

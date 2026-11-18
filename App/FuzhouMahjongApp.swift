@@ -1,3 +1,4 @@
+import FuzhouAccess
 import FuzhouCore
 import FuzhouNearby
 import SwiftUI
@@ -10,57 +11,80 @@ struct FuzhouMahjongApp: App {
 }
 
 private struct HomeView: View {
-    private enum Route: Hashable { case solo, secondSolo, nearby }
+    private enum Route: Hashable { case solo, secondSolo, nearby, rules }
 
     @Environment(\.scenePhase) private var phase
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var modeIconWidth = 22
     @AppStorage("nearby.nickname") private var nickname = ""
     @AppStorage("table.tileStyle") private var tileStyle = TileStyle.classic
-    @State private var session = SoloMatch()
-    @State private var secondSession = SoloMatch(storageKey: "solo-match.second.v1")
-    @State private var nearby = NearbySession()
+    @State private var access: GameAccess
+    @State private var session: SoloMatch
+    @State private var secondSession: SoloMatch
+    @State private var nearby: NearbySession
     @State private var path: [Route] = []
-    @State private var showsSettings = false
+    private enum HomeSheet: Identifiable {
+        case settings, purchase(AccessReason)
+        var id: String { switch self { case .settings: "settings"; case .purchase(let reason): reason.id } }
+    }
+    @State private var sheet: HomeSheet?
     @State private var confirmsRestart = false
 
+    init() {
+        let access = GameAccess()
+        _access = State(initialValue: access)
+        _session = State(initialValue: SoloMatch(access: access))
+        _secondSession = State(initialValue: SoloMatch(access: access, storageKey: "solo-match.second.v1"))
+        _nearby = State(initialValue: NearbySession(hostingAllowed: { access.authorizeHosting() }))
+    }
+
     var body: some View {
-        let compact = verticalSizeClass == .compact
-        let homeLayout = compact ? AnyLayout(HStackLayout(spacing: 20)) : AnyLayout(VStackLayout(spacing: 24))
         return NavigationStack(path: $path) {
-            ScrollView {
-                VStack(spacing: compact ? 12 : 24) {
-                    Text("福州麻将")
-                        .font(.system(.largeTitle, design: .serif, weight: .semibold))
-                        .accessibilityAddTraits(.isHeader)
+            GeometryReader { geometry in
+                let compact = geometry.size.width > geometry.size.height && !typeSize.isAccessibilitySize
+                let homeLayout = compact ? AnyLayout(HStackLayout(spacing: 20)) : AnyLayout(VStackLayout(spacing: 24))
+                ScrollView {
+                    VStack(spacing: compact ? 12 : 24) {
+                        Text("福州麻将")
+                            .font(.system(.largeTitle, design: .serif, weight: .semibold))
+                            .accessibilityAddTraits(.isHeader)
 
-                    homeLayout {
-                        tableArt
+                        homeLayout {
+                            tableArt(compact: compact)
 
-                        VStack(spacing: 12) {
-                            Button {
-                                session.startIfNeeded()
-                                path.append(.solo)
-                            } label: {
-                                modeRow(session.canResume ? "继续单机" : "单机对战",
-                                        icon: session.canResume ? "arrow.counterclockwise" : "person.fill")
+                            VStack(spacing: 12) {
+                                Button {
+                                    if session.startIfNeeded() { path.append(.solo) }
+                                    else { sheet = .purchase(.solo) }
+                                } label: {
+                                    modeRow(session.canResume ? "继续单机" : "单机对战",
+                                            icon: session.canResume ? "arrow.counterclockwise" : "person.fill")
+                                }
+                                .buttonStyle(TeaButtonStyle())
+                                .accessibilityIdentifier("practice-entry")
+
+                                Button {
+                                    path.append(.nearby)
+                                } label: {
+                                    modeRow(nearby.isInRoom ? "返回附近牌桌" : "附近联机",
+                                            icon: "dot.radiowaves.left.and.right")
+                                }
+                                .buttonStyle(TeaButtonStyle(prominent: false))
+                                .accessibilityIdentifier("nearby-entry")
+                                Button { sheet = .purchase(.settings) } label: {
+                                    Text(access.soloAllowanceText)
+                                        .font(.caption).foregroundStyle(TeaTheme.muted)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("solo-remaining")
                             }
-                            .buttonStyle(TeaButtonStyle())
-                            .accessibilityIdentifier("practice-entry")
-
-                            Button {
-                                path.append(.nearby)
-                            } label: {
-                                modeRow(nearby.isInRoom ? "返回附近牌桌" : "附近联机",
-                                        icon: "dot.radiowaves.left.and.right")
-                            }
-                            .buttonStyle(TeaButtonStyle(prominent: false))
-                            .accessibilityIdentifier("nearby-entry")
                         }
                     }
+                    .padding(TeaTheme.gutter)
+                    .padding(.top, compact ? 0 : 20)
                 }
-                .padding(TeaTheme.gutter)
-                .padding(.top, compact ? 0 : 20)
             }
+            .modifier(HingeSafeContent())
             .background(TeaTheme.canvas)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -69,7 +93,9 @@ private struct HomeView: View {
                     Menu {
                         if session.canResume {
                             Button("新开一局", systemImage: "plus.circle") {
-                                if secondSession.canResume { confirmsRestart = true }
+                                access.refreshClock()
+                                if !access.canBeginSoloHand { sheet = .purchase(.solo) }
+                                else if secondSession.canResume { confirmsRestart = true }
                                 else { openNewSoloGame() }
                             }
                             .accessibilityIdentifier("new-solo-game")
@@ -78,14 +104,21 @@ private struct HomeView: View {
                             Button("返回第二张牌桌", systemImage: "arrow.counterclockwise") { path.append(.secondSolo) }
                                 .accessibilityIdentifier("resume-second-solo-game")
                         }
-                        Button("设置", systemImage: "gearshape") { showsSettings = true }
+                        Button("玩法", systemImage: "book") { path.append(.rules) }
+                            .accessibilityIdentifier("rules-entry")
+                        Button("设置", systemImage: "gearshape") { sheet = .settings }
                     } label: {
                         Label("更多", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
                     }
                     .accessibilityIdentifier("home-more")
                 }
             }
-            .sheet(isPresented: $showsSettings) { SettingsView(tileStyle: $tileStyle) }
+            .sheet(item: $sheet) { destination in
+                switch destination {
+                case .settings: SettingsView(tileStyle: $tileStyle)
+                case .purchase(let reason): PurchaseSheet(reason: reason)
+                }
+            }
             .confirmationDialog("重新开始第二张牌桌？", isPresented: $confirmsRestart, titleVisibility: .visible) {
                 Button("重新开始", role: .destructive) { openNewSoloGame() }
                 Button("取消", role: .cancel) {}
@@ -97,29 +130,44 @@ private struct HomeView: View {
                 case .solo: MatchView(session: session)
                 case .secondSolo: MatchView(session: secondSession)
                 case .nearby: NearbyView(session: nearby)
+                case .rules: RuleGuide()
                 }
             }
         }
+        .environment(access)
         .environment(\.tileStyle, tileStyle)
         .tint(TeaTheme.ink)
         .foregroundStyle(TeaTheme.ink)
+        .task {
+            await access.start()
+            while !Task.isCancelled {
+                access.refreshClock()
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
         .onChange(of: phase) { _, updated in
             if updated == .background { nearby.setBackgrounded(true) }
-            else if updated == .active { nearby.setBackgrounded(false) }
+            else if updated == .active {
+                nearby.setBackgrounded(false)
+                access.refreshClock()
+                Task { await access.refreshEntitlements() }
+            }
         }
         .onOpenURL { url in
             guard let id = RoomInvite.id(from: url) else { return }
+            sheet = nil
+            confirmsRestart = false
             path = [.nearby]
             nearby.joinInvite(id, name: nickname)
         }
     }
 
     private func openNewSoloGame() {
-        secondSession.startNew()
-        path.append(.secondSolo)
+        if secondSession.startNew() { path.append(.secondSolo) }
+        else { sheet = .purchase(.solo) }
     }
 
-    private var tableArt: some View {
+    private func tableArt(compact: Bool) -> some View {
         HStack(spacing: -9) {
             TileFace(kind: TileKind(.bamboo, 7))
                 .frame(width: 65, height: 91)
@@ -135,7 +183,7 @@ private struct HomeView: View {
                 .offset(y: 13)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: verticalSizeClass == .compact ? 145 : 218)
+        .frame(height: compact ? 145 : 218)
         .modifier(Felt())
         .accessibilityHidden(true)
     }
@@ -143,7 +191,7 @@ private struct HomeView: View {
     private func modeRow(_ title: String, icon: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .frame(width: 22)
+                .frame(width: modeIconWidth)
                 .accessibilityHidden(true)
             Text(title).font(.body.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -156,6 +204,7 @@ private struct HomeView: View {
 }
 
 private struct SettingsView: View {
+    @Environment(GameAccess.self) private var access
     @Environment(\.dismiss) private var dismiss
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("table.sound.enabled") private var soundEnabled = true
@@ -166,6 +215,17 @@ private struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("游戏权限") {
+                    NavigationLink {
+                        PurchaseView(reason: .settings)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(access.statusTitle)
+                            Text(access.soloAllowanceText).font(.footnote).foregroundStyle(TeaTheme.muted)
+                        }
+                    }
+                    .accessibilityIdentifier("access-entry")
+                }
                 Section("牌面") {
                     Picker("牌面", selection: $tileStyle) {
                         ForEach(TileStyle.allCases, id: \.self) { style in
@@ -177,7 +237,7 @@ private struct SettingsView: View {
                     .accessibilityIdentifier("tile-style-picker")
 
                     HStack(spacing: 7) {
-                        TileFace(kind: TileKind(.characters, 6)).frame(width: 32, height: 44)
+                        TileFace(kind: TileKind(.characters, 6), selected: true).frame(width: 32, height: 44)
                         TileFace(kind: TileKind(.circles, 5), gold: true).frame(width: 32, height: 44)
                         TileFace(kind: TileKind(.bamboo, 1)).frame(width: 32, height: 44)
                         TileFace(kind: TileKind(.dragon, 2)).frame(width: 32, height: 44)
@@ -202,6 +262,7 @@ private struct SettingsView: View {
                     Text("附近牌友会看到此昵称。").font(.footnote)
                 }
             }
+            .modifier(HingeSafeContent())
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

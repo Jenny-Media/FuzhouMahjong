@@ -1,0 +1,15 @@
+Test Suite 'All tests' started at 2026-11-17 20:16:48.187.
+Test Suite 'FuzhouPurchaseFlowTests.xctest' started at 2026-11-17 20:16:48.188.
+Test Suite 'PurchaseFlowTests' started at 2026-11-17 20:16:48.188.
+Test Case '-[FuzhouPurchaseFlowTests.PurchaseFlowTests testFreeAllowanceHostOfferTrialAndLifetimeInPortrait]' started.
+Test Case '-[FuzhouPurchaseFlowTests.PurchaseFlowTests testFreeAllowanceHostOfferTrialAndLifetimeInPortrait]' passed (35.798 seconds).
+Test Case '-[FuzhouPurchaseFlowTests.PurchaseFlowTests testLandscapePurchaseControlsRemainReachable]' started.
+Test Case '-[FuzhouPurchaseFlowTests.PurchaseFlowTests testLandscapePurchaseControlsRemainReachable]' passed (14.999 seconds).
+Test Suite 'PurchaseFlowTests' passed at 2026-11-17 20:17:38.988.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 50.797 (50.800) seconds
+Test Suite 'FuzhouPurchaseFlowTests.xctest' passed at 2026-11-17 20:17:38.988.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 50.797 (50.801) seconds
+Test Suite 'All tests' passed at 2026-11-17 20:17:38.989.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 50.797 (50.802) seconds
+Test session results, code coverage, and logs:
+** TEST SUCCEEDED **

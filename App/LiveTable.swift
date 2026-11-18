@@ -113,6 +113,11 @@ struct LiveTable: View {
     private func drawStatus(for seat: Seat) -> String? {
         if drawingSeat == seat { return drawingFromReserve ? "补牌中" : "摸牌中" }
         guard let draw = table.lastDraw, draw.seat == seat else { return nil }
+        if seat == table.viewer, table.drawn == nil { return nil }
+        if let discard = table.latestDiscard,
+           let meld = table.players.first(where: { $0.seat == seat })?.melds.last,
+           meld.kind == .chow || meld.kind == .pung,
+           meld.tiles.contains(discard.tile) { return nil }
         if draw.flowersReplaced > 0 { return "补花 \(draw.flowersReplaced)" }
         return draw.fromReserve ? "已补牌" : "已摸牌"
     }

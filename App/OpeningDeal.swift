@@ -84,6 +84,7 @@ struct OpeningDeal: View {
         .padding(TeaTheme.gutter)
         .frame(maxWidth: 500)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(HingeSafeContent())
     }
 
     private func landedTiles(at time: Date) -> Int {

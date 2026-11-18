@@ -34,6 +34,7 @@ struct InviteScanner: View {
                     ProgressView("正在打开相机…")
                 }
             }
+            .modifier(HingeSafeContent())
             .navigationTitle("扫描邀请码")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }

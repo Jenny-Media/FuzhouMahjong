@@ -7,11 +7,14 @@ let package = Package(
     products: [
         .library(name: "FuzhouCore", targets: ["FuzhouCore"]),
         .library(name: "FuzhouNearby", targets: ["FuzhouNearby"]),
+        .library(name: "FuzhouAccess", targets: ["FuzhouAccess"]),
     ],
     targets: [
         .target(name: "FuzhouCore"),
+        .target(name: "FuzhouAccess"),
         .target(name: "FuzhouNearby", dependencies: ["FuzhouCore"]),
         .testTarget(name: "FuzhouCoreTests", dependencies: ["FuzhouCore"]),
+        .testTarget(name: "FuzhouAccessTests", dependencies: ["FuzhouAccess"]),
         .testTarget(name: "FuzhouNearbyTests", dependencies: ["FuzhouNearby", "FuzhouCore"]),
     ]
 )

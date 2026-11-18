@@ -1,4 +1,4 @@
-# 福州麻将 for iPhone
+# 同桌麻将·福州 for iPhone
 
 The native app plays full rounds of Fuzhou Mahjong in Simplified Chinese. The same rules engine powers offline solo play and nearby tables.
 
@@ -7,9 +7,29 @@ The native app plays full rounds of Fuzhou Mahjong in Simplified Chinese. The sa
 - The live table highlights draws, keeps melds beside their owners, and names **本局金牌** above the table. The hand stays pinned below the board. Flick a playable tile upward to discard it, or select it and tap **出牌**. Both paths ask for confirmation before discarding gold and show **本局只能自摸** after it is discarded. Tap **理牌** to arrange your tiles, **自动排序** to restore the default, and **完成** to return to play. Each solo save remembers its rack order for the current hand. **牌河** shows the discard history and melds. Results show the winning tile, exposed sets, and score breakdown. **下一局** stays at the bottom of the results screen.
 - Table sounds are bundled for offline use. By default, nearby play sounds each player's own moves on their phone. **设置 → 同桌只播自己的操作** changes this, and **牌桌音效** mutes the table.
 - Choose **设置 → 牌面 → 经典 / 现代** to preview and switch tile faces. Each iPhone remembers its choice for both solo and nearby play, and both sets work offline.
+- **••• → 玩法** opens replayable rule examples. On a table, **?** opens the relevant lesson, and tapping **本局金牌** explains gold. The guide includes static examples for Reduce Motion and descriptions for VoiceOver.
+- Nearby discovery resumes after returning to the app. An invitation search offers retry and cancellation after 15 seconds. Hosted computer turns keep running while the host visits other app screens.
 - A guest who temporarily disconnects keeps their seat. If automatic reconnection cannot reach the host, the guest can retry or tap **返回大厅**. The host can resume after the guest returns or let an AI take over a disconnected seat. An active nearby match lives in the host's process, so force quitting the host ends it.
 
+## Free play and lifetime unlock
+
+Joining a nearby table is always free. The free version also allows two new solo hands each local day, shared between both saved tables. A hand means one deal through a win or draw; resuming a saved hand does not use another allowance. Tile styles and the rules guide remain free.
+
+**14天免费体验** explicitly activates 14 days of unlimited solo play and hosting through a zero-price, non-consumable App Store product. Activate it online before travelling. It never bills automatically, and restoring it does not restart the clock. **永久解锁完整版** is a one-time **US$4.99** purchase for unlimited solo play and hosting; the app displays Apple's localized price. Guests do not need to purchase. A trial expiring or a purchase being revoked does not interrupt an active hand; access is checked before the next deal or a new hosted match.
+
+Verified purchases are cached in the device Keychain and reconciled with StoreKit at launch and foreground. Once activated, the trial or lifetime entitlement works offline. Restoring onto another device requires an internet connection and the purchasing Apple account. Local daily counters include a clock high-water mark; moving the clock backwards does not replenish the allowance.
+
+See [StoreKit setup and validation](StoreKitProducts.md) for product identifiers, release prerequisites, and isolated local purchase tests. Local StoreKit test purchases do not charge an Apple account.
+
+## iPhone Duo
+
+On iOS 27.1 and later, the table uses the system hinge regions. Partially folded book mode puts the table beside the hand; tabletop mode puts the table above the hand and actions. Fully open and closed modes use the available display. Wide displays keep one continuous rack, while narrow portrait displays use two rows. Folding preserves the match, selected tile, and manual rack order. Home, lobbies, invitations, help, history, opening animations, results, and settings keep their interactive content outside an active hinge region.
+
+Build with an SDK containing `ArrangementView` and reserved-region APIs to enable folded layouts. Older SDKs and iOS versions retain the standard phone layout. Simulator checks do not replace testing physical hinge angles, reachability, haptics, or nearby radios on a real Duo.
+
 ## Build and run
+
+The working checkout is `~/work/FuzhouMahjong`.
 
 Open [FuzhouMahjong.xcodeproj](FuzhouMahjong.xcodeproj) in Xcode and choose the **FuzhouMahjong** scheme. The deployment target is iOS 17. The app has no third-party dependencies. If target configuration changes, run `xcodegen generate` here. Run `swift test` to check the native rules and four encrypted clients on a loopback connection.
 

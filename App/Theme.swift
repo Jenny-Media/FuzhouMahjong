@@ -24,6 +24,9 @@ enum TeaTheme {
     static let pipBlue = color(0x405D63)
     static let pipGreen = color(0x3E6152)
     static let goldShade = color(0xFFE2A1)
+    static let modernTileSelection = color(0x176F88)
+    static let modernTileGoldEdge = color(0xAD710C)
+    static let modernTileGoldBadge = color(0xFFD77D)
 
     static let gutter: CGFloat = 16
     static let tableGutter: CGFloat = 12

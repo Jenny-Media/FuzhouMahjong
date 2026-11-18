@@ -1,0 +1,7 @@
+{
+  "source": "/Users/yihong/Documents/Codex/2026-11-15/set-up-riichi-advanced-as-a/FuzhouMahjong",
+  "destination": "/Users/yihong/work/FuzhouMahjong",
+  "git_head_before_commit": "019253eb00462aa455a1bc8bf6cfcad81950d201",
+  "verified_files": 259,
+  "method": "atomic same-volume rename; file SHA-256 and Git directory identity preserved"
+}

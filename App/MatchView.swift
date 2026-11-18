@@ -1,9 +1,12 @@
+import FuzhouAccess
 import FuzhouCore
 import SwiftUI
 import UIKit
 
 struct MatchView<Session: MatchSession>: View {
     let session: Session
+    @Environment(GameAccess.self) private var access
+    @State private var purchaseReason: AccessReason?
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -13,6 +16,7 @@ struct MatchView<Session: MatchSession>: View {
     @AppStorage("table.sound.nearbyOwnMovesOnly") private var nearbyOwnMovesOnly = true
     @State private var selectedID: Tile.ID?
     @State private var showsHistory = false
+    @State private var guideLesson: RuleLesson?
     @State private var openingStage = OpeningDeal.Stage.shuffle(nil)
     @State private var openingAnimationRound: Int?
     @State private var audio = TableAudio()
@@ -37,7 +41,11 @@ struct MatchView<Session: MatchSession>: View {
                                 reduceMotion: reduceMotion || !active) { finishOpening(opening) }
                 } else if let result = table.result {
                     MatchResults(table: table, result: result, names: names,
-                                 canAdvance: session.canAdvance && !session.paused) {
+                                 canAdvance: session.canAdvance && !session.paused,
+                                 advanceTitle: advanceTitle, advanceDetail: session.players.isEmpty ? access.soloAllowanceText : nil) {
+                        access.refreshClock()
+                        if session.players.isEmpty, !access.canBeginSoloHand { purchaseReason = .solo; return }
+                        if !session.players.isEmpty, !access.authorizeHosting() { purchaseReason = .hosting; return }
                         selectedID = nil
                         openingStage = .shuffle(nil)
                         session.nextHand()
@@ -51,20 +59,30 @@ struct MatchView<Session: MatchSession>: View {
         .navigationTitle(session.table?.result == nil ? "牌桌" : "本局结算")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { guideLesson = contextualLesson } label: {
+                    Label("玩法", systemImage: "questionmark.circle").labelStyle(.iconOnly)
+                }
+                .accessibilityIdentifier("table-rules")
+            }
             if opening == nil, session.table?.result == nil {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button(arranging ? "完成" : "理牌") {
+                    Button(arranging ? "完成" : "理牌", systemImage: arranging ? "checkmark" : "hand.draw") {
                         arranging.toggle()
                         arrangementSelection = nil
                     }
                     .disabled(session.table?.hand.isEmpty != false)
                     .accessibilityIdentifier("rack-arrange")
-                    Button("牌河") { showsHistory = true }
+                    Button("牌河", systemImage: "square.grid.3x3") { showsHistory = true }
                 }
             }
         }
+        .sheet(item: $purchaseReason) { PurchaseSheet(reason: $0) }
         .sheet(isPresented: $showsHistory) {
             if let table = session.table { TableHistory(table: table, names: names) }
+        }
+        .sheet(item: $guideLesson) { lesson in
+            NavigationStack { RuleGuide(startingAt: lesson, showsCloseButton: true) }
         }
         .alert("打出金牌？", isPresented: Binding(get: { goldDiscard != nil }, set: { if !$0 { goldDiscard = nil } }),
                presenting: goldDiscard) { confirmation in
@@ -83,7 +101,7 @@ struct MatchView<Session: MatchSession>: View {
             await performOpening(opening)
         }
         .task(id: TurnState(revision: session.revision, ready: active && opening == nil)) {
-            guard active, opening == nil, session.computerHasMove else { return }
+            guard !session.managesComputerTurns, active, opening == nil, session.computerHasMove else { return }
             let delay = session.table?.step == .turn ? Int.random(in: 1150...1420) : Int.random(in: 220...360)
             do { try await Task.sleep(for: .milliseconds(delay)) }
             catch { return }
@@ -149,7 +167,25 @@ struct MatchView<Session: MatchSession>: View {
         }
     }
 
+    private var advanceTitle: String? {
+        if session.players.isEmpty { return access.canBeginSoloHand ? nil : "解锁完整版 · 继续单机" }
+        return access.canHost ? nil : "解锁完整版 · 继续做房主"
+    }
+
     private struct TurnState: Equatable { var revision: Int; var ready: Bool }
+    private var contextualLesson: RuleLesson {
+        guard let table = session.table else { return .turn }
+        if table.step == .opening { return .gold }
+        if table.result != nil || table.moves.contains(.win) { return .winning }
+        if table.step == .claim || table.moves.contains(where: {
+            if case .meld = $0 { true } else { false }
+        }) { return .claims }
+        if table.viewerMustSelfDraw { return .gold }
+        if let id = activeTile(table),
+           let tile = (table.hand + [table.drawn].compactMap { $0 }).first(where: { $0.id == id }),
+           table.isGold(tile) { return .gold }
+        return .turn
+    }
     private struct OpeningRun: Equatable { var round: Int?; var active: Bool }
     private struct GoldDiscard {
         let tile: Tile
@@ -255,39 +291,73 @@ struct MatchView<Session: MatchSession>: View {
 
     private func board(_ table: TableState) -> some View {
         GeometryReader { geometry in
-            let landscape = geometry.size.width > geometry.size.height
-            let compactControls = landscape && !typeSize.isAccessibilitySize
-            let controlsLayout = compactControls
-                ? AnyLayout(HStackLayout(spacing: 12))
-                : AnyLayout(VStackLayout(spacing: 6))
-
-            VStack(spacing: 8) {
-                if !compactControls { header(table) }
-                GeometryReader { surface in
-                    ScrollView {
-                        LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
-                                  drawingSeat: drawingSeat, drawStarted: drawStarted,
-                                  drawingFromReserve: drawCue?.fromReserve == true, paused: session.paused,
-                                  minimumHeight: surface.size.height, compact: compactControls)
+            #if canImport(SwiftUI, _version: 8.0.85)
+            if #available(iOS 27.1, *), !FoldRegions.divisions(in: geometry).isEmpty {
+                ArrangementView {
+                    VStack(spacing: 8) {
+                        header(table)
+                        tableSurface(table)
                     }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .accessibilityIdentifier("table-scroll")
-                }
-                VStack(spacing: 6) {
-                    controlsLayout {
-                        if compactControls {
-                            header(table).fixedSize(horizontal: true, vertical: false)
-                        }
-                        if arranging { arrangementControls(table, showsDrawn: !landscape) }
-                        else { actions(table, showsDrawn: !landscape, compact: compactControls) }
+                    .padding(TeaTheme.tableGutter)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("table-region")
+                } secondary: {
+                    GeometryReader { panel in
+                        handPanel(table, width: panel.size.width, singleRow: panel.size.width >= 600,
+                                  includesHeader: false)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     }
-                    rack(table, availableWidth: max(0, geometry.size.width - TeaTheme.tableGutter * 2),
-                         landscape: landscape)
+                    .padding(TeaTheme.tableGutter)
                 }
+                .arrangementViewStyle(.split)
+            } else {
+                flatBoard(table, size: geometry.size)
             }
-            .padding(.horizontal, TeaTheme.tableGutter)
-            .padding(.vertical, 8)
+            #else
+            flatBoard(table, size: geometry.size)
+            #endif
         }
+    }
+
+    private func flatBoard(_ table: TableState, size: CGSize) -> some View {
+        let singleRow = size.width > size.height || size.width >= 600
+        let compactControls = singleRow && !typeSize.isAccessibilitySize
+        return VStack(spacing: 8) {
+            if !compactControls { header(table) }
+            tableSurface(table)
+            handPanel(table, width: max(0, size.width - TeaTheme.tableGutter * 2), singleRow: singleRow,
+                      includesHeader: compactControls)
+        }
+        .padding(.horizontal, TeaTheme.tableGutter)
+        .padding(.vertical, 8)
+    }
+
+    private func tableSurface(_ table: TableState) -> some View {
+        GeometryReader { surface in
+            ScrollView {
+                LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
+                          drawingSeat: drawingSeat, drawStarted: drawStarted,
+                          drawingFromReserve: drawCue?.fromReserve == true, paused: session.paused,
+                          minimumHeight: surface.size.height, compact: surface.size.width > surface.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .accessibilityIdentifier("table-scroll")
+        }
+    }
+
+    private func handPanel(_ table: TableState, width: CGFloat, singleRow: Bool, includesHeader: Bool) -> some View {
+        let compact = singleRow && !typeSize.isAccessibilitySize
+        let layout = compact ? AnyLayout(HStackLayout(spacing: 12)) : AnyLayout(VStackLayout(spacing: 6))
+        return VStack(spacing: 6) {
+            layout {
+                if includesHeader { header(table).fixedSize(horizontal: true, vertical: false) }
+                if arranging { arrangementControls(table, showsDrawn: !singleRow) }
+                else { actions(table, showsDrawn: !singleRow, compact: compact) }
+            }
+            rack(table, availableWidth: width, landscape: singleRow)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("hand-panel")
     }
 
     private func header(_ table: TableState) -> some View {
@@ -303,7 +373,12 @@ struct MatchView<Session: MatchSession>: View {
                 }
             }
             Spacer(minLength: 0)
-            if let gold = table.gold { goldIndicator(gold.kind) }
+            if let gold = table.gold {
+                Button { guideLesson = .gold } label: { goldIndicator(gold.kind) }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("查看金牌玩法")
+                    .accessibilityIdentifier("gold-rules")
+            }
         }
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(TeaTheme.muted)
@@ -374,6 +449,7 @@ struct MatchView<Session: MatchSession>: View {
         return VStack(spacing: 2) {
             Text("摸牌")
                 .font(.caption2.weight(.semibold))
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .foregroundStyle(TeaTheme.muted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
@@ -535,7 +611,7 @@ struct MatchView<Session: MatchSession>: View {
             if kind == .chow {
                 "吃 \(table.hand.filter { ids.contains($0.id) }.map(\.kind.spokenName).joined(separator: "・"))"
             } else {
-                kind.label
+                "\(kind.label) \(table.hand.first { ids.contains($0.id) }?.kind.spokenName ?? "")"
             }
         default: ""
         }
@@ -595,6 +671,7 @@ private struct TableHistory: View {
                 }
                 .padding(TeaTheme.gutter)
             }
+            .modifier(HingeSafeContent())
             .navigationTitle("牌河与副露")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }

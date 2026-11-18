@@ -6,6 +6,8 @@ struct MatchResults: View {
     var result: RoundResult
     var names: [Seat: String]
     var canAdvance: Bool
+    var advanceTitle: String? = nil
+    var advanceDetail: String? = nil
     var next: () -> Void
 
     var body: some View {
@@ -46,10 +48,11 @@ struct MatchResults: View {
             .padding(TeaTheme.gutter)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Group {
+            VStack(spacing: 6) {
+                if let advanceDetail { Text(advanceDetail).font(.caption).foregroundStyle(TeaTheme.muted) }
                 if canAdvance {
                     Button(action: next) {
-                        Text(table.matchFinished ? "新的一场" : "下一局").frame(maxWidth: .infinity)
+                        Text(advanceTitle ?? (table.matchFinished ? "新的一场" : "下一局")).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(TeaButtonStyle())
                     .accessibilityIdentifier("next-hand")
@@ -63,6 +66,7 @@ struct MatchResults: View {
             .background(TeaTheme.canvas)
             .overlay(alignment: .top) { Divider() }
         }
+        .modifier(HingeSafeContent())
     }
 
     private func winningTiles(for winner: Seat) -> some View {

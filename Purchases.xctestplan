@@ -1,0 +1,38 @@
+{
+  "configurations": [
+    {
+      "id": "83193176-41AF-4C3F-877D-1022A50DFEE3",
+      "name": "Local StoreKit purchases",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "storeKitConfiguration": {
+      "identifier": "PurchaseTests/FuzhouMahjong.storekit"
+    },
+    "targetForVariableExpansion": {
+      "containerPath": "container:FuzhouMahjong.xcodeproj",
+      "identifier": "54141DD9CEABF40F6EFF6B0D",
+      "name": "FuzhouMahjong"
+    }
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:FuzhouMahjong.xcodeproj",
+        "identifier": "BA756099929AD1537F20E48C",
+        "name": "FuzhouPurchaseFlowTests"
+      },
+      "parallelizable": false
+    },
+    {
+      "target": {
+        "containerPath": "container:FuzhouMahjong.xcodeproj",
+        "identifier": "02D0554263DF4DA4799811EC",
+        "name": "FuzhouPurchasesTests"
+      },
+      "parallelizable": false
+    }
+  ],
+  "version": 1
+}

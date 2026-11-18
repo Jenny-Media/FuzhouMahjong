@@ -1,0 +1,79 @@
+Test Suite 'All tests' started at 2026-11-17 20:24:09.785.
+Test Suite 'FuzhouNearbyTests.xctest' started at 2026-11-17 20:24:09.786.
+Test Suite 'NearbyLoopbackTests' started at 2026-11-17 20:24:09.786.
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testDiscoveryResumesAfterForegroundOnlyWhileRequested]' started.
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testDiscoveryResumesAfterForegroundOnlyWhileRequested]' passed (0.015 seconds).
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testFourClientsPlayAndReconnectAcrossRealEncryptedSockets]' started.
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testFourClientsPlayAndReconnectAcrossRealEncryptedSockets]' passed (2.745 seconds).
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testFreeGuestCanJoinHostButCannotCreateOrAdvanceItsOwnRoom]' started.
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testFreeGuestCanJoinHostButCannotCreateOrAdvanceItsOwnRoom]' passed (0.070 seconds).
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testHostedComputersProgressWithoutAViewAndPauseForAnOfflineGuest]' started.
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testHostedComputersProgressWithoutAViewAndPauseForAnOfflineGuest]' passed (3.097 seconds).
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testHostTrialExpiringBeforeStartCannotDealButRoomCanRemainOpen]' started.
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testHostTrialExpiringBeforeStartCannotDealButRoomCanRemainOpen]' passed (0.053 seconds).
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testMissingInviteTimesOutAndCanRetryOrCancel]' started.
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testMissingInviteTimesOutAndCanRetryOrCancel]' passed (0.784 seconds).
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testOfflineGuestCanEscapeAClosedRoomAfterBoundedRecovery]' started.
+Test Case '-[FuzhouNearbyTests.NearbyLoopbackTests testOfflineGuestCanEscapeAClosedRoomAfterBoundedRecovery]' passed (1.541 seconds).
+Test Suite 'NearbyLoopbackTests' passed at 2026-11-17 20:24:18.092.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 8.305 (8.306) seconds
+Test Suite 'FuzhouNearbyTests.xctest' passed at 2026-11-17 20:24:18.092.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 8.305 (8.306) seconds
+Test Suite 'All tests' passed at 2026-11-17 20:24:18.092.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 8.305 (8.307) seconds
+Test Suite 'All tests' started at 2026-11-17 20:24:18.189.
+Test Suite 'FuzhouCoreTests.xctest' started at 2026-11-17 20:24:18.189.
+Test Suite 'MatchTests' started at 2026-11-17 20:24:18.189.
+Test Case '-[FuzhouCoreTests.MatchTests testComputerChowsToMakeAReadyHand]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testComputerChowsToMakeAReadyHand]' passed (0.006 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testComputerKeepsItsWaitInsteadOfDiscardingTheIsolatedLookingPairOfNeighbors]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testComputerKeepsItsWaitInsteadOfDiscardingTheIsolatedLookingPairOfNeighbors]' passed (0.018 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testDiscardWinChargesOnlyDiscarder]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testDiscardWinChargesOnlyDiscarder]' passed (0.001 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testEncryptedFramesRejectReplayAndWrongSession]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testEncryptedFramesRejectReplayAndWrongSession]' passed (0.003 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testGoldDiscardRestrictionIsVisibleToTheDiscarder]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testGoldDiscardRestrictionIsVisibleToTheDiscarder]' passed (0.000 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testNearbySeatReservationAndPrivateSnapshot]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testNearbySeatReservationAndPrivateSnapshot]' passed (0.000 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testOpenKongBeatsChowAndDrawsAReplacement]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testOpenKongBeatsChowAndDrawsAReplacement]' passed (0.002 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testRobGoldDuringOpeningDoesNotCountFlippedTileAsHeldGold]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testRobGoldDuringOpeningDoesNotCountFlippedTileAsHeldGold]' passed (0.000 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testScoringLinesAndPayments]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testScoringLinesAndPayments]' passed (0.000 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testSeededGamesSettleAndRoundStateResumes]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testSeededGamesSettleAndRoundStateResumes]' passed (17.967 seconds).
+Test Case '-[FuzhouCoreTests.MatchTests testTileInventoryAndWildSubstitution]' started.
+Test Case '-[FuzhouCoreTests.MatchTests testTileInventoryAndWildSubstitution]' passed (0.001 seconds).
+Test Suite 'MatchTests' passed at 2026-11-17 20:24:36.188.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 17.998 (17.999) seconds
+Test Suite 'FuzhouCoreTests.xctest' passed at 2026-11-17 20:24:36.188.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 17.998 (17.999) seconds
+Test Suite 'All tests' passed at 2026-11-17 20:24:36.188.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 17.998 (18.000) seconds
+Test Suite 'All tests' started at 2026-11-17 20:24:36.293.
+Test Suite 'FuzhouAccessTests.xctest' started at 2026-11-17 20:24:36.293.
+Test Suite 'AccessTests' started at 2026-11-17 20:24:36.293.
+Test Case '-[FuzhouAccessTests.AccessTests testDaylightSavingResetUsesCalendarMidnight]' started.
+Test Case '-[FuzhouAccessTests.AccessTests testDaylightSavingResetUsesCalendarMidnight]' passed (0.001 seconds).
+Test Case '-[FuzhouAccessTests.AccessTests testLocalMidnightResetsAndClockRollbackCannotAddHands]' started.
+Test Case '-[FuzhouAccessTests.AccessTests testLocalMidnightResetsAndClockRollbackCannotAddHands]' passed (0.000 seconds).
+Test Case '-[FuzhouAccessTests.AccessTests testMigrationResumesWithoutChargingAndNewHandPersistsWithAllowance]' started.
+Test Case '-[FuzhouAccessTests.AccessTests testMigrationResumesWithoutChargingAndNewHandPersistsWithAllowance]' passed (0.003 seconds).
+Test Case '-[FuzhouAccessTests.AccessTests testRestoringTrialCannotStartItAgain]' started.
+Test Case '-[FuzhouAccessTests.AccessTests testRestoringTrialCannotStartItAgain]' passed (0.000 seconds).
+Test Case '-[FuzhouAccessTests.AccessTests testTravelWestDoesNotResetTheSameAllowance]' started.
+Test Case '-[FuzhouAccessTests.AccessTests testTravelWestDoesNotResetTheSameAllowance]' passed (0.000 seconds).
+Test Case '-[FuzhouAccessTests.AccessTests testTrialAndPaidHandsDoNotConsumeFreeAllowance]' started.
+Test Case '-[FuzhouAccessTests.AccessTests testTrialAndPaidHandsDoNotConsumeFreeAllowance]' passed (0.000 seconds).
+Test Case '-[FuzhouAccessTests.AccessTests testTrialWindowIsExactlyFourteenDaysAndLifetimeDoesNotExpire]' started.
+Test Case '-[FuzhouAccessTests.AccessTests testTrialWindowIsExactlyFourteenDaysAndLifetimeDoesNotExpire]' passed (0.000 seconds).
+Test Case '-[FuzhouAccessTests.AccessTests testTwoHandsShareOneAllowanceAcrossSaveSlotsAndBlockedRestartPreservesSave]' started.
+Test Case '-[FuzhouAccessTests.AccessTests testTwoHandsShareOneAllowanceAcrossSaveSlotsAndBlockedRestartPreservesSave]' passed (0.000 seconds).
+Test Suite 'AccessTests' passed at 2026-11-17 20:24:36.299.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'FuzhouAccessTests.xctest' passed at 2026-11-17 20:24:36.299.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'All tests' passed at 2026-11-17 20:24:36.299.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.005 (0.006) seconds

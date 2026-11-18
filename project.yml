@@ -16,11 +16,13 @@ targets:
         product: FuzhouCore
       - package: FuzhouCore
         product: FuzhouNearby
+      - package: FuzhouCore
+        product: FuzhouAccess
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: xyz.xcv58.FuzhouMahjong
+        PRODUCT_BUNDLE_IDENTIFIER: media.jenny.FuzhouMahjong$(VALIDATION_BUNDLE_SUFFIX)
         MARKETING_VERSION: '1.0'
-        CURRENT_PROJECT_VERSION: '14'
+        CURRENT_PROJECT_VERSION: '19'
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: 福州麻将
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
@@ -32,6 +34,7 @@ targets:
       properties:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         ITSAppUsesNonExemptEncryption: false
@@ -39,7 +42,58 @@ targets:
         NSCameraUsageDescription: 用于扫描牌友的福州麻将牌桌邀请二维码。
         NSBonjourServices: ['_fuzhou._tcp']
         CFBundleURLTypes:
-          - CFBundleURLName: xyz.xcv58.FuzhouMahjong.invite
+          - CFBundleURLName: media.jenny.FuzhouMahjong.invite
             CFBundleURLSchemes: [fuzhou-mahjong]
     scheme:
+      gatherCoverageData: false
+
+  FuzhouPurchasesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PurchaseTests
+        excludes: [FuzhouMahjong.storekit]
+      - path: PurchaseTests/FuzhouMahjong.storekit
+        buildPhase: resources
+    dependencies:
+      - target: FuzhouMahjong
+      - package: FuzhouCore
+        product: FuzhouAccess
+      - package: FuzhouCore
+        product: FuzhouCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: media.jenny.FuzhouMahjong.PurchaseTests$(VALIDATION_BUNDLE_SUFFIX)
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: '6.0'
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/FuzhouMahjong.app/FuzhouMahjong
+        BUNDLE_LOADER: $(TEST_HOST)
+  FuzhouPurchaseFlowTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+      - path: PurchaseTests/FuzhouMahjong.storekit
+        buildPhase: resources
+    dependencies:
+      - target: FuzhouMahjong
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: media.jenny.FuzhouMahjong.PurchaseFlowTests$(VALIDATION_BUNDLE_SUFFIX)
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: '6.0'
+        TEST_TARGET_NAME: FuzhouMahjong
+schemes:
+  FuzhouMahjongPurchases:
+    build:
+      targets:
+        FuzhouMahjong: all
+    run:
+      config: Debug
+      storeKitConfiguration: PurchaseTests/FuzhouMahjong.storekit
+    test:
+      testPlans:
+        - path: Purchases.xctestplan
+          defaultPlan: true
+      targets: [FuzhouPurchasesTests, FuzhouPurchaseFlowTests]
       gatherCoverageData: false

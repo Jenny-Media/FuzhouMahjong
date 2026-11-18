@@ -1,0 +1,10 @@
+        Screen ID: 1
+        UI Orientation: Portrait Upside Down
+        Screen ID: 2
+        UI Orientation: Ambiguous
+        Screen ID: 3
+        UI Orientation: Portrait Upside Down
+        Screen ID: 4
+        UI Orientation: Ambiguous
+        Screen ID: 5
+        UI Orientation: Ambiguous

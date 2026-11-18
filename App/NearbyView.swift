@@ -1,5 +1,6 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import FuzhouAccess
 import FuzhouCore
 import FuzhouNearby
 import SwiftUI
@@ -7,6 +8,8 @@ import UIKit
 
 struct NearbyView: View {
     let session: NearbySession
+    @Environment(GameAccess.self) private var access
+    @State private var purchaseReason: AccessReason?
 
     @AppStorage("nearby.nickname") private var nickname = ""
     @Environment(\.openURL) private var openURL
@@ -44,8 +47,10 @@ struct NearbyView: View {
         }
         .task { session.browse() }
         .onDisappear {
+            if let round = session.openingRound { session.finishOpening(round) }
             if !session.isInRoom { session.stopBrowsing() }
         }
+        .sheet(item: $purchaseReason) { PurchaseSheet(reason: $0) }
         .sheet(isPresented: $showsInvite) {
             if let id = session.roomID { InviteView(id: id) }
         }
@@ -106,6 +111,17 @@ struct NearbyView: View {
                         .buttonStyle(TeaButtonStyle(prominent: false))
                     }
                 }
+                if let search = session.inviteSearch {
+                    HStack(spacing: 8) {
+                        if search == .unavailable {
+                            Button("重试邀请") { session.retryInviteSearch() }
+                                .buttonStyle(TeaButtonStyle())
+                        }
+                        Button("取消查找") { session.cancelInviteSearch() }
+                            .buttonStyle(TeaButtonStyle(prominent: false))
+                            .accessibilityIdentifier("cancel-invite-search")
+                    }
+                }
 
                 if session.isInRoom {
                     roster
@@ -115,6 +131,7 @@ struct NearbyView: View {
             }
             .padding(TeaTheme.gutter)
         }
+        .modifier(HingeSafeContent())
         .background(TeaTheme.canvas)
     }
 
@@ -147,11 +164,15 @@ struct NearbyView: View {
                 .buttonStyle(TeaButtonStyle(prominent: false))
             }
             Button {
-                session.create(name: nickname)
+                if access.authorizeHosting() { session.create(name: nickname) }
+                else { purchaseReason = .hosting }
             } label: {
                 Text("创建牌桌").frame(maxWidth: .infinity)
             }
             .buttonStyle(TeaButtonStyle())
+            .accessibilityIdentifier("host-create")
+            Text("加入牌友的牌桌始终免费，无需开启体验。")
+                .font(.footnote).foregroundStyle(TeaTheme.muted)
             Button {
                 showsScanner = true
             } label: {
@@ -159,7 +180,7 @@ struct NearbyView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(TeaButtonStyle(prominent: false))
-            if !session.rooms.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     TextField("邀请码", text: $inviteCode)
                         .textInputAutocapitalization(.characters)
@@ -170,12 +191,15 @@ struct NearbyView: View {
                     .buttonStyle(TeaButtonStyle(prominent: false))
                     .disabled(inviteRoom == nil)
                 }
+                Text("邀请码和二维码都用于选择附近的牌桌。请与房主保持靠近，并开启 Wi-Fi。")
+                    .font(.footnote).foregroundStyle(TeaTheme.muted)
             }
         }
     }
 
     private var inviteRoom: DiscoveredRoom? {
-        let matches = session.rooms.filter { $0.code.caseInsensitiveCompare(inviteCode) == .orderedSame }
+        let code = inviteCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matches = session.rooms.filter { $0.code.caseInsensitiveCompare(code) == .orderedSame }
         return matches.count == 1 ? matches[0] : nil
     }
 
@@ -196,9 +220,13 @@ struct NearbyView: View {
             if session.isHost {
                 Text(session.canStart ? "空位将由电脑玩家补齐。" : "等待至少一位牌友加入。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
-                Button { session.startMatch() } label: { Text("开始对局").frame(maxWidth: .infinity) }
+                Button {
+                    if access.authorizeHosting() { session.startMatch() }
+                    else { purchaseReason = .hosting }
+                } label: { Text(access.canHost ? "开始对局" : "解锁并开始对局").frame(maxWidth: .infinity) }
                     .buttonStyle(TeaButtonStyle())
                     .disabled(!session.canStart)
+                    .accessibilityIdentifier("host-start")
                 Button("分享邀请") { showsInvite = true }
                     .buttonStyle(TeaButtonStyle(prominent: false))
             } else if session.connected {
@@ -216,21 +244,25 @@ private struct InviteView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                if let png = qrImage {
-                    Image(uiImage: png)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 190, height: 190)
-                        .padding(16).background(.white)
-                        .accessibilityLabel("牌桌邀请二维码")
+            ScrollView {
+                VStack(spacing: 16) {
+                    if let png = qrImage {
+                        Image(uiImage: png)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 190, height: 190)
+                            .padding(16).background(.white)
+                            .accessibilityLabel("牌桌邀请二维码")
+                    }
+                    Text(id.uuidString.prefix(4)).font(.largeTitle.monospaced())
+                    Text("请牌友在「附近联机」中扫描二维码，或输入上方的邀请码。")
+                        .font(.subheadline).multilineTextAlignment(.center)
                 }
-                Text(id.uuidString.prefix(4)).font(.largeTitle.monospaced())
-                Text("请牌友在「附近联机」中扫描二维码，或输入上方的邀请码。")
-                    .font(.subheadline).multilineTextAlignment(.center)
+                .padding(TeaTheme.gutter)
+                .frame(maxWidth: .infinity)
             }
-            .padding(TeaTheme.gutter)
+            .modifier(HingeSafeContent())
             .navigationTitle("邀请牌友")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }

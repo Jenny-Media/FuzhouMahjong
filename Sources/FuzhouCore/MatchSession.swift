@@ -8,10 +8,15 @@ public protocol MatchSession: AnyObject, Observable {
     var paused: Bool { get }
     var canAdvance: Bool { get }
     var computerHasMove: Bool { get }
+    var managesComputerTurns: Bool { get }
     var openingRound: Int? { get }
     var rackOrder: [Tile.ID]? { get set }
     func finishOpening(_ round: Int)
     func submit(_ move: Move) -> Bool
     func advanceComputer()
     func nextHand()
+}
+
+public extension MatchSession {
+    var managesComputerTurns: Bool { false }
 }

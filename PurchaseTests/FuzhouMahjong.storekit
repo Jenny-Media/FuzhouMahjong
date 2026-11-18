@@ -1,0 +1,58 @@
+{
+  "identifier": "314FA045-9A75-46E1-BAAF-B7ADA6FD3C50",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "0",
+      "familyShareable": false,
+      "internalID": "51072013-68D1-4217-8012-2B5A856C34B5",
+      "localizations": [
+        {
+          "description": "14 days of unlimited solo play and nearby hosting. No automatic charge.",
+          "displayName": "14-day Trial",
+          "locale": "en_US"
+        },
+        {
+          "description": "14天内单机和开桌不限次数，到期不自动扣费。",
+          "displayName": "14天免费体验",
+          "locale": "zh_Hans"
+        }
+      ],
+      "productID": "media.jenny.FuzhouMahjong.trial14",
+      "referenceName": "14-day Trial",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "4.99",
+      "familyShareable": false,
+      "internalID": "A3F5ABAF-4C41-4C28-9B6A-B3751C1CFE71",
+      "localizations": [
+        {
+          "description": "Unlimited solo play and permanent hosting. Guests join free.",
+          "displayName": "Lifetime Full Unlock",
+          "locale": "en_US"
+        },
+        {
+          "description": "无限单机和永久开桌，牌友免费加入。一次购买，无订阅。",
+          "displayName": "永久解锁完整版",
+          "locale": "zh_Hans"
+        }
+      ],
+      "productID": "media.jenny.FuzhouMahjong.lifetime",
+      "referenceName": "Lifetime Full Unlock",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_developerTeamID": "5736QK4NZX",
+    "_failTransactionsEnabled": false,
+    "_locale": "zh_Hans",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}
