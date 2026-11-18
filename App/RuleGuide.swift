@@ -28,7 +28,7 @@ struct RuleGuide: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(lesson.title).font(.title2.weight(.semibold))
+                Text(lesson.title).font(TeaTheme.display)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("rule-lesson-title")
                     .accessibilityFocused($lessonFocused)
@@ -44,15 +44,9 @@ struct RuleGuide: View {
                         RuleDiagram(frame: frame, description: frames[frames.count - 1].description)
                             .id(Example(lesson: lesson, claim: claim))
                         if !reduceMotion {
-                            Button {
-                                replay += 1
-                            } label: {
-                                Label("重播", systemImage: "arrow.counterclockwise")
-                                    .font(.subheadline.weight(.semibold))
-                                    .padding(.horizontal, 8)
-                                    .frame(minHeight: TeaTheme.hitTarget)
-                            }
-                            .accessibilityIdentifier("rule-replay")
+                            Button("重播", systemImage: "arrow.counterclockwise") { replay += 1 }
+                                .buttonStyle(TeaButtonStyle(prominent: false))
+                                .accessibilityIdentifier("rule-replay")
                         }
                     }
                     .frame(maxWidth: wide ? 360 : .infinity)
@@ -63,6 +57,8 @@ struct RuleGuide: View {
                     }
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .teaPanel()
                 }
             }
             .padding(TeaTheme.gutter)
@@ -70,7 +66,7 @@ struct RuleGuide: View {
             .frame(maxWidth: .infinity)
         }
         .id(lesson)
-        .background(TeaTheme.canvas)
+        .teaBackdrop()
         .navigationTitle("玩法")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -125,8 +121,7 @@ struct RuleGuide: View {
         .minimumScaleFactor(0.7)
         .padding(.horizontal, TeaTheme.gutter)
         .padding(.vertical, 6)
-        .background(TeaTheme.canvas)
-        .overlay(alignment: .top) { Divider() }
+        .teaFooter()
     }
 
     private func open(_ page: RuleLesson) {
@@ -164,7 +159,7 @@ private struct RuleDiagram: View {
         }
         .frame(height: 160)
         .foregroundStyle(TeaTheme.feltInk)
-        .modifier(Felt())
+        .modifier(Felt(inlaid: true))
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("牌例")

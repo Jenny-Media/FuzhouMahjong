@@ -9,157 +9,205 @@ struct LiveTable: View {
     let drawStarted: Date?
     let drawingFromReserve: Bool
     let paused: Bool
-    let minimumHeight: CGFloat
-    let compact: Bool
+    let size: CGSize
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private let inset: CGFloat = 10
+    private let gap: CGFloat = 6
+    private let stripHeight: CGFloat = 24
 
     var body: some View {
+        let width = max(0, size.width - inset * 2)
+        let height = max(0, size.height - inset * 2)
         Group {
-            if compact {
-                HStack(alignment: .top, spacing: 12) {
-                    playerGrid
-                    VStack(spacing: 6) {
-                        discardFocus
-                        HStack(spacing: 8) {
-                            wallSources.fixedSize(horizontal: true, vertical: false)
-                            previousDiscards
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
+            if width >= 455, width > height {
+                wideTable(width: width, height: height)
             } else {
-                VStack(spacing: 12) {
-                    playerGrid
-                    wallSources
-                    discardFocus
-                    previousDiscards
-                }
+                seatedTable(width: width, height: height)
             }
         }
-        .padding(compact ? 10 : 14)
-        .frame(maxWidth: .infinity, minHeight: minimumHeight)
+        .frame(width: width, height: height)
+        .frame(width: size.width, height: size.height)
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .foregroundStyle(TeaTheme.feltInk)
-        .modifier(Felt())
+        .modifier(Felt(walnutRail: true))
         .overlayPreferenceValue(TableAnchors.self) { anchors in
             if let drawingSeat, let drawStarted, let wall = anchors[drawingFromReserve ? .reserve : .wall],
                let seat = anchors[.player(drawingSeat)], !reduceMotion {
                 GeometryReader { geometry in
                     DrawPickup(started: drawStarted, wall: geometry[wall], player: geometry[seat])
                 }
-                .clipShape(RoundedRectangle(cornerRadius: TeaTheme.tableCorner))
-            }
-        }
-    }
-
-    private var playerGrid: some View {
-        let seats = (0..<Seat.allCases.count).map { table.viewer.advanced($0) }
-        let count = typeSize.isAccessibilitySize ? 1 : 2
-        let columns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 6, alignment: .top), count: count)
-        return LazyVGrid(columns: columns, spacing: 6) {
-            ForEach(seats) { seat in
-                if let player = table.players.first(where: { $0.seat == seat }) { playerCard(player) }
+                .clipShape(RoundedRectangle(cornerRadius: TeaTheme.tableRailCorner, style: .circular))
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("本桌玩家")
+        .accessibilityIdentifier("table-surface")
     }
 
-    private func playerCard(_ player: TableState.Player) -> some View {
-        let acting = !paused && table.step == .turn && table.current == player.seat
-        let dealer = table.dealer == player.seat
-        let name = name(of: player.seat)
-        let drawLabel = acting ? drawStatus(for: player.seat) : nil
-        return HStack(alignment: .top, spacing: 4) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 3) {
-                    if acting { Circle().fill(TeaTheme.brass).frame(width: 5, height: 5).accessibilityHidden(true) }
-                    Text(name).font(.caption.weight(.semibold)).lineLimit(1)
+    private func seatedTable(width: CGFloat, height: CGFloat) -> some View {
+        let endWidth = min(280, width * 0.77)
+        let endHeight = min(54, max(38, height * 0.16))
+        let sideWidth = min(108, width * 0.25)
+        let middleWidth = max(0, width - 2 * (sideWidth + gap))
+        let middleHeight = max(0, height - endHeight * 2 - stripHeight - gap * 3)
+        let sideHeight = min(middleHeight, 118)
+
+        return VStack(spacing: gap) {
+            seatCard(table.viewer.advanced(2), width: endWidth, height: endHeight)
+            HStack(spacing: gap) {
+                seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
+                discardFocus(width: middleWidth, height: middleHeight, stacked: true)
+                seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
+            }
+            tableStrip(width: width)
+            seatCard(table.viewer, width: endWidth, height: endHeight)
+        }
+    }
+
+    private func wideTable(width: CGFloat, height: CGFloat) -> some View {
+        let playersWidth = width * 0.56
+        let seatWidth = (playersWidth - gap) / 2
+        let seatHeight = max(0, (height - gap) / 2)
+        let centerWidth = max(0, width - playersWidth - gap)
+
+        return HStack(spacing: gap) {
+            Grid(horizontalSpacing: gap, verticalSpacing: gap) {
+                GridRow {
+                    seatCard(table.viewer.advanced(1), width: seatWidth, height: seatHeight)
+                    seatCard(table.viewer.advanced(2), width: seatWidth, height: seatHeight)
                 }
-                Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(acting ? TeaTheme.brass : TeaTheme.feltInk.opacity(0.84))
+                GridRow {
+                    seatCard(table.viewer, width: seatWidth, height: seatHeight)
+                    seatCard(table.viewer.advanced(3), width: seatWidth, height: seatHeight)
+                }
+            }
+            VStack(spacing: gap) {
+                discardFocus(width: centerWidth, height: max(0, height - stripHeight - gap), stacked: false)
+                tableStrip(width: centerWidth)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func seatCard(_ seat: Seat, width: CGFloat, height: CGFloat, vertical: Bool = false) -> some View {
+        if let player = table.players.first(where: { $0.seat == seat }) {
+            let acting = !paused && table.step == .turn && table.current == seat
+            let dealer = table.dealer == seat
+            let wind = table.wind(for: seat)
+            let name = name(of: seat)
+            let identityWidth = vertical ? width - 8 : min(100, width * 0.49)
+            let meldWidth = max(0, vertical ? width - 8 : width - identityWidth - 12)
+            let layout = vertical
+                ? AnyLayout(VStackLayout(spacing: 4))
+                : AnyLayout(HStackLayout(spacing: 4))
+            let shape = RoundedRectangle(cornerRadius: 10)
+
+            layout {
+                HStack(spacing: 4) {
+                    SeatBadge(seat: wind, highlighted: acting)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name).font(.caption.weight(.semibold))
+                        Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(acting ? TeaTheme.brass : TeaTheme.muted)
+                    }
                     .lineLimit(1)
-                if let drawLabel {
-                    Text(drawLabel).font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass).lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 }
+                .frame(width: max(0, identityWidth), alignment: vertical ? .center : .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(wind.wind)风，\(name)，\(dealer ? "庄家，" : "")\(acting ? "当前回合，" : "")\(player.score)分")
+                .accessibilityIdentifier("seat-score-\(seat.id)")
+
+                meldSummary(player.melds, width: meldWidth, columns: vertical ? 2 : 3)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("\(name)的副露")
+                    .accessibilityIdentifier("seat-melds-\(seat.id)")
+                    .accessibilityHidden(player.melds.isEmpty)
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(name)，\(dealer ? "庄家，" : "")\(acting ? "当前回合，" : "")\(player.score)分\(drawLabel.map { "，\($0)" } ?? "")")
-            Spacer(minLength: 1)
-            if !player.melds.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(player.melds) { meld in MeldTiles(meld: meld, width: 15) }
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("\(name)的副露")
-                .accessibilityIdentifier("seat-melds-\(player.seat.id)")
+            .frame(width: width, height: height)
+            .background(TeaTheme.feltDark.opacity(acting ? 0.94 : 0.72), in: shape)
+            .overlay {
+                shape.strokeBorder(acting ? TeaTheme.brass : TeaTheme.brassShade.opacity(0.35),
+                                   lineWidth: acting ? 1.5 : 1)
             }
+            .anchorPreference(key: TableAnchors.self, value: .bottom) { [.player(seat): $0] }
+            .accessibilityElement(children: .contain)
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 44 : 49, alignment: .topLeading)
-        .padding(.horizontal, 7)
-        .padding(.vertical, compact ? 4 : 6)
-        .background(TeaTheme.feltDark.opacity(acting ? 0.88 : 0.67), in: RoundedRectangle(cornerRadius: 9))
-        .overlay {
-            RoundedRectangle(cornerRadius: 9)
-                .strokeBorder(acting ? TeaTheme.brass : TeaTheme.feltInk.opacity(0.16), lineWidth: acting ? 1.5 : 1)
-        }
-        .anchorPreference(key: TableAnchors.self, value: .bottom) { [.player(player.seat): $0] }
-        .accessibilityElement(children: .contain)
     }
 
-    private func drawStatus(for seat: Seat) -> String? {
-        if drawingSeat == seat { return drawingFromReserve ? "补牌中" : "摸牌中" }
-        guard let draw = table.lastDraw, draw.seat == seat else { return nil }
-        if seat == table.viewer, table.drawn == nil { return nil }
-        if let discard = table.latestDiscard,
-           let meld = table.players.first(where: { $0.seat == seat })?.melds.last,
-           meld.kind == .chow || meld.kind == .pung,
-           meld.tiles.contains(discard.tile) { return nil }
-        if draw.flowersReplaced > 0 { return "补花 \(draw.flowersReplaced)" }
-        return draw.fromReserve ? "已补牌" : "已摸牌"
+    private func meldSummary(_ melds: [Meld], width: CGFloat, columns: Int) -> some View {
+        let groupWidth = max(0, (width - CGFloat(columns - 1) * 3) / CGFloat(columns))
+        let tileWidth = max(0, min(9, (groupWidth - 3) / 4))
+        let grid = Array(repeating: GridItem(.fixed(groupWidth), spacing: 3, alignment: .leading), count: columns)
+
+        return ZStack(alignment: .leading) {
+            Color.clear.accessibilityHidden(true)
+            LazyVGrid(columns: grid, alignment: .leading, spacing: 2) {
+                ForEach(melds) { meld in
+                    HStack(spacing: 1) {
+                        ForEach(meld.tiles) { tile in
+                            TileFace(kind: tile.kind).frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
+                        }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(meld.kind.label)，\(meld.tiles.map { $0.kind.spokenName }.joined(separator: "、"))")
+                }
+            }
+        }
+        .frame(width: width, height: (tileWidth / TileFace.artworkAspectRatio + 2) * (columns == 2 ? 3 : 2) - 2)
+    }
+
+    private func tableStrip(width: CGFloat) -> some View {
+        let tileWidth = min(17, max(0, (width - 118) / 6 - 3))
+        let previous = Array((table.discardTimeline ?? []).filter { $0.id != latest?.id }.suffix(6))
+        return HStack(spacing: 8) {
+            wallSources
+            Spacer(minLength: 0)
+            HStack(spacing: 3) {
+                ForEach(0..<6) { index in
+                    Group {
+                        if index < previous.count {
+                            let discard = previous[index]
+                            let claimed = claimedBy(discard) != nil
+                            TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
+                                .opacity(claimed ? 0.55 : 1)
+                                .accessibilityLabel("\(name(of: discard.seat))打出的\(discard.tile.kind.spokenName)\(claimed ? "，已被取走" : "")")
+                        } else {
+                            Color.clear.accessibilityHidden(true)
+                        }
+                    }
+                    .frame(width: tileWidth, height: min(stripHeight, tileWidth / TileFace.artworkAspectRatio))
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("之前的弃牌，按出牌顺序")
+        }
+        .frame(width: width, height: stripHeight)
     }
 
     private var wallSources: some View {
-        HStack(spacing: 12) {
-            wallStrip
-            reserveStack
-            Spacer(minLength: 0)
-        }
-        .frame(minHeight: 31)
-    }
-
-    private var wallStrip: some View {
-        let maximumStacks = 7
-        let stacks = min(maximumStacks, max(0, (table.remaining + 8) / 9))
+        let stacks = min(7, max(0, (table.remaining + 8) / 9))
         let pickup = max(0, stacks - 1)
-        return VStack(alignment: .leading, spacing: 4) {
+        return HStack(spacing: 10) {
             HStack(spacing: 2) {
-                ForEach(0..<maximumStacks, id: \.self) { index in
+                ForEach(0..<7) { index in
                     ZStack {
                         if index < stacks { stack }
                         if index == pickup, drawingSeat != nil, !drawingFromReserve { pickupOutline }
                     }
-                    .frame(width: 11, height: 15)
+                    .frame(width: 9, height: 13)
                     .anchorPreference(key: TableAnchors.self, value: .center) { index == pickup ? [.wall: $0] : [:] }
                 }
             }
-            Text("牌山").font(.caption2)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private var reserveStack: some View {
-        VStack(spacing: 4) {
             ZStack {
                 stack
                 if drawingSeat != nil, drawingFromReserve { pickupOutline }
             }
-            .frame(width: 11, height: 15)
+            .frame(width: 9, height: 13)
             .anchorPreference(key: TableAnchors.self, value: .center) { [.reserve: $0] }
-            Text("补牌").font(.caption2)
         }
         .accessibilityHidden(true)
     }
@@ -175,63 +223,41 @@ struct LiveTable: View {
         RoundedRectangle(cornerRadius: 2).strokeBorder(TeaTheme.brass, lineWidth: 1.5)
     }
 
-    private var discardFocus: some View {
-        HStack(spacing: 15) {
+    private func discardFocus(width: CGFloat, height: CGFloat, stacked: Bool) -> some View {
+        let tileWidth = min(53, width * 0.35, height * (stacked ? 0.34 : 0.50))
+        let labelWidth = stacked ? width - 8 : width * 0.55
+        let layout = stacked ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
+        return ZStack {
             if let latest {
-                TileFace(kind: latest.tile.kind, gold: table.isGold(latest.tile), selected: true)
-                    .frame(width: 49, height: 66)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(name(of: latest.seat))打出")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(TeaTheme.brass)
-                    Text(latest.tile.kind.spokenName)
-                        .font(.title3.weight(.semibold))
-                    if table.isGold(latest.tile) {
-                        Text("金牌").font(.caption)
+                let claim = claimedBy(latest)
+                layout {
+                    TileFace(kind: latest.tile.kind, gold: table.isGold(latest.tile))
+                        .frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
+                        .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
+                        .accessibilityHidden(true)
+                    VStack(alignment: stacked ? .center : .leading, spacing: 2) {
+                        Text("\(name(of: latest.seat))打出").font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass)
+                        Text(latest.tile.kind.spokenName).font(.system(.subheadline, design: .serif, weight: .bold))
+                        Text(claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" } ?? (table.isGold(latest.tile) ? "金牌" : " "))
+                            .font(.caption2).foregroundStyle(TeaTheme.muted)
+                            .accessibilityHidden(claim == nil && !table.isGold(latest.tile))
                     }
-                    if let claim = claimedBy(latest) {
-                        Text("\(name(of: claim.seat)) · \(claim.kind.label)")
-                            .font(.caption).foregroundStyle(TeaTheme.feltInk.opacity(0.84))
-                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(width: max(0, labelWidth), alignment: stacked ? .center : .leading)
                 }
                 .accessibilityElement(children: .combine)
+                .id(latest.id)
+                .transition(.opacity)
             } else {
-                Text("等待弃牌")
-                    .font(.subheadline)
-                    .foregroundStyle(TeaTheme.feltInk.opacity(0.84))
+                Text("等待弃牌").font(.caption).foregroundStyle(TeaTheme.muted)
+                    .transition(.opacity)
             }
         }
-        .id(latest?.id)
-        .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: -3)))
-        .frame(maxWidth: .infinity, minHeight: compact ? 72 : 100, maxHeight: .infinity)
-        .background(TeaTheme.feltDark.opacity(0.71), in: RoundedRectangle(cornerRadius: TeaTheme.surfaceCorner))
-        .overlay {
-            RoundedRectangle(cornerRadius: TeaTheme.surfaceCorner)
-                .strokeBorder(TeaTheme.feltInk.opacity(0.15), lineWidth: 1)
-        }
+        .padding(.horizontal, 4)
+        .frame(width: width, height: height)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: latest?.id)
         .accessibilityIdentifier("latest-discard")
-    }
-
-    private var previousDiscards: some View {
-        let previous = (table.discardTimeline ?? []).filter { $0.id != latest?.id }.suffix(6)
-        return HStack(alignment: .center, spacing: compact ? 3 : 5) {
-            if !previous.isEmpty {
-                Text("此前").font(.caption2).padding(.trailing, 2)
-                ForEach(previous) { discard in
-                    TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
-                        .frame(width: compact ? 18 : 24, height: compact ? 25 : 31)
-                        .opacity(claimedBy(discard) == nil ? 1 : 0.62)
-                        .accessibilityLabel("\(name(of: discard.seat))打出的\(discard.tile.kind.spokenName)\(claimedBy(discard) == nil ? "" : "，已被取走")")
-                }
-                Spacer(minLength: 0)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 31)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("之前的弃牌，按出牌顺序")
-        .accessibilityHidden(previous.isEmpty)
     }
 
     private func name(of seat: Seat) -> String {
@@ -261,6 +287,7 @@ struct MeldTiles: View {
         }
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(meld.kind.label)，\(meld.tiles.map { $0.kind.spokenName }.joined(separator: "、"))")
     }
 }
 

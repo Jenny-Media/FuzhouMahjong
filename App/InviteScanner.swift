@@ -35,6 +35,7 @@ struct InviteScanner: View {
                 }
             }
             .modifier(HingeSafeContent())
+            .teaBackdrop()
             .navigationTitle("扫描邀请码")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }

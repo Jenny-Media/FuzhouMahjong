@@ -45,6 +45,20 @@ final class PurchaseTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(access.lifetimeProduct).price, Decimal(string: "4.99"))
         XCTAssertFalse(access.authorizeHosting())
     }
+    func testRetryClearsTheCatalogErrorAndLoadsBothProducts() async throws {
+        let access = manager()
+        try await session.setSimulatedError(.generic(.unknown), forAPI: .loadProducts)
+        await access.loadProducts()
+        XCTAssertNotNil(access.catalogMessage)
+        XCTAssertNil(access.message)
+        XCTAssertNil(access.lifetimeProduct)
+
+        try await session.setSimulatedError(nil, forAPI: .loadProducts)
+        await access.loadProducts()
+        XCTAssertNotNil(access.trialProduct)
+        XCTAssertNotNil(access.lifetimeProduct)
+        XCTAssertNil(access.catalogMessage)
+    }
     func testActualTrialPurchaseRestoreAndExpiryDoNotRestartTheClock() async throws {
         let access = manager()
         await access.start()
@@ -92,12 +106,14 @@ final class PurchaseTests: XCTestCase {
         await access.complete(.pending, productID: GameAccess.lifetimeID)
         XCTAssertEqual(access.tier, .free)
         XCTAssertTrue(access.pending.contains(GameAccess.lifetimeID))
-        let transaction = try await session.buyProduct(identifier: GameAccess.lifetimeID)
+        // Use the trial to create a signed fixture so StoreKit has no existing lifetime purchase to return.
+        let transaction = try await session.buyProduct(identifier: GameAccess.trialID)
         await access.complete(.success(.unverified(transaction, .invalidSignature)))
         XCTAssertEqual(access.tier, .free)
         session.clearTransactions()
-        session.failTransactionsEnabled = true
+        try await session.setSimulatedError(.purchase(.purchaseNotAllowed), forAPI: .purchase)
         await access.purchase(GameAccess.lifetimeID)
+        try await session.setSimulatedError(nil, forAPI: .purchase)
         XCTAssertEqual(access.tier, .free)
         XCTAssertNotNil(access.message)
     }

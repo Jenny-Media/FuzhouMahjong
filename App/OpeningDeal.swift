@@ -40,51 +40,72 @@ struct OpeningDeal: View {
     let stage: Stage
     let reduceMotion: Bool
     let skip: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        VStack(spacing: 22) {
-            TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !stage.isMoving)) { time in
-                let dealt = landedTiles(at: time.date)
-                VStack(spacing: 18) {
-                    Canvas { context, size in
-                        let back = context.resolve(Image("JadeTileBack"))
-                        switch stage {
-                        case .shuffle(let start):
-                            let elapsed = reduceMotion ? 0 : start.map { max(0, time.date.timeIntervalSince($0)) } ?? 0
-                            drawShuffle(in: context, size: size, back: back, elapsed: elapsed)
-                        case .stacking, .deal, .settled:
-                            drawWall(in: context, size: size, back: back, removed: dealt)
-                            drawDeal(in: context, size: size, back: back, clock: time.date, landed: dealt)
+        GeometryReader { geometry in
+            let wide = geometry.size.width >= 520 && !typeSize.isAccessibilitySize
+            let layout = wide ? AnyLayout(HStackLayout(spacing: 24)) : AnyLayout(VStackLayout(spacing: 16))
+            let tableWidth = wide ? min(350, max(130, (geometry.size.height - 94) * 4 / 3)) : 350
+            ScrollView {
+                TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !stage.isMoving)) { time in
+                    let dealt = landedTiles(at: time.date)
+                    layout {
+                        Canvas { context, size in
+                            let back = context.resolve(Image("JadeTileBack"))
+                            switch stage {
+                            case .shuffle(let start):
+                                let elapsed = reduceMotion ? 0 : start.map { max(0, time.date.timeIntervalSince($0)) } ?? 0
+                                drawShuffle(in: context, size: size, back: back, elapsed: elapsed)
+                            case .stacking, .deal, .settled:
+                                drawWall(in: context, size: size, back: back, removed: dealt)
+                                drawDeal(in: context, size: size, back: back, clock: time.date, landed: dealt)
+                            }
                         }
+                        .aspectRatio(4 / 3, contentMode: .fit)
+                        .frame(maxWidth: tableWidth)
+                        .modifier(Felt(walnutRail: true))
+                        .clipShape(RoundedRectangle(cornerRadius: TeaTheme.tableRailCorner, style: .circular))
+                        .accessibilityHidden(true)
+
+                        stageDetails(dealt: dealt)
                     }
-                    .aspectRatio(4 / 3, contentMode: .fit)
-                    .modifier(Felt())
-                    .clipShape(RoundedRectangle(cornerRadius: TeaTheme.tableCorner))
-                    .accessibilityHidden(true)
-                    VStack(spacing: 5) {
-                        Text(stage.title)
-                            .font(.title3.weight(.semibold))
-                            .accessibilityIdentifier("opening-stage")
-                        if stage.hasDealCount {
-                            let offset = (viewer.id - dealer.id + 4) % 4
-                            Text("手牌 \((dealt + 3 - offset) / 4) / \(FuzhouMatch.rackSize)")
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(TeaTheme.muted)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .frame(minHeight: 53)
+                    .padding(TeaTheme.gutter)
+                    .frame(maxWidth: .infinity)
                 }
             }
-
-            Button("跳过动画", action: skip)
-                .buttonStyle(TeaButtonStyle(prominent: false))
-                .accessibilityIdentifier("skip-opening")
+            .scrollBounceBehavior(.basedOnSize)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button("跳过动画", action: skip)
+                    .buttonStyle(TeaButtonStyle(prominent: false))
+                    .accessibilityIdentifier("skip-opening")
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .teaFooter()
+            }
         }
-        .padding(TeaTheme.gutter)
-        .frame(maxWidth: 500)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .modifier(HingeSafeContent())
+    }
+
+    private func stageDetails(dealt: Int) -> some View {
+        VStack(spacing: 9) {
+            Text(stage.title)
+                .font(.system(.title2, design: .serif, weight: .semibold))
+                .accessibilityIdentifier("opening-stage")
+            if stage.hasDealCount {
+                let offset = (viewer.id - dealer.id + 4) % 4
+                let count = (dealt + 3 - offset) / 4
+                Text("手牌 \(count) / \(FuzhouMatch.rackSize)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(TeaTheme.brass)
+                    .accessibilityHidden(true)
+                ProgressView(value: Double(count), total: Double(FuzhouMatch.rackSize))
+                    .tint(TeaTheme.brass)
+                    .frame(maxWidth: 150)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(minHeight: 82)
     }
 
     private func landedTiles(at time: Date) -> Int {

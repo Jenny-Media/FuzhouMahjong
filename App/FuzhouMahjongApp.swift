@@ -15,7 +15,6 @@ private struct HomeView: View {
 
     @Environment(\.scenePhase) private var phase
     @Environment(\.dynamicTypeSize) private var typeSize
-    @ScaledMetric(relativeTo: .body) private var modeIconWidth = 22
     @AppStorage("nearby.nickname") private var nickname = ""
     @AppStorage("table.tileStyle") private var tileStyle = TileStyle.classic
     @State private var access: GameAccess
@@ -39,53 +38,10 @@ private struct HomeView: View {
     }
 
     var body: some View {
-        return NavigationStack(path: $path) {
-            GeometryReader { geometry in
-                let compact = geometry.size.width > geometry.size.height && !typeSize.isAccessibilitySize
-                let homeLayout = compact ? AnyLayout(HStackLayout(spacing: 20)) : AnyLayout(VStackLayout(spacing: 24))
-                ScrollView {
-                    VStack(spacing: compact ? 12 : 24) {
-                        Text("福州麻将")
-                            .font(.system(.largeTitle, design: .serif, weight: .semibold))
-                            .accessibilityAddTraits(.isHeader)
-
-                        homeLayout {
-                            tableArt(compact: compact)
-
-                            VStack(spacing: 12) {
-                                Button {
-                                    if session.startIfNeeded() { path.append(.solo) }
-                                    else { sheet = .purchase(.solo) }
-                                } label: {
-                                    modeRow(session.canResume ? "继续单机" : "单机对战",
-                                            icon: session.canResume ? "arrow.counterclockwise" : "person.fill")
-                                }
-                                .buttonStyle(TeaButtonStyle())
-                                .accessibilityIdentifier("practice-entry")
-
-                                Button {
-                                    path.append(.nearby)
-                                } label: {
-                                    modeRow(nearby.isInRoom ? "返回附近牌桌" : "附近联机",
-                                            icon: "dot.radiowaves.left.and.right")
-                                }
-                                .buttonStyle(TeaButtonStyle(prominent: false))
-                                .accessibilityIdentifier("nearby-entry")
-                                Button { sheet = .purchase(.settings) } label: {
-                                    Text(access.soloAllowanceText)
-                                        .font(.caption).foregroundStyle(TeaTheme.muted)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("solo-remaining")
-                            }
-                        }
-                    }
-                    .padding(TeaTheme.gutter)
-                    .padding(.top, compact ? 0 : 20)
-                }
-            }
+        NavigationStack(path: $path) {
+            home
             .modifier(HingeSafeContent())
-            .background(TeaTheme.canvas)
+            .teaBackdrop()
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -136,7 +92,8 @@ private struct HomeView: View {
         }
         .environment(access)
         .environment(\.tileStyle, tileStyle)
-        .tint(TeaTheme.ink)
+        .preferredColorScheme(.dark)
+        .tint(TeaTheme.brass)
         .foregroundStyle(TeaTheme.ink)
         .task {
             await access.start()
@@ -162,39 +119,112 @@ private struct HomeView: View {
         }
     }
 
+    private var home: some View {
+        GeometryReader { geometry in
+            let wide = geometry.size.width >= 580 && geometry.size.width > geometry.size.height
+                && !typeSize.isAccessibilitySize
+            let layout = wide ? AnyLayout(HStackLayout(spacing: 22)) : AnyLayout(VStackLayout(spacing: 22))
+            ScrollView {
+                layout {
+                    homeHero(wide: wide)
+                    playModes
+                }
+                .frame(maxWidth: wide ? 860 : 500)
+                .padding(TeaTheme.gutter)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private var playModes: some View {
+        VStack(spacing: 10) {
+            Button {
+                if session.startIfNeeded() { path.append(.solo) }
+                else { sheet = .purchase(.solo) }
+            } label: {
+                modeRow(session.canResume ? "继续单机" : "单机对战",
+                        detail: session.canResume ? "回到上次保存的牌局" : "与三位电脑玩家对局",
+                        icon: session.canResume ? "arrow.counterclockwise" : "person.fill")
+            }
+            .buttonStyle(TeaButtonStyle())
+            .accessibilityIdentifier("practice-entry")
+
+            Button { path.append(.nearby) } label: {
+                modeRow(nearby.isInRoom ? "返回附近牌桌" : "附近联机",
+                        detail: "与身边的牌友同桌", icon: "person.2.fill")
+            }
+            .buttonStyle(TeaButtonStyle(prominent: false))
+            .accessibilityIdentifier("nearby-entry")
+
+            Button { sheet = .purchase(.settings) } label: {
+                Label(access.soloAllowanceText, systemImage: "info.circle")
+                    .font(.footnote)
+                    .foregroundStyle(TeaTheme.muted)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("solo-remaining")
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private func openNewSoloGame() {
         if secondSession.startNew() { path.append(.secondSolo) }
         else { sheet = .purchase(.solo) }
     }
 
-    private func tableArt(compact: Bool) -> some View {
-        HStack(spacing: -9) {
-            TileFace(kind: TileKind(.bamboo, 7))
-                .frame(width: 65, height: 91)
-                .rotationEffect(.degrees(-15))
-                .offset(y: 13)
-            TileFace(kind: TileKind(.circles, 5), gold: true)
-                .frame(width: 70, height: 97)
-                .rotationEffect(.degrees(-3))
-                .zIndex(1)
-            TileFace(kind: TileKind(.characters, 8))
-                .frame(width: 65, height: 91)
-                .rotationEffect(.degrees(15))
-                .offset(y: 13)
+    private func homeHero(wide: Bool) -> some View {
+        VStack(spacing: wide ? 10 : 20) {
+            HStack(spacing: -7) {
+                TileFace(kind: TileKind(.bamboo, 1))
+                    .frame(width: wide ? 55 : 68, height: wide ? 77 : 95)
+                    .rotationEffect(.degrees(-16))
+                    .offset(y: 9)
+                TileFace(kind: TileKind(.circles, 5), gold: true)
+                    .frame(width: wide ? 62 : 77, height: wide ? 86 : 107)
+                    .rotationEffect(.degrees(-4))
+                    .zIndex(1)
+                TileFace(kind: TileKind(.characters, 8))
+                    .frame(width: wide ? 55 : 68, height: wide ? 77 : 95)
+                    .rotationEffect(.degrees(14))
+                    .offset(y: 9)
+            }
+            .padding(.vertical, 9)
+            .shadow(color: .black.opacity(0.55), radius: 12, y: 10)
+            .accessibilityHidden(true)
+            VStack(spacing: 7) {
+                Text("福州麻将")
+                    .font(TeaTheme.display)
+                    .tracking(2)
+                    .accessibilityAddTraits(.isHeader)
+                Text("福州玩法，离线同玩")
+                    .font(.subheadline)
+                    .foregroundStyle(TeaTheme.brass)
+            }
+            .multilineTextAlignment(.center)
         }
+        .padding(.horizontal, 22)
+        .padding(.vertical, wide ? 19 : 30)
         .frame(maxWidth: .infinity)
-        .frame(height: compact ? 145 : 218)
-        .modifier(Felt())
-        .accessibilityHidden(true)
+        .modifier(Felt(inlaid: true))
     }
 
-    private func modeRow(_ title: String, icon: String) -> some View {
-        HStack(spacing: 12) {
+    private func modeRow(_ title: String, detail: String, icon: String) -> some View {
+        HStack(spacing: 13) {
             Image(systemName: icon)
-                .frame(width: modeIconWidth)
+                .font(.body.weight(.semibold))
+                .frame(minWidth: 38, minHeight: 38)
+                .background(.primary.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityHidden(true)
-            Text(title).font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline)
+                Text(detail).font(.footnote).opacity(0.85)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.right")
                 .font(.footnote.weight(.semibold))
                 .accessibilityHidden(true)
@@ -226,6 +256,7 @@ private struct SettingsView: View {
                     }
                     .accessibilityIdentifier("access-entry")
                 }
+                .listRowBackground(TeaTheme.surface)
                 Section("牌面") {
                     Picker("牌面", selection: $tileStyle) {
                         ForEach(TileStyle.allCases, id: \.self) { style in
@@ -243,11 +274,12 @@ private struct SettingsView: View {
                         TileFace(kind: TileKind(.dragon, 2)).frame(width: 32, height: 44)
                     }
                     .environment(\.tileStyle, tileStyle)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 16)
                     .frame(maxWidth: .infinity)
-                    .background(TeaTheme.felt, in: RoundedRectangle(cornerRadius: TeaTheme.controlCorner))
+                    .modifier(Felt(inlaid: true))
                     .accessibilityHidden(true)
                 }
+                .listRowBackground(TeaTheme.surface)
 
                 Section("操作反馈") {
                     Toggle("触感", isOn: $hapticsEnabled)
@@ -257,12 +289,22 @@ private struct SettingsView: View {
                     Text("附近联机时仅播放自己的摸牌、出牌、吃碰杠和胡牌音效。")
                         .font(.footnote)
                 }
+                .listRowBackground(TeaTheme.surface)
                 Section("附近联机") {
                     TextField("牌桌昵称", text: $nickname)
                     Text("附近牌友会看到此昵称。").font(.footnote)
                 }
+                .listRowBackground(TeaTheme.surface)
+                Section("支持与隐私") {
+                    Link("使用帮助", destination: URL(string: "https://mj.jenny.media/support/")!)
+                    Link("隐私政策", destination: URL(string: "https://mj.jenny.media/privacy/")!)
+                }
+                .listRowBackground(TeaTheme.surface)
             }
+            .scrollContentBackground(.hidden)
+            .tint(TeaTheme.brass)
             .modifier(HingeSafeContent())
+            .teaBackdrop()
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

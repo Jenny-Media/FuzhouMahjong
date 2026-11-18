@@ -25,7 +25,9 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["solo-remaining"].label.contains("2"))
         app.buttons["nearby-entry"].tap()
         let host = app.buttons["host-create"]
-        reveal(host, in: app); host.tap()
+        reveal(host, in: app)
+        capture("nearby-lobby")
+        host.tap()
         let buy = app.buttons["lifetime-buy"]
         reveal(buy, in: app)
         XCTAssertTrue(buy.waitForExistence(timeout: 8))
@@ -79,14 +81,81 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertTrue(buy.label.contains("4.99"))
         capture("purchase-landscape")
         reveal(app.buttons["purchase-restore"], in: app)
-        // Wide adaptive sheets may minimize their navigation bar while scrolling.
-        for _ in 0..<5 where !app.buttons["完成"].isHittable {
-            app.scrollViews["purchase-scroll"].swipeDown()
-        }
         XCTAssertTrue(app.buttons["完成"].isHittable)
         app.buttons["完成"].tap()
         XCTAssertTrue(app.buttons["solo-remaining"].waitForExistence(timeout: 5))
     }
+
+    func testTableControlsRemainReachableAfterRotation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments += ["-play-access.archive.v1", ""]
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        app.launch()
+
+        let play = app.buttons["practice-entry"]
+        XCTAssertTrue(play.waitForExistence(timeout: 8))
+        capture("home-portrait")
+        play.tap()
+        skipOpening(app)
+
+        let gold = app.buttons["gold-rules"]
+        let arrange = app.buttons["rack-arrange"]
+        let handTiles = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
+        XCTAssertTrue(gold.waitForExistence(timeout: 8))
+        XCTAssertTrue(gold.isHittable)
+        XCTAssertTrue(handTiles.firstMatch.isHittable)
+        capture("live-table-portrait")
+
+        let table = app.otherElements["table-surface"]
+        let rack = app.otherElements["table-rack"]
+        let actions = app.otherElements["table-actions"]
+        XCTAssertTrue(table.exists && rack.exists && actions.exists)
+        let tableFrame = table.frame
+        let rackFrame = rack.frame
+        let actionsFrame = actions.frame
+
+        let pass = app.buttons["过"]
+        let discard = app.buttons["discard-action"]
+        let canAct = NSPredicate { _, _ in (pass.exists && pass.isEnabled) || (discard.exists && discard.isEnabled) }
+        for _ in 0..<4 {
+            wait(for: [expectation(for: canAct, evaluatedWith: app)], timeout: 15)
+            if pass.exists && pass.isEnabled { pass.tap() } else { break }
+        }
+        XCTAssertTrue(discard.exists && discard.isEnabled)
+        discard.tap()
+        let confirmGold = app.alerts.buttons["confirm-gold-discard"]
+        if confirmGold.waitForExistence(timeout: 1) { confirmGold.tap() }
+        table.swipeUp()
+        XCTAssertFalse(app.scrollViews["table-scroll"].exists)
+        XCTAssertEqual(table.frame, tableFrame)
+        XCTAssertEqual(rack.frame, rackFrame)
+        XCTAssertEqual(actions.frame, actionsFrame)
+        capture("live-table-after-discard")
+
+        arrange.tap()
+        let tile = handTiles.element(boundBy: 2)
+        let tileID = tile.identifier
+        tile.tap()
+        XCTAssertTrue(app.buttons[tileID].isSelected)
+        capture("table-portrait")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = expectation(for: NSPredicate { _, _ in app.frame.width > app.frame.height },
+                                    evaluatedWith: app)
+        wait(for: [landscape], timeout: 8)
+        XCTAssertTrue(gold.isHittable)
+        XCTAssertTrue(app.buttons[tileID].isHittable)
+        XCTAssertTrue(app.buttons[tileID].isSelected)
+        capture("table-landscape")
+
+        arrange.tap()
+        gold.tap()
+        XCTAssertTrue(app.staticTexts["rule-lesson-title"].waitForExistence(timeout: 5))
+        capture("gold-guide-landscape")
+    }
+
     private func configureStore() throws -> SKTestSession {
         let file = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "FuzhouMahjong", withExtension: "storekit"))
         let store = try SKTestSession(contentsOf: file)

@@ -8,6 +8,19 @@ These assets were generated with the built-in ImageGen tool. The tabletop and ti
 
 Use case: photorealistic-natural. iPhone mahjong game tabletop plate, straight overhead orthographic shot, landscape 4:3. A real traditional mahjong table with deep tea-green woven wool felt and a narrow dark walnut raised rim with gently rounded inside corners at the extreme four edges; the felt covers 93% of the image. Full bleed, centered symmetrical edge-to-edge crop, no area beyond the table. Discreet seam and wear, fine real felt grain at the center, soft even daylight, subtle shadow where the felt meets the rail. Dark jade felt so light gameplay marks read well. Empty surface for a native game UI. No tiles, people, lettering, marks, pockets, graphic patterns, or logos.
 
+## Walnut rail
+
+[Transparent PNG](App/Assets.xcassets/WalnutRail.imageset/rail.png)
+
+Generated with the built-in ImageGen tool using the tabletop plate as a style reference. The opening and live tables stretch the straight sections and preserve the four corners to keep a consistent rail width.
+
+```text
+Use case: product-mockup.
+Asset type: isolated premium wooden perimeter rail for a native mahjong game, shown as a material preview. Image 1 is a style reference for the existing game’s warm wood against deep jade felt and its restrained rounded geometry. Render a new standalone rail.
+Subject: one perfectly front-facing, directly overhead, orthographic rounded rectangular open frame on a square canvas. Fine furniture craftsmanship in quarter-sawn dark walnut, subtle warm chocolate grain running lengthwise along each rail, satin hand-rubbed finish, soft chamfered perimeter catching a little warmth, thin recessed inner bevel for depth, and a single hairline flush muted aged-brass inlay at the inner edge, integrated like furniture marquetry.
+Composition: continuous, straight, parallel sides with four small identical rounded corners. Keep the slim rail even in thickness on all four sides, about 4% of the overall frame width so the empty game area stays very large, with enough visual grain to read at small UI sizes. Delicate miter joints, no deep relief. Fully in frame with a little clear margin all around. Limit lighting to a soft diffuse highlight and restrained shadow within the wood itself. The entire central cutout and all area outside the rail must be genuinely transparent alpha. No jade felt in the output, no backing board, no objects, no tiles, no text, no ornament, no bright gold, no floor, no perspective, and no exterior cast shadows.
+```
+
 ## Shuffle hand
 
 [Asset](App/Assets.xcassets/ShuffleHand.imageset/art.png)

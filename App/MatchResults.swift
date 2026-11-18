@@ -46,6 +46,8 @@ struct MatchResults: View {
                 }
             }
             .padding(TeaTheme.gutter)
+            .frame(maxWidth: TeaTheme.contentWidth)
+            .frame(maxWidth: .infinity)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 6) {
@@ -63,8 +65,9 @@ struct MatchResults: View {
             }
             .padding(.horizontal, TeaTheme.gutter)
             .padding(.vertical, 8)
-            .background(TeaTheme.canvas)
-            .overlay(alignment: .top) { Divider() }
+            .frame(maxWidth: TeaTheme.contentWidth)
+            .frame(maxWidth: .infinity)
+            .teaFooter()
         }
         .modifier(HingeSafeContent())
     }
@@ -109,25 +112,26 @@ struct MatchResults: View {
             Text(title).font(.subheadline.weight(.semibold))
             if let valueLabel { Text(valueLabel).font(.caption).foregroundStyle(TeaTheme.feltInk) }
             Text(value)
-                .font(.largeTitle.weight(.bold).monospacedDigit())
+                .font(TeaTheme.display.monospacedDigit())
                 .foregroundStyle(TeaTheme.brass)
             Text(detail).font(.footnote)
         }
         .foregroundStyle(TeaTheme.feltInk)
         .frame(maxWidth: .infinity)
         .padding(20)
-        .modifier(Felt())
+        .modifier(Felt(inlaid: true))
         .accessibilityElement(children: .combine)
     }
 
     private func scoreGroup<Rows: View>(_ title: String, @ViewBuilder rows: () -> Rows) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Text(title).font(.subheadline.weight(.semibold))
+                .foregroundStyle(TeaTheme.brass)
+                .accessibilityAddTraits(.isHeader)
             rows()
         }
         .padding(12)
-        .background(TeaTheme.surface, in: RoundedRectangle(cornerRadius: TeaTheme.surfaceCorner))
-        .overlay { RoundedRectangle(cornerRadius: TeaTheme.surfaceCorner).strokeBorder(TeaTheme.line) }
+        .teaPanel()
     }
 
     private func scoreRow(_ label: String, amount: String, color: Color = TeaTheme.ink,

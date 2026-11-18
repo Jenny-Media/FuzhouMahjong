@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import Security
 import StoreKit
 
@@ -15,6 +16,7 @@ public final class GameAccess {
     public private(set) var products: [String: Product] = [:]
     public private(set) var busy = false
     public private(set) var loadingProducts = false
+    public private(set) var catalogMessage: String?
     public private(set) var offlineCacheAvailable = true
     public private(set) var pending = Set<String>()
     public var message: String?
@@ -25,6 +27,7 @@ public final class GameAccess {
     @ObservationIgnored private var listener: Task<Void, Never>?
     @ObservationIgnored private var entitlementRevision = 0
     @ObservationIgnored private var started = false
+    private static let storeLog = Logger(subsystem: "media.jenny.FuzhouMahjong", category: "StoreKit")
 
     public init(defaults: UserDefaults = .standard,
                 keychainService: String? = Bundle.main.bundleIdentifier.map { $0 + ".verified-license.v1" },
@@ -126,15 +129,30 @@ public final class GameAccess {
         defer { loadingProducts = false }
         do {
             let loaded = try await Product.products(for: [Self.trialID, Self.lifetimeID])
+            guard !Task.isCancelled else { return }
             products = Dictionary(uniqueKeysWithValues: loaded.filter { $0.type == .nonConsumable }.map { ($0.id, $0) })
-            if trialProduct?.price != 0 { products.removeValue(forKey: Self.trialID) }
-            if products.count < 2 { message = "暂时无法读取完整的购买信息。请联网后重试，免费加入牌桌和已有对局仍可使用。" }
+            if let trialProduct, trialProduct.price != 0 {
+                Self.storeLog.error("The trial product returned a nonzero price")
+                products.removeValue(forKey: Self.trialID)
+            }
+            switch (trialProduct != nil, lifetimeProduct != nil) {
+            case (true, true): catalogMessage = nil
+            case (false, true): catalogMessage = hasUsedTrial ? nil : "App Store 暂未提供免费体验。请重新读取购买信息。"
+            case (_, false): catalogMessage = "App Store 未返回完整版价格。请检查媒体与购买项目的账号和地区，再重新读取。"
+            }
+            if products.count < 2 {
+                let returned = loaded.map(\.id).sorted().joined(separator: ", ")
+                Self.storeLog.warning("Incomplete product catalog. StoreKit returned [\(returned, privacy: .public)]")
+            }
         } catch {
-            message = "暂时无法连接 App Store。请检查网络后重试，已有的离线权限仍可使用。"
+            guard !Task.isCancelled else { return }
+            let error = error as NSError
+            Self.storeLog.error("Product request failed: \(error.domain, privacy: .public) \(error.code)")
+            catalogMessage = "暂时无法读取 App Store 的购买信息。请检查网络后重试。"
         }
     }
     public func purchase(_ productID: String) async {
-        guard !busy, [Self.trialID, Self.lifetimeID].contains(productID) else { return }
+        guard !busy, !loadingProducts, [Self.trialID, Self.lifetimeID].contains(productID) else { return }
         if productID == Self.trialID, hasUsedTrial {
             message = "14天免费体验已经开启过，恢复购买不会重新开始计时。"
             return
@@ -149,7 +167,20 @@ public final class GameAccess {
             return
         }
         do { await complete(try await product.purchase(), productID: productID) }
-        catch { message = "购买未完成，请稍后重试。已有权限没有改变。" }
+        catch StoreKitError.userCancelled { message = nil }
+        catch Product.PurchaseError.purchaseNotAllowed {
+            message = "此设备或账号当前不允许 App 内购买。请检查设备的购买限制。"
+        } catch Product.PurchaseError.productUnavailable {
+            catalogMessage = "当前 App Store 暂时无法提供此项目。请重新读取购买信息。"
+            products.removeValue(forKey: productID)
+        } catch StoreKitError.notAvailableInStorefront {
+            catalogMessage = "此项目在当前 App Store 地区不可购买。请重新读取购买信息。"
+            products.removeValue(forKey: productID)
+        } catch {
+            let error = error as NSError
+            Self.storeLog.error("Purchase failed for \(productID, privacy: .public): \(error.domain, privacy: .public) \(error.code)")
+            message = "购买未完成，请稍后重试。已有权限没有改变。"
+        }
     }
     public func complete(_ result: Product.PurchaseResult, productID: String? = nil) async {
         switch result {

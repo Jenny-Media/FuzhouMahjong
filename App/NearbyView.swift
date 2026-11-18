@@ -90,17 +90,25 @@ struct NearbyView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, TeaTheme.gutter)
         .padding(.vertical, 8)
-        .background(TeaTheme.canvas)
-        .overlay(alignment: .bottom) { Divider() }
+        .teaPanel(corner: 0)
     }
 
     private var lobby: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Label("无需连接互联网", systemImage: "dot.radiowaves.left.and.right")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(10)
-                    .background(TeaTheme.surface, in: Capsule())
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(session.isInRoom
+                         ? (session.isHost ? "你的牌桌" : "\(session.roomName ?? "牌友")的牌桌")
+                         : "与牌友同桌")
+                        .font(TeaTheme.display)
+                        .accessibilityAddTraits(.isHeader)
+                    Label("无需连接互联网", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(TeaTheme.brass)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(Felt(inlaid: true))
 
                 if let notice = session.notice {
                     Text(notice).font(.subheadline).foregroundStyle(TeaTheme.muted)
@@ -130,9 +138,11 @@ struct NearbyView: View {
                 }
             }
             .padding(TeaTheme.gutter)
+            .frame(maxWidth: TeaTheme.contentWidth)
+            .frame(maxWidth: .infinity)
         }
         .modifier(HingeSafeContent())
-        .background(TeaTheme.canvas)
+        .teaBackdrop()
     }
 
     private var discovery: some View {
@@ -140,29 +150,8 @@ struct NearbyView: View {
             TextField("牌桌昵称（可选）", text: $nickname)
                 .padding(12)
                 .frame(minHeight: TeaTheme.hitTarget)
-                .background(TeaTheme.surface, in: RoundedRectangle(cornerRadius: TeaTheme.controlCorner))
+                .teaPanel(corner: TeaTheme.controlCorner)
 
-            Text("附近牌桌").font(.headline).accessibilityAddTraits(.isHeader)
-            if session.rooms.isEmpty {
-                Text("正在查找附近牌桌…").font(.subheadline).foregroundStyle(TeaTheme.muted)
-                Button("重新查找") { session.stopBrowsing(); session.browse() }
-                    .buttonStyle(TeaButtonStyle(prominent: false))
-            }
-            ForEach(session.rooms) { room in
-                Button {
-                    session.join(room, name: nickname)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(room.name)的牌桌").font(.headline)
-                            Text("福州麻将 · \(room.code)").font(.caption).foregroundStyle(TeaTheme.muted)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right").accessibilityHidden(true)
-                    }
-                }
-                .buttonStyle(TeaButtonStyle(prominent: false))
-            }
             Button {
                 if access.authorizeHosting() { session.create(name: nickname) }
                 else { purchaseReason = .hosting }
@@ -171,29 +160,59 @@ struct NearbyView: View {
             }
             .buttonStyle(TeaButtonStyle())
             .accessibilityIdentifier("host-create")
-            Text("加入牌友的牌桌始终免费，无需开启体验。")
-                .font(.footnote).foregroundStyle(TeaTheme.muted)
-            Button {
-                showsScanner = true
-            } label: {
-                Label("扫描邀请码", systemImage: "qrcode.viewfinder")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(TeaButtonStyle(prominent: false))
-            VStack(alignment: .leading, spacing: 6) {
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("加入附近牌桌")
+                    .font(.headline).foregroundStyle(TeaTheme.brass)
+                    .accessibilityAddTraits(.isHeader)
+                Text("加入牌友的牌桌始终免费。").font(.footnote).foregroundStyle(TeaTheme.muted)
+                if session.rooms.isEmpty {
+                    Label("正在查找附近牌桌…", systemImage: "wifi")
+                        .font(.subheadline).foregroundStyle(TeaTheme.muted)
+                    Button("重新查找") { session.stopBrowsing(); session.browse() }
+                        .buttonStyle(TeaButtonStyle(prominent: false))
+                }
+                ForEach(session.rooms) { room in
+                    Button {
+                        session.join(room, name: nickname)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(room.name)的牌桌").font(.headline)
+                                Text(room.code).font(.caption.monospaced()).foregroundStyle(TeaTheme.muted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").accessibilityHidden(true)
+                        }
+                    }
+                    .buttonStyle(TeaButtonStyle(prominent: false))
+                }
+
+                Divider()
                 HStack {
                     TextField("邀请码", text: $inviteCode)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: TeaTheme.hitTarget)
+                        .background(TeaTheme.canvas, in: RoundedRectangle(cornerRadius: 10))
                     Button("加入") {
                         if let room = inviteRoom { session.join(room, name: nickname) }
                     }
                     .buttonStyle(TeaButtonStyle(prominent: false))
                     .disabled(inviteRoom == nil)
                 }
-                Text("邀请码和二维码都用于选择附近的牌桌。请与房主保持靠近，并开启 Wi-Fi。")
+                Button { showsScanner = true } label: {
+                    Label("扫描邀请码", systemImage: "qrcode.viewfinder")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(TeaButtonStyle(prominent: false))
+                Text("请与房主保持靠近，并开启 Wi-Fi。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .teaPanel()
         }
     }
 
@@ -205,18 +224,21 @@ struct NearbyView: View {
 
     private var roster: some View {
         Group {
-            Text(session.isHost ? "你的牌桌" : "\(session.roomName ?? "牌友")的牌桌")
-                .font(.title2.weight(.semibold))
-            ForEach(session.players) { player in
-                HStack {
-                    SeatBadge(seat: player.seat, highlighted: player.seat == .east)
-                    Text(player.name)
-                    Spacer()
-                    Text(player.seat == .east ? "房主" : player.connected ? "已准备" : "正在重新连接")
-                        .font(.caption).foregroundStyle(TeaTheme.muted)
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(session.players) { player in
+                    HStack {
+                        SeatBadge(seat: player.seat, highlighted: player.seat == .east)
+                        Text(player.name)
+                        Spacer()
+                        Text(player.seat == .east ? "房主" : player.connected ? "已准备" : "正在重新连接")
+                            .font(.caption).foregroundStyle(TeaTheme.muted)
+                    }
+                    .frame(minHeight: TeaTheme.hitTarget)
                 }
-                .frame(minHeight: TeaTheme.hitTarget)
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .teaPanel()
             if session.isHost {
                 Text(session.canStart ? "空位将由电脑玩家补齐。" : "等待至少一位牌友加入。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
@@ -251,18 +273,24 @@ private struct InviteView: View {
                             .interpolation(.none)
                             .resizable()
                             .scaledToFit()
-                            .frame(width: 190, height: 190)
-                            .padding(16).background(.white)
+                            .frame(maxWidth: 190)
+                            .padding(16)
+                            .background(.white, in: RoundedRectangle(cornerRadius: TeaTheme.controlCorner))
                             .accessibilityLabel("牌桌邀请二维码")
                     }
-                    Text(id.uuidString.prefix(4)).font(.largeTitle.monospaced())
+                    Text(id.uuidString.prefix(4))
+                        .font(TeaTheme.display.monospaced()).foregroundStyle(TeaTheme.brass)
                     Text("请牌友在「附近联机」中扫描二维码，或输入上方的邀请码。")
                         .font(.subheadline).multilineTextAlignment(.center)
                 }
+                .padding(18)
+                .frame(maxWidth: 360)
+                .teaPanel()
                 .padding(TeaTheme.gutter)
                 .frame(maxWidth: .infinity)
             }
             .modifier(HingeSafeContent())
+            .teaBackdrop()
             .navigationTitle("邀请牌友")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }

@@ -34,36 +34,45 @@ struct PurchaseSheet: View {
     let reason: AccessReason
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        NavigationStack {
-            PurchaseView(reason: reason)
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
-        }
+        PurchaseView(reason: reason, close: { dismiss() })
     }
 }
 
 struct PurchaseView: View {
     let reason: AccessReason
+    var close: (() -> Void)? = nil
     @Environment(GameAccess.self) private var access
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var catalogIncomplete: Bool {
+        access.tier != .lifetime && (access.lifetimeProduct == nil || (!access.hasUsedTrial && access.trialProduct == nil))
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(reason.title).font(.system(.largeTitle, design: .serif, weight: .semibold))
-                    Text(access.statusTitle).font(.headline).foregroundStyle(TeaTheme.muted)
+                    Text(reason.title).font(TeaTheme.display)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(access.statusTitle).font(.headline).foregroundStyle(TeaTheme.brass)
                         .accessibilityIdentifier("access-status")
-                    Text(access.soloAllowanceText).font(.subheadline)
+                    Text(access.soloAllowanceText).font(.subheadline).foregroundStyle(TeaTheme.muted)
                 }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(Felt(inlaid: true))
                 VStack(alignment: .leading, spacing: 16) {
                     feature("单机尽兴玩", detail: "与三位电脑玩家对局，不限每日局数。", icon: "person.fill")
                     feature("永久做房主", detail: "解锁后随时创建附近牌桌，牌友免费加入。", icon: "person.3.fill")
                     feature("离线也能玩", detail: "提前联网开启体验或购买，之后可以离线使用。", icon: "wifi.slash")
                 }
                 .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-                .background(TeaTheme.surface, in: RoundedRectangle(cornerRadius: TeaTheme.controlCorner))
+                .teaPanel()
 
                 if access.tier == .lifetime {
                     Label("已拥有完整版，无需再次购买", systemImage: "checkmark.seal.fill")
-                        .font(.headline).accessibilityIdentifier("lifetime-owned")
+                        .font(.headline).foregroundStyle(TeaTheme.gain)
+                        .accessibilityIdentifier("lifetime-owned")
                 } else {
                     if !access.hasUsedTrial {
                         VStack(alignment: .leading, spacing: 10) {
@@ -71,7 +80,7 @@ struct PurchaseView: View {
                                 Task { await access.purchase(GameAccess.trialID) }
                             } label: { Text("开始14天免费体验").frame(maxWidth: .infinity) }
                                 .buttonStyle(TeaButtonStyle(prominent: false))
-                                .disabled(access.busy || access.pending.contains(GameAccess.trialID)
+                                .disabled(access.busy || access.loadingProducts || access.pending.contains(GameAccess.trialID)
                                           || access.trialProduct == nil || access.lifetimeProduct == nil)
                                 .accessibilityIdentifier("trial-start")
                             Text(trialTerms).font(.footnote).foregroundStyle(TeaTheme.muted)
@@ -85,7 +94,7 @@ struct PurchaseView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(TeaButtonStyle())
-                        .disabled(access.busy || access.pending.contains(GameAccess.lifetimeID) || access.lifetimeProduct == nil)
+                        .disabled(access.busy || access.loadingProducts || access.pending.contains(GameAccess.lifetimeID) || access.lifetimeProduct == nil)
                         .accessibilityIdentifier("lifetime-buy")
                         Text("一次购买，无订阅。解锁无限单机和永久开桌，牌友无需购买。")
                             .font(.footnote).foregroundStyle(TeaTheme.muted)
@@ -102,27 +111,57 @@ struct PurchaseView: View {
                     Text(message).font(.subheadline).foregroundStyle(TeaTheme.muted)
                         .accessibilityIdentifier("purchase-message")
                 }
-                if access.tier != .lifetime, access.products.count < 2 {
+                if catalogIncomplete {
+                    if !access.loadingProducts, let message = access.catalogMessage {
+                        Text(message).font(.subheadline).foregroundStyle(TeaTheme.muted)
+                            .accessibilityIdentifier("purchase-catalog-message")
+                    }
                     Button("重新读取购买信息") { Task { await access.loadProducts() } }
+                        .buttonStyle(TeaButtonStyle(prominent: false))
                         .disabled(access.busy || access.loadingProducts)
                         .accessibilityIdentifier("purchase-retry")
                 }
                 Button("恢复购买") { Task { await access.restore() } }
+                    .buttonStyle(TeaButtonStyle(prominent: false))
                     .disabled(access.busy).accessibilityIdentifier("purchase-restore")
                 Text("免费版每天可以新开2局单机，每局从发牌到胡牌或流局。继续保存的这一局不重复计次。加入牌友的牌桌始终免费，经典与现代牌面、玩法讲解均可使用。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
             }
             .padding(TeaTheme.gutter)
-            .frame(maxWidth: 640, alignment: .leading)
+            .frame(maxWidth: TeaTheme.contentWidth, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
         .accessibilityIdentifier("purchase-scroll")
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let close {
+                HStack {
+                    Text("完整版与免费体验")
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    Button("完成", action: close)
+                        .buttonStyle(TeaButtonStyle(prominent: false))
+                }
+                .padding(.horizontal, TeaTheme.gutter)
+                .padding(.vertical, 8)
+                .frame(maxWidth: TeaTheme.contentWidth)
+                .frame(maxWidth: .infinity)
+                .background(TeaTheme.canvas)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(TeaTheme.line).frame(height: 1).allowsHitTesting(false)
+                }
+            }
+        }
         .modifier(HingeSafeContent())
-        .background(TeaTheme.canvas)
+        .teaBackdrop()
         .foregroundStyle(TeaTheme.ink)
         .navigationTitle("完整版与免费体验")
         .navigationBarTitleDisplayMode(.inline)
-        .task { access.refreshClock(); await access.loadProducts() }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            access.refreshClock()
+            if catalogIncomplete { await access.loadProducts() }
+        }
     }
     private var trialTerms: String {
         let price = access.lifetimeProduct?.displayPrice ?? "App Store 显示的价格"
@@ -130,7 +169,12 @@ struct PurchaseView: View {
     }
     private func feature(_ title: String, detail: String, icon: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).font(.title3).frame(width: 30).accessibilityHidden(true)
+            Image(systemName: icon)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(TeaTheme.brass)
+                .frame(width: 34, height: 34)
+                .background(TeaTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
                 Text(detail).font(.subheadline).foregroundStyle(TeaTheme.muted)
