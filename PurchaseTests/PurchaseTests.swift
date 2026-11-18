@@ -53,7 +53,7 @@ final class CustomRulesPersistenceTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
 
         let library = RulesetLibrary(defaults: defaults)
-        var family = FuzhouHouseRules(name: " Family ", keepDealerOnDraw: true)
+        var family = FuzhouHouseRules(name: " Family ", keepDealerOnDraw: true, goldIndicators: .includeWinds)
         let friends = FuzhouHouseRules(name: "Friends", flush: .faceValue, stackBonuses: true)
         XCTAssertTrue(library.save(family))
         XCTAssertTrue(library.save(friends))

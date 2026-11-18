@@ -2,43 +2,14 @@ import FuzhouCore
 import SwiftUI
 
 enum RuleOdds {
-    // Generated using QA/EstimateRuleOdds.swift and the modern 36-flower game engine.
-    static let hands = 12_000
-    static let draws = 272
-    static let discardWins = 9_105
-    private static let robGold = 2
-    private static let threeGold = 225
-    private static let goldenPair = 0
-    private static let faceValueGoldenPair = 0
-    private static let wildcardFlush = 4
-    private static let faceValueFlush = 1
-
-    // Inclusion of the first two specific gold copies in a uniformly drawn 16-tile rack.
-    private static let twoSpecificGold = (16.0 / 107.0) * (15.0 / 106.0)
-    static let openingThreeGold = twoSpecificGold * (14.0 / 105.0)
-    static let openingAtLeastTwoGold = 3 * twoSpecificGold - 2 * openingThreeGold
-
-    static func count(for pattern: WinPattern, flush: FuzhouHouseRules.Flush) -> Int? {
-        switch pattern {
-        case .robGold: robGold
-        case .threeGold: threeGold
-        case .goldenPair: flush == .faceValue ? faceValueGoldenPair : goldenPair
-        case .pureSuit:
-            switch flush {
-            case .disabled: nil
-            case .wildcard: wildcardFlush
-            case .faceValue: faceValueFlush
-            }
+    static func rate(_ share: Double) -> String {
+        if share == 0 { return "0%" }
+        if share < 0.0001 {
+            let racks = (1 / share).formatted(.number.notation(.compactName)
+                .precision(.significantDigits(2)).locale(Locale(identifier: "zh_CN")))
+            return "约 \(racks)分之一"
         }
-    }
-
-    static func rate(_ count: Int) -> String {
-        if count == 0 { return "模拟中未出现" }
-        return percentage(Double(count) / Double(hands))
-    }
-
-    static func percentage(_ share: Double) -> String {
-        return "约 \(share.formatted(.percent.precision(.fractionLength(share < 0.01 ? 2 : 1))))"
+        return "约 \(share.formatted(.percent.precision(.fractionLength(2))))"
     }
 }
 
@@ -61,13 +32,16 @@ struct RuleReference: View {
     let houseRules: FuzhouHouseRules?
 
     private var flush: FuzhouHouseRules.Flush { houseRules?.flush ?? ruleset.defaultFlush }
+    private var goldIndicators: FuzhouHouseRules.GoldIndicators { houseRules?.goldIndicators ?? .suitedOnly }
+    private var odds: FuzhouOpeningOdds { .init(flush: flush, goldIndicators: goldIndicators) }
 
     var body: some View {
         if ruleset == .legacy {
-            Text("原版规则的每项得分会列在「本局结算」里。模拟概率适用于加清一色、老三样和自定义玩法。")
+            Text("原版规则的每项得分会列在「本局结算」里。")
                 .padding(16).teaPanel()
         } else {
             VStack(alignment: .leading, spacing: 14) {
+                overviewCard
                 patternCard
                 openingGoldCard
                 examplesCard
@@ -75,41 +49,57 @@ struct RuleReference: View {
         }
     }
 
+    private var overviewCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("规则一览").font(.headline).foregroundStyle(TeaTheme.brass)
+                .accessibilityAddTraits(.isHeader)
+            Text(goldIndicators.explanation).accessibilityIdentifier("ruleset-gold-detail")
+            Text(houseRules?.keepDealerOnDraw == true ? "庄家胡牌或流局，下一局都由庄家继续坐庄。" : "庄家胡牌继续坐庄，流局时由庄家的下家坐庄。")
+            Text("接炮胡时\((houseRules?.discardPayment ?? .discarder).title)。")
+            Text(flush == .disabled ? "抢金、三金倒和金雀有特殊加分。清一色按普通胡牌计分。"
+                 : "抢金、三金倒、金雀和清一色有特殊加分。")
+                .accessibilityIdentifier("ruleset-pattern-detail")
+            Text(houseRules?.stackBonuses == true ? "一手牌符合多项特殊加分时，各项相加。" : "一手牌符合多项特殊加分时，只取最高的一项。")
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .teaPanel()
+    }
+
     private var patternCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("每局的参考概率")
+            Text("起手牌型概率")
                 .font(.headline).foregroundStyle(TeaTheme.brass)
                 .accessibilityAddTraits(.isHeader)
-            Text("4 位电脑玩家模拟了 \(RuleOdds.hands.formatted()) 局。概率按全部牌局计算，包括流局。")
+            Text("按一位玩家起手拿到的牌计算。抢金看补花后的 16 张加翻出的牌，其余牌型按补花后的 17 张随机牌计算。")
                 .font(.footnote).foregroundStyle(TeaTheme.muted)
                 .accessibilityIdentifier("rule-odds-method")
             ForEach([WinPattern.robGold, .threeGold, .goldenPair, .pureSuit]) { pattern in
-                let count = RuleOdds.count(for: pattern, flush: flush)
+                let chance = odds.probability(of: pattern)
                 Divider()
-                rateRow(pattern.title, detail: patternDetail(pattern), value: count.map(RuleOdds.rate) ?? "不加分",
-                        bonus: count.map { _ in pattern.bonus })
+                rateRow(pattern.title, detail: patternDetail(pattern), value: chance.map(RuleOdds.rate) ?? "不加分",
+                        bonus: chance.map { _ in pattern.bonus })
                     .accessibilityIdentifier("rule-odds-\(pattern.rawValue)")
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("清一色对照").font(.subheadline.weight(.semibold))
-                ForEach([FuzhouHouseRules.Flush.wildcard, .faceValue], id: \.self) { option in
-                    if let count = RuleOdds.count(for: .pureSuit, flush: option) {
-                        Text("\(option.title) · \(RuleOdds.rate(count))（\(count) 局）")
+            if flush != .disabled {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("清一色概率对照").font(.subheadline.weight(.semibold))
+                    ForEach([FuzhouHouseRules.Flush.wildcard, .faceValue], id: \.self) { option in
+                        let comparison = FuzhouOpeningOdds(flush: option, goldIndicators: goldIndicators)
+                        if let chance = comparison.probability(of: .pureSuit) {
+                            Text("\(option.title) · \(RuleOdds.rate(chance))")
+                        }
                     }
                 }
+                .font(.footnote)
+                .foregroundStyle(TeaTheme.muted)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(TeaTheme.feltDark, in: RoundedRectangle(cornerRadius: 9))
+                .accessibilityIdentifier("rule-odds-flush-comparison")
             }
-            .font(.footnote)
-            .foregroundStyle(TeaTheme.muted)
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(TeaTheme.feltDark, in: RoundedRectangle(cornerRadius: 9))
-            .accessibilityIdentifier("rule-odds-flush-comparison")
-
-            Divider()
-            rateRow("接炮胡", detail: "用别人刚打出的牌胡。打出这张牌的人就放炮了。", value: RuleOdds.rate(RuleOdds.discardWins))
-            Divider()
-            rateRow("流局", detail: "可摸的牌用完，仍然没人胡牌。", value: RuleOdds.rate(RuleOdds.draws))
-            Text("每局按赢家符合的牌型统计。同一局可能计入多项。电脑只要能胡就会胡，实际概率会随打法变化。")
+            Text("整局的胡牌和流局机会还会随各家的打法变化。")
                 .font(.footnote).foregroundStyle(TeaTheme.muted)
         }
         .padding(14)
@@ -121,11 +111,20 @@ struct RuleReference: View {
             Text("起手摸到金牌的概率").font(.headline).foregroundStyle(TeaTheme.brass)
                 .accessibilityAddTraits(.isHeader)
             rateRow("至少两张金", detail: "金雀要用两张金作将牌，还要凑齐五组牌。",
-                    value: RuleOdds.percentage(RuleOdds.openingAtLeastTwoGold))
+                    value: RuleOdds.rate(odds.atLeastTwoGoldInRack))
             Divider()
-            rateRow("三张金", detail: "这里算起手就有三张金。上面的三金倒统计的是整局的胡牌结果。",
-                    value: RuleOdds.percentage(RuleOdds.openingThreeGold))
-            Text("去掉翻出的金牌后，剩下 107 张万、筒、条，其中有三张金。概率按一位玩家随机拿 16 张计算。")
+            rateRow("三张金", detail: "按补花后、第一张牌摸进来之前的 16 张起手牌计算。",
+                    value: RuleOdds.rate(odds.threeGoldInRack))
+            if goldIndicators.includesWinds {
+                Divider()
+                rateRow("翻风牌作金", detail: "翻出的金牌是东、南、西或北。", value: RuleOdds.rate(odds.windIndicatorChance))
+            }
+            if goldIndicators.includesDragons {
+                Divider()
+                rateRow("翻中发白作金", detail: "翻出的金牌是中、发或白。", value: RuleOdds.rate(odds.dragonIndicatorChance))
+            }
+            Text("翻出万、筒、条作金时，可用牌共 107 张，其中有 3 张金。" +
+                 (goldIndicators == .suitedOnly ? "" : "翻出字牌作金时，可用牌共 111 张，其中也有 3 张金。"))
                 .font(.footnote).foregroundStyle(TeaTheme.muted)
         }
         .padding(14)
@@ -138,8 +137,6 @@ struct RuleReference: View {
                 .accessibilityAddTraits(.isHeader)
             Text(RuleScoringExample.discard(payment: houseRules?.discardPayment ?? .discarder))
             Text(RuleScoringExample.bonuses(flush: flush, stacks: houseRules?.stackBonuses == true))
-            Text("流局连庄决定下一局谁坐庄。点炮时谁付分、特殊加分是否叠加，只影响结算。一局里出现这些牌型的参考概率相同。")
-                .font(.footnote).foregroundStyle(TeaTheme.muted)
         }
         .font(.subheadline)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -149,7 +146,7 @@ struct RuleReference: View {
 
     private func patternDetail(_ pattern: WinPattern) -> String {
         switch pattern {
-        case .robGold: "开局翻出的那张牌，正好能帮你凑齐五组牌和一对将牌。"
+        case .robGold: "开局翻出的那张牌，按牌面就能帮你凑齐五组牌和一对将牌。"
         case .threeGold: "自摸时手里有三张金，就能直接胡牌。"
         case .goldenPair: "凑齐五组牌，并用两张金作将牌。"
         case .pureSuit: flush.explanation

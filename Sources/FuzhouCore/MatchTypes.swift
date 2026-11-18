@@ -22,21 +22,44 @@ public struct FuzhouHouseRules: Codable, Hashable, Identifiable, Sendable {
         case disabled, wildcard, faceValue
     }
 
+    public enum GoldIndicators: String, CaseIterable, Codable, Sendable {
+        case suitedOnly, includeWinds, includeDragons, includeHonors
+
+        public var includesWinds: Bool { self == .includeWinds || self == .includeHonors }
+        public var includesDragons: Bool { self == .includeDragons || self == .includeHonors }
+
+        func allows(_ kind: TileKind) -> Bool {
+            switch kind.suit {
+            case .wind: includesWinds
+            case .dragon: includesDragons
+            case .flower, .season: false
+            default: true
+            }
+        }
+    }
+
     public let id: UUID
     public var name: String
     public var keepDealerOnDraw: Bool
     public var discardPayment: DiscardPayment
     public var flush: Flush
     public var stackBonuses: Bool
+    private var additionalGoldIndicators: GoldIndicators?
+
+    public var goldIndicators: GoldIndicators {
+        get { additionalGoldIndicators ?? .suitedOnly }
+        set { additionalGoldIndicators = newValue == .suitedOnly ? nil : newValue }
+    }
 
     public init(name: String, keepDealerOnDraw: Bool = false, discardPayment: DiscardPayment = .discarder,
-                flush: Flush = .wildcard, stackBonuses: Bool = false) {
+                flush: Flush = .wildcard, stackBonuses: Bool = false, goldIndicators: GoldIndicators = .suitedOnly) {
         id = UUID()
         self.name = name
         self.keepDealerOnDraw = keepDealerOnDraw
         self.discardPayment = discardPayment
         self.flush = flush
         self.stackBonuses = stackBonuses
+        self.goldIndicators = goldIndicators
     }
 
     var baseRuleset: FuzhouRuleset { flush == .disabled ? .oldThree : .pureSuit }

@@ -4,9 +4,17 @@ import SwiftUI
 extension FuzhouRuleset {
     var title: String {
         switch self {
-        case .pureSuit: "加清一色"
-        case .oldThree: "老三样"
+        case .pureSuit: "清一色加分"
+        case .oldThree: "三样加分"
         case .legacy: "原版规则"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .pureSuit: "抢金、三金倒、金雀、清一色加分"
+        case .oldThree: "抢金、三金倒、金雀加分"
+        case .legacy: "早期存档使用的玩法"
         }
     }
 }
@@ -136,7 +144,7 @@ struct RuleGuide: View {
                 Button(next == .scoring ? next.title : "下一步") { open(next) }
                     .buttonStyle(TeaButtonStyle())
                     .accessibilityIdentifier("rule-next")
-            } else {
+            } else if !showsCloseButton {
                 Button("完成") { dismiss() }
                     .buttonStyle(TeaButtonStyle())
             }
@@ -244,20 +252,27 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
     }
 
     func detail(for ruleset: FuzhouRuleset, houseRules: FuzhouHouseRules?) -> String {
-        switch self {
+        let indicators = houseRules?.goldIndicators ?? .suitedOnly
+        return switch self {
         case .turn:
             "点一张手牌，再点「出牌」。也可以直接把那张牌向上滑出去。" + (houseRules.map { "\n\n\($0.summary)。" } ?? "")
         case .flowers:
-            ruleset == .legacy ? "在原版规则里，摸到也算金牌的花牌时，可以留作金牌，也可以选择补花。"
-                : "这套玩法共有 36 张花牌。开局从庄家开始轮流补花。如果补到的还是花牌，等其他玩家补完这一轮再补。"
+            if ruleset == .legacy {
+                "在原版规则里，摸到也算金牌的花牌时，可以留作金牌，也可以选择补花。"
+            } else {
+                "开局从庄家开始轮流补花。如果补到的还是花牌，等其他玩家补完这一轮再补。" +
+                    (indicators == .suitedOnly
+                     ? "这套玩法共有 36 张花牌。" : "翻出字牌当金时，同样的字牌留作金牌。")
+            }
         case .claims:
             "多人要同一张牌时，先看胡牌，再看碰或杠，最后才是吃。" +
                 (ruleset == .legacy ? "" : "有多人要胡时，金雀优先。同等优先级下，按出牌顺序取排在前面的一家。")
         case .gold:
             (ruleset == .legacy ? "原版规则翻到梅兰菊竹或春夏秋冬时，这八种牌都算金牌。"
-                : "只有万、筒、条能当金牌。翻到花牌时，庄家把它收作自己的花牌，再翻一张，直到翻出万、筒或条。") +
+                    : indicators.explanation) +
                 "\n\n手里的金牌不能用来吃、碰或杠。自己打出金牌后，这局只能自摸。别人打出的金牌也不能拿来胡牌。" +
-                "\n\n开局时，如果翻出的牌能让你凑齐五组牌和一对将牌，就可以抢金。抢金时，每张牌都按牌面计算。"
+                "\n\n开局时，如果翻出的牌能让你凑齐五组牌和一对将牌，就可以抢金。抢金时，每张牌都按牌面计算。" +
+                (indicators == .suitedOnly ? "" : "翻到字牌作金的这一局没有抢金。")
         case .winning:
             if ruleset == .legacy {
                 "已经亮出的牌组也算在五组里。自己摸到胡牌的那张牌叫自摸。用别人刚打出的牌胡牌叫接炮。"

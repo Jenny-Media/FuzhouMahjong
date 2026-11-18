@@ -88,9 +88,8 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         case .turn:
             guard seat == current else { return [] }
             let rack = combinedHand(for: seat)
-            var moves = rack.filter { !$0.kind.isFlower }.map { Move.discard($0.id) }
-            // A matching honor or season drawn after the reveal can either stay as gold or be replaced as a flower.
-            if !reserve.isEmpty {
+            var moves = rack.filter(canDiscard).map { Move.discard($0.id) }
+            if ruleset == .legacy, !reserve.isEmpty {
                 moves += rack.filter { $0.kind.isFlower && isGold($0) }.map { Move.replaceFlower($0.id) }
             }
             if drawn != nil, canSelfDrawWin(rack.map(\.kind), meldCount: melds[seat.id].count) { moves.insert(.win, at: 0) }
@@ -199,7 +198,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         var chosen: [Tile.ID]?
         for ids in chows {
             let rest = tiles.filter { !ids.contains($0.id) }
-            let allowed = Set(rest.filter { !$0.kind.isFlower }.map(\.id))
+            let allowed = Set(rest.filter(canDiscard).map(\.id))
             guard let followUp = bestDiscard(from: rest, allowed: allowed, meldCount: count + 1,
                                              available: available), followUp.waits > bestWaits else { continue }
             bestWaits = followUp.waits
@@ -290,7 +289,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                 hands[seat.id].append(tile)
             }
         }
-        guard replaceOpeningFlowers(), let indicator = revealGold() else { settle(.draw); return }
+        // Reveal before replacing flowers when honors can be gold, so dealt copies of the
+        // indicator stay in players' racks instead of being counted as flowers.
+        if goldIndicators != .suitedOnly {
+            guard let indicator = revealGold() else { settle(.draw); return }
+            gold = indicator
+        }
+        guard replaceOpeningFlowers(), let indicator = gold ?? revealGold() else { settle(.draw); return }
         gold = indicator
         // The reveal must complete the original hand as a tile, before gold begins acting as a joker.
         responses = (0..<4).map { dealer.advanced($0) }.filter { seat in
@@ -312,10 +317,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             }
         } else {
             // Flowers drawn as replacements wait until the player's next pass around the table.
-            while hands.contains(where: { $0.contains(where: \.kind.isFlower) }) {
+            while hands.contains(where: { $0.contains(where: needsFlowerReplacement) }) {
                 for seat in seats {
-                    let exposed = hands[seat.id].filter(\.kind.isFlower)
-                    hands[seat.id].removeAll(where: \.kind.isFlower)
+                    let (kept, exposed) = hands[seat.id].reduce(into: ([Tile](), [Tile]())) { groups, tile in
+                        if needsFlowerReplacement(tile) { groups.1.append(tile) }
+                        else { groups.0.append(tile) }
+                    }
+                    hands[seat.id] = kept
                     flowers[seat.id] += exposed
                     for _ in exposed {
                         guard let tile = replacement() else { return false }
@@ -333,7 +341,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             guard reserve.count >= 2 else { return nil }
             return reserve.remove(at: reserve.count - 2)
         }
-        while reserve.last?.kind.isFlower == true {
+        while let tile = reserve.last, !goldIndicators.allows(tile.kind) {
             guard let flower = replacement() else { return nil }
             flowers[dealer.id].append(flower)
         }
@@ -352,7 +360,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         offeredTile = nil
     }
 
+    private var goldIndicators: FuzhouHouseRules.GoldIndicators { houseRules?.goldIndicators ?? .suitedOnly }
+
     private func isGold(_ tile: Tile) -> Bool { gold.map { tile.kind.matchesGold($0.kind) } ?? false }
+
+    private func needsFlowerReplacement(_ tile: Tile) -> Bool { tile.kind.isFlower && !isGold(tile) }
+
+    private func canDiscard(_ tile: Tile) -> Bool { !tile.kind.isFlower || (ruleset != .legacy && isGold(tile)) }
 
     private func combinedHand(for seat: Seat) -> [Tile] {
         hands[seat.id] + (seat == current ? [drawn].compactMap { $0 } : [])
@@ -504,7 +518,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
 
     private mutating func replaceFlowers(_ initial: Tile, for seat: Seat) -> Tile? {
         var tile = initial
-        while tile.kind.isFlower && !isGold(tile) {
+        while needsFlowerReplacement(tile) {
             flowers[seat.id].append(tile)
             guard let next = replacement() else { return nil }
             tile = next

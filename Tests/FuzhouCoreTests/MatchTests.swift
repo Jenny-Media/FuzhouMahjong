@@ -76,6 +76,66 @@ final class MatchTests: XCTestCase {
         }
     }
 
+    func testCustomWindAndDragonGoldAreKeptDuringOpeningAndCanWinOrBeDiscarded() throws {
+        let loose = [1, 2, 4, 5, 7].map { TileKind(.characters, $0) }
+            + [1, 2, 4, 5, 7].map { TileKind(.circles, $0) }
+            + [1, 2, 4].map { TileKind(.bamboo, $0) }
+        let east = TileKind(.wind, 1)
+        let green = TileKind(.dragon, 2)
+        let season = TileKind(.season, 3)
+        for (option, gold, other) in [(FuzhouHouseRules.GoldIndicators.includeWinds, east, green),
+                                       (.includeDragons, green, east), (.includeHonors, east, green)] {
+            let rules = FuzhouHouseRules(name: "家庭", goldIndicators: option)
+            let tail = option == .includeHonors ? [season] : [other, season]
+            var match = try fixture(hands: [.east: loose + [gold, gold, other]], gold: gold, draws: [gold],
+                                    ruleset: .pureSuit, openingTail: tail, houseRules: rules)
+            let table = match.table(for: .east)
+            let drawn = try XCTUnwrap(table.drawn)
+            XCTAssertEqual(table.gold?.kind, gold)
+            XCTAssertEqual(table.hand.filter(table.isGold).count, 2)
+            XCTAssertFalse(table.hand.contains(where: { $0.kind == other }))
+            XCTAssertEqual(table.hand.count, 16)
+            XCTAssertEqual(drawn.kind, gold)
+            XCTAssertTrue(table.canDeclareThreeGold)
+            XCTAssertFalse(table.moves.contains(.replaceFlower(drawn.id)))
+            var discarding = match
+            XCTAssertTrue(discarding.apply(.discard(drawn.id), by: .east))
+            XCTAssertTrue(discarding.table(for: .east).viewerMustSelfDraw)
+            XCTAssertTrue(match.apply(.win, by: .east))
+            XCTAssertTrue(try XCTUnwrap(match.result).patterns.contains(.threeGold))
+        }
+    }
+
+    func testOldCustomRulesDecodeWithSuitedGoldAndNewRulesRoundTrip() throws {
+        var rules = FuzhouHouseRules(name: "家庭", flush: .faceValue)
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let oldShape = try encoder.encode(rules)
+        let oldFields = try XCTUnwrap(JSONSerialization.jsonObject(with: oldShape) as? [String: Any])
+        XCTAssertNil(oldFields["additionalGoldIndicators"])
+        XCTAssertEqual(try decoder.decode(FuzhouHouseRules.self, from: oldShape).goldIndicators, .suitedOnly)
+        rules.goldIndicators = .includeWinds
+        XCTAssertEqual(try decoder.decode(FuzhouHouseRules.self, from: encoder.encode(rules)), rules)
+    }
+
+    func testOpeningOddsUseTheConfiguredIndicatorPoolAndFlushRule() throws {
+        let standard = FuzhouOpeningOdds(flush: .wildcard)
+        let faceValue = FuzhouOpeningOdds(flush: .faceValue)
+        let honors = FuzhouOpeningOdds(flush: .wildcard, goldIndicators: .includeHonors)
+        XCTAssertEqual(standard.atLeastTwoGoldInRack, 0.05783812378769176, accuracy: 1e-14)
+        XCTAssertEqual(standard.threeGoldInRack, 0.0028213718920825246, accuracy: 1e-14)
+        XCTAssertEqual(honors.windIndicatorChance, 16.0 / 136, accuracy: 1e-14)
+        XCTAssertEqual(honors.dragonIndicatorChance, 12.0 / 136, accuracy: 1e-14)
+        XCTAssertLessThan(honors.atLeastTwoGoldInRack, standard.atLeastTwoGoldInRack)
+        let robGold = try XCTUnwrap(standard.probability(of: .robGold))
+        XCTAssertEqual(robGold, 3.1962412133121037e-5, accuracy: 1e-18)
+        XCTAssertEqual(try XCTUnwrap(honors.probability(of: .robGold)), robGold * 108 / 136, accuracy: 1e-18)
+        XCTAssertEqual(try XCTUnwrap(standard.probability(of: .goldenPair)), 1.3121673207922498e-6, accuracy: 1e-19)
+        XCTAssertEqual(try XCTUnwrap(standard.probability(of: .pureSuit)), 3.0634078377464516e-9, accuracy: 1e-22)
+        XCTAssertEqual(try XCTUnwrap(faceValue.probability(of: .pureSuit)), 1.735358939513297e-10, accuracy: 1e-23)
+        XCTAssertNil(FuzhouOpeningOdds(flush: .disabled).probability(of: .pureSuit))
+    }
+
     func testBuiltInResultsShowBothPatternsForOffSuitGoldPairFlush() throws {
         let gold = TileKind(.bamboo, 9)
         let oneSuit = [1, 2, 3, 2, 3, 4, 4, 5, 6, 6, 7, 8, 7, 8, 9].map { TileKind(.characters, $0) }

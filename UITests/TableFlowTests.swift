@@ -16,8 +16,15 @@ final class TableFlowTests: XCTestCase {
         app.buttons["manage-custom-rules"].tap()
         app.buttons["add-custom-rules"].tap()
 
+        let indicators = element("custom-gold-indicators", in: app)
+        XCTAssertTrue(indicators.waitForExistence(timeout: 5))
+        indicators.tap()
+        app.buttons["万筒条与风牌"].tap()
+        XCTAssertTrue(element("custom-gold-explanation", in: app).label.contains("东、南、西、北"))
+
         let payment = element("custom-discard-payment", in: app)
         XCTAssertTrue(payment.waitForExistence(timeout: 5))
+        for _ in 0..<3 where !payment.isHittable { app.swipeUp() }
         payment.tap()
         app.buttons["其余三家各付分"].tap()
         XCTAssertTrue(element("custom-payment-example", in: app).label.contains("赢家得 60 分"))
@@ -44,7 +51,10 @@ final class TableFlowTests: XCTestCase {
         let title = app.staticTexts["rule-lesson-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertEqual(title.label, "计分与概率")
-        XCTAssertTrue(app.staticTexts["rule-odds-method"].label.contains("4 位电脑玩家模拟"))
+        let method = app.staticTexts["rule-odds-method"]
+        for _ in 0..<3 where !method.isHittable { app.swipeUp() }
+        XCTAssertTrue(method.label.contains("17 张随机牌"))
+        XCTAssertTrue(app.staticTexts["ruleset-gold-detail"].label.contains("东、南、西、北"))
         XCTAssertTrue(element("rule-odds-robGold", in: app).exists)
         XCTAssertTrue(element("rule-odds-pureSuit", in: app).exists)
         capture("custom-rules-odds")
@@ -108,9 +118,14 @@ final class TableFlowTests: XCTestCase {
         app.launchArguments = ["-play-access.archive.v1", ""]
         app.launch()
 
-        let oldThree = app.buttons["老三样"]
+        let oldThree = app.buttons["三样加分"]
         XCTAssertTrue(oldThree.waitForExistence(timeout: 5))
         oldThree.tap()
+        app.buttons["selected-ruleset-details"].tap()
+        let details = app.staticTexts["ruleset-pattern-detail"]
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        XCTAssertTrue(details.label.contains("清一色按普通胡牌计分"))
+        app.buttons["完成"].tap()
         app.buttons["practice-entry"].tap()
         let skip = app.buttons["skip-opening"]
         XCTAssertTrue(skip.waitForExistence(timeout: 5))
@@ -118,16 +133,20 @@ final class TableFlowTests: XCTestCase {
         app.buttons["table-rules"].tap()
         let activeRules = app.staticTexts["active-ruleset"]
         XCTAssertTrue(activeRules.waitForExistence(timeout: 5))
-        XCTAssertTrue(activeRules.label.contains("老三样"))
+        XCTAssertTrue(activeRules.label.contains("三样加分"))
         app.buttons["完成"].tap()
         app.buttons["BackButton"].tap()
 
-        app.buttons["加清一色"].tap()
-        XCTAssertTrue(app.buttons["practice-entry"].label.contains("老三样"))
+        app.buttons["清一色加分"].tap()
+        app.buttons["selected-ruleset-details"].tap()
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        XCTAssertTrue(details.label.contains("清一色有特殊加分"))
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["practice-entry"].label.contains("三样加分"))
         app.buttons["practice-entry"].tap()
         app.buttons["table-rules"].tap()
         XCTAssertTrue(activeRules.waitForExistence(timeout: 5))
-        XCTAssertTrue(activeRules.label.contains("老三样"))
+        XCTAssertTrue(activeRules.label.contains("三样加分"))
     }
 
     func testOpeningAndSkippingKeepTheBoardAndRackInPlace() throws {

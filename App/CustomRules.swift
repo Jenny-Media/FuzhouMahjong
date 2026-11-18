@@ -73,9 +73,30 @@ extension FuzhouHouseRules.Flush {
     }
 }
 
+extension FuzhouHouseRules.GoldIndicators {
+    var title: String {
+        switch self {
+        case .suitedOnly: "万、筒、条"
+        case .includeWinds: "万筒条与风牌"
+        case .includeDragons: "万筒条与中发白"
+        case .includeHonors: "万筒条与所有字牌"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .suitedOnly: "只有万、筒、条可以翻成金牌。翻到其他牌时，庄家将它收作花牌，再翻一张。"
+        case .includeWinds: "东、南、西、北都可以翻成金牌。例如翻到东，另外三张东就是金牌。其他字牌仍要补花。"
+        case .includeDragons: "中、发、白都可以翻成金牌。例如翻到发，另外三张发就是金牌。其他字牌仍要补花。"
+        case .includeHonors: "东南西北和中发白都可以翻成金牌。例如翻到东，另外三张东就是金牌。其他字牌仍要补花。"
+        }
+    }
+}
+
 extension FuzhouHouseRules {
     var summary: String {
         [keepDealerOnDraw ? "流局连庄" : "流局换庄", "接炮胡时\(discardPayment.title)",
+         "\(goldIndicators.title)可翻成金",
          flush == .disabled ? "清一色不加分" : "清一色时\(flush.title)",
          stackBonuses ? "特殊加分可叠加" : "特殊加分只取最高的一项"].joined(separator: "。")
     }
@@ -134,12 +155,49 @@ struct RulesetPicker: View {
                 .contentShape(Rectangle())
             }
             .accessibilityIdentifier("custom-rules-menu")
+
+            RulesetDetailsButton(ruleset: selection, houseRules: custom)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .teaPanel(corner: TeaTheme.controlCorner)
         .sheet(isPresented: $showsLibrary) {
             CustomRulesLibrary(template: selection) { selectedCustomID = $0.uuidString }
+        }
+    }
+}
+
+struct RulesetDetailsButton: View {
+    let ruleset: FuzhouRuleset
+    let houseRules: FuzhouHouseRules?
+    @State private var showsDetails = false
+
+    var body: some View {
+        Button { showsDetails = true } label: {
+            HStack(spacing: 8) {
+                Text(houseRules?.summary ?? ruleset.summary)
+                    .font(.footnote).foregroundStyle(TeaTheme.muted)
+                    .multilineTextAlignment(.leading)
+                    .accessibilityIdentifier("ruleset-summary")
+                Spacer(minLength: 2)
+                Text("规则详情").font(.subheadline.weight(.semibold))
+                    .foregroundStyle(TeaTheme.brass)
+                    .fixedSize(horizontal: true, vertical: false)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: TeaTheme.hitTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("规则详情，\(houseRules?.name ?? ruleset.title)")
+        .accessibilityHint(houseRules?.summary ?? ruleset.summary)
+        .accessibilityIdentifier("selected-ruleset-details")
+        .sheet(isPresented: $showsDetails) {
+            NavigationStack {
+                RuleGuide(startingAt: .scoring, showsCloseButton: true, ruleset: ruleset, houseRules: houseRules)
+            }
         }
     }
 }
@@ -223,6 +281,19 @@ private struct CustomRulesEditor: View {
             .listRowBackground(TeaTheme.surface)
 
             Section {
+                Picker("哪些牌可以翻成金", selection: $rules.goldIndicators) {
+                    ForEach(FuzhouHouseRules.GoldIndicators.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .accessibilityIdentifier("custom-gold-indicators")
+            } header: {
+                Text("金牌")
+            } footer: {
+                Text(rules.goldIndicators.explanation)
+                    .accessibilityIdentifier("custom-gold-explanation")
+            }
+            .listRowBackground(TeaTheme.surface)
+
+            Section {
                 Toggle("流局连庄", isOn: $rules.keepDealerOnDraw)
                 Picker("接炮胡时谁付分", selection: $rules.discardPayment) {
                     ForEach(FuzhouHouseRules.DiscardPayment.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -250,8 +321,9 @@ private struct CustomRulesEditor: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(rules.flush.explanation)
-                    if let count = RuleOdds.count(for: .pureSuit, flush: rules.flush) {
-                        Text("清一色参考概率 · \(RuleOdds.rate(count))")
+                    let odds = FuzhouOpeningOdds(flush: rules.flush, goldIndicators: rules.goldIndicators)
+                    if let chance = odds.probability(of: .pureSuit) {
+                        Text("起手 17 张成清一色 · \(RuleOdds.rate(chance))")
                             .accessibilityIdentifier("custom-flush-estimate")
                     }
                     Text(RuleScoringExample.bonuses(flush: rules.flush, stacks: rules.stackBonuses))
@@ -312,5 +384,6 @@ private struct CustomRulesEditor: View {
         rules.discardPayment = template.discardPayment
         rules.flush = template.flush
         rules.stackBonuses = template.stackBonuses
+        rules.goldIndicators = template.goldIndicators
     }
 }

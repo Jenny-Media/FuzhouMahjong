@@ -10,7 +10,8 @@ final class NearbyLoopbackTests: XCTestCase {
         defer { host.leave(); guest.leave() }
         guest.create(name: "Free")
         XCTAssertFalse(guest.isHost)
-        let houseRules = FuzhouHouseRules(name: "周末", keepDealerOnDraw: true, discardPayment: .allOpponents, flush: .disabled)
+        let houseRules = FuzhouHouseRules(name: "周末", keepDealerOnDraw: true, discardPayment: .allOpponents,
+                                         flush: .disabled, goldIndicators: .includeWinds)
         host.create(name: "Paid", houseRules: houseRules)
         for _ in 0..<100 where host.loopbackRoom == nil { try await Task.sleep(for: .milliseconds(20)) }
         guest.join(try XCTUnwrap(host.loopbackRoom), name: "Free")
