@@ -33,6 +33,55 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(result.winner, .south)
         XCTAssertEqual(result.lines.map(\.name), ["基础分", "抢金"])
         XCTAssertEqual(result.delta(for: .south), 180)
+        let reveal = try XCTUnwrap(WinningHand.groups(for: result, melds: [], gold: indicator))
+        XCTAssertEqual(reveal.count, 6)
+        XCTAssertTrue(reveal[0].members.contains { $0.id == result.winningTile?.id })
+        XCTAssertTrue(reveal.flatMap(\.members).allSatisfy { $0.represents == nil })
+    }
+
+    func testWinningGroupsShowThePairWinningCopyAndGoldSubstitutionWithOpenSets() throws {
+        let north = TileKind(.wind, 4)
+        let winningKind = TileKind(.circles, 6)
+        let hand = [
+            TileKind(.bamboo, 5), north, TileKind(.bamboo, 7), winningKind, winningKind,
+        ].enumerated().map { Tile(id: $0.offset, kind: $0.element) }
+        let melds = (1...4).map { rank in
+            let kind: MeldKind = rank == 4 ? .openKong : .pung
+            let tiles = (0..<(rank == 4 ? 4 : 3)).map { Tile(id: rank * 10 + $0, kind: TileKind(.characters, rank)) }
+            return Meld(kind: kind, tiles: tiles, from: .east)
+        }
+        let result = RoundResult(winner: .north, kind: .discard, source: .east,
+                                 winningTile: hand[4], winningHand: hand, lines: [])
+
+        let reveal = try XCTUnwrap(WinningHand.groups(for: result, melds: melds, gold: north))
+        XCTAssertEqual(reveal.map(\.kind), [.pair, .sequence, .meld(.pung), .meld(.pung), .meld(.pung), .meld(.openKong)])
+        XCTAssertEqual(Set(reveal[0].members.map(\.id)), [3, 4])
+        XCTAssertEqual(reveal[1].members.map { $0.represents ?? $0.tile.kind },
+                       [5, 6, 7].map { TileKind(.bamboo, $0) })
+        XCTAssertEqual(reveal[1].members.first { $0.tile.kind == north }?.represents, TileKind(.bamboo, 6))
+        XCTAssertEqual(reveal.last?.members.map(\.tile), melds.last?.tiles)
+        let displayed = reveal.flatMap(\.members).map(\.id)
+        XCTAssertEqual(displayed.sorted(), (hand + melds.flatMap(\.tiles)).map(\.id).sorted())
+    }
+
+    func testWinningGroupsShowTheScoredGoldPairAndSequences() throws {
+        let gold = TileKind(.wind, 4)
+        let hand = ([1, 2, 3].map { TileKind(.bamboo, $0) } + [gold, gold])
+            .enumerated().map { Tile(id: $0.offset, kind: $0.element) }
+        let melds = (1...4).map { rank in
+            Meld(kind: .chow, tiles: (rank...(rank + 2)).map {
+                Tile(id: rank * 10 + $0, kind: TileKind(.characters, $0))
+            }, from: .east)
+        }
+        let lines = FuzhouScoring.lines(hand: hand, melds: melds, flowers: [], gold: gold,
+                                        dealer: false, continuation: 0, openingDraw: false, kind: .selfDraw)
+        XCTAssertTrue(lines.contains { $0.name == "金对" })
+        XCTAssertTrue(lines.contains { $0.name == "平胡" })
+        let result = RoundResult(winner: .south, kind: .selfDraw, source: nil,
+                                 winningTile: hand[4], winningHand: hand, lines: lines)
+        let reveal = try XCTUnwrap(WinningHand.groups(for: result, melds: melds, gold: gold))
+        XCTAssertEqual(reveal.map(\.kind), [.pair, .sequence] + Array(repeating: .meld(.chow), count: 4))
+        XCTAssertEqual(reveal[0].members.map { $0.tile.kind }, [gold, gold])
     }
 
     func testDiscardWinChargesOnlyDiscarder() throws {

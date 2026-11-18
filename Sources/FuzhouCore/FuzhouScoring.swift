@@ -1,4 +1,9 @@
 enum FuzhouScoring {
+    static let goldenPairName = "金对"
+    static let goldenDragonName = "金龙"
+    static let threeGoldName = "三金倒"
+    static let sequenceHandName = "平胡"
+
     static func lines(hand: [Tile], melds: [Meld], flowers: [Tile], gold: TileKind,
                       dealer: Bool, continuation: Int, openingDraw: Bool, kind: WinKind) -> [RoundResult.Line] {
         var result: [RoundResult.Line] = []
@@ -34,11 +39,11 @@ enum FuzhouScoring {
 
         // These gold patterns replace the basic gold points. Golden Dragon also replaces all sequences.
         if goldenDragon {
-            add("金龙", 40)
+            add(goldenDragonName, 40)
         } else {
-            if allSequences { add("平胡", 10) }
-            if goldCount >= 3 { add("三金倒", 30) }
-            else if goldenPair { add("金对", 20) }
+            if allSequences { add(sequenceHandName, 10) }
+            if goldCount >= 3 { add(threeGoldName, 30) }
+            else if goldenPair { add(goldenPairName, 20) }
             else { add("金牌（\(goldCount) 张）", goldCount * 2) }
         }
         if kind == .robGold {

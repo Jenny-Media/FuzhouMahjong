@@ -239,7 +239,8 @@ public final class NearbySession: MatchSession {
     }
 
     public func finishOpening(_ round: Int) {
-        if openingRound == round { openingRound = nil }
+        guard openingRound == round else { return }
+        openingRound = nil
         scheduleComputerTurn()
     }
 
@@ -260,6 +261,7 @@ public final class NearbySession: MatchSession {
         computerTurn?.cancel()
         computerTurn = nil
         if suspended {
+            openingRound = nil
             closeBrowser()
             inviteDeadline?.cancel()
             inviteDeadline = nil
@@ -535,12 +537,13 @@ public final class NearbySession: MatchSession {
             guest = link
             switch try JSONDecoder().decode(HostMessage.self, from: clear) {
             case .update(let update):
+                let resuming = didConnect && !connected
                 connected = true
                 didConnect = true
                 clearRecovery()
                 notice = nil
                 wire.accepted()
-                publish(update)
+                publish(update, resuming: resuming)
             case .rejected:
                 resetRoom()
                 notice = "牌桌已满或对局已开始。"
@@ -556,6 +559,7 @@ public final class NearbySession: MatchSession {
         guard guest?.wire.id == wire.id else { return }
         guest = nil
         connected = false
+        openingRound = nil
         revision += 1
         if leaving {
             resetRoom()
@@ -616,13 +620,16 @@ public final class NearbySession: MatchSession {
         }
     }
 
-    private func publish(_ update: RoomUpdate) {
-        if self.update?.table?.roundNumber != update.table?.roundNumber ||
-            (self.update?.table?.result != nil && update.table?.result == nil) { rackOrder = nil }
-        if let table = update.table, table.isOpeningLayout,
-           self.update?.table?.roundNumber != table.roundNumber || self.update?.table?.result != nil {
-            openingRound = table.roundNumber
-        } else if update.table?.isOpeningLayout != true {
+    private func publish(_ update: RoomUpdate, resuming: Bool = false) {
+        let previous = self.update?.table
+        let startsHand = previous?.roundNumber != update.table?.roundNumber ||
+            (previous?.result != nil && update.table?.result == nil)
+        if startsHand { rackOrder = nil }
+        if let table = update.table, table.isOpeningLayout, startsHand {
+            // Guests animate the initial deal. Subsequent deals and reconnects present the host's board immediately.
+            openingRound = !resuming && (isHost || previous == nil) ? table.roundNumber : nil
+        } else if resuming || update.table?.isOpeningLayout != true ||
+                    previous?.step != update.table?.step || previous?.lastDraw != update.table?.lastDraw {
             openingRound = nil
         }
         self.update = update

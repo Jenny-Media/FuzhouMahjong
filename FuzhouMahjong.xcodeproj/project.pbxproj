@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		02EEBA5D8874707FE89B199A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E785A5197FED77CAA078C5FE /* Theme.swift */; };
+		0700432083D327C0B883C25E /* TableFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B144A418CDF5D8AA50827047 /* TableFlowTests.swift */; };
 		07F9CF0E29AD697994C7CFB8 /* FuzhouMahjong.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 049D58468392C495742BBB6D /* FuzhouMahjong.storekit */; };
 		08F4126F1592BFBC3D4EC6EA /* win.wav in Resources */ = {isa = PBXBuildFile; fileRef = 12D19ED7EE2E40CFFC550B32 /* win.wav */; };
 		0C40399E50B1CBA52F53F4E0 /* FuzhouMahjong.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 049D58468392C495742BBB6D /* FuzhouMahjong.storekit */; };
@@ -39,6 +40,7 @@
 		CD035E235820D8EE54117E53 /* InviteScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E33F096EF56DB090D04C00 /* InviteScanner.swift */; };
 		CD9F30563E5833FBD30E0A2E /* PurchaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1003A09EAEE135277481D775 /* PurchaseTests.swift */; };
 		D7738BC7D6909502ECCE29D3 /* ShuffleMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E8385EBD42496E8363BC33 /* ShuffleMotion.swift */; };
+		DE4437C5C30D3AE6C8D4DF8C /* FuzhouCore in Frameworks */ = {isa = PBXBuildFile; productRef = A57DCE4D2583B5337C912AB8 /* FuzhouCore */; };
 		E814F7AECDB7D0639137E7D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1341A781DB8EE5A24CC07824 /* Assets.xcassets */; };
 		F8E31689128D619FAEE1AFA3 /* RackTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D5BABB5CFF891D9502EEC64 /* RackTile.swift */; };
 /* End PBXBuildFile section */
@@ -83,6 +85,7 @@
 		A31F82099C976632E7E997E9 /* deal.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = deal.wav; sourceTree = "<group>"; };
 		AB00A2E1053595CCED79231C /* MatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchView.swift; sourceTree = "<group>"; };
 		AD6EC24B27F2D70711401700 /* PurchaseFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchaseFlowTests.swift; sourceTree = "<group>"; };
+		B144A418CDF5D8AA50827047 /* TableFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableFlowTests.swift; sourceTree = "<group>"; };
 		B4E33F096EF56DB090D04C00 /* InviteScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteScanner.swift; sourceTree = "<group>"; };
 		BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldLayout.swift; sourceTree = "<group>"; };
 		E3059DC43C7E3FFA403209A5 /* FuzhouMahjongApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzhouMahjongApp.swift; sourceTree = "<group>"; };
@@ -96,6 +99,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		29313CC36560946CC14300AC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DE4437C5C30D3AE6C8D4DF8C /* FuzhouCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		79FDD2B8B8116B8F81F4B0EE /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -200,6 +211,7 @@
 			isa = PBXGroup;
 			children = (
 				AD6EC24B27F2D70711401700 /* PurchaseFlowTests.swift */,
+				B144A418CDF5D8AA50827047 /* TableFlowTests.swift */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -257,6 +269,7 @@
 			buildPhases = (
 				FE47A78CEBB4569B30C179A6 /* Sources */,
 				465B70FE9AE5B0A2968CF9CC /* Resources */,
+				29313CC36560946CC14300AC /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -265,6 +278,7 @@
 			);
 			name = FuzhouPurchaseFlowTests;
 			packageProductDependencies = (
+				A57DCE4D2583B5337C912AB8 /* FuzhouCore */,
 			);
 			productName = FuzhouPurchaseFlowTests;
 			productReference = 948205B304250612CE3B73E4 /* FuzhouPurchaseFlowTests.xctest */;
@@ -380,6 +394,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1D9447A8BD24F6171492D658 /* PurchaseFlowTests.swift in Sources */,
+				0700432083D327C0B883C25E /* TableFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -422,7 +437,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "福州麻将";
@@ -599,7 +614,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "福州麻将";
@@ -690,6 +705,10 @@
 		6C4C419B440A19680E9926F5 /* FuzhouAccess */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = FuzhouAccess;
+		};
+		A57DCE4D2583B5337C912AB8 /* FuzhouCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FuzhouCore;
 		};
 		C57D5CD21420E23324757E6E /* FuzhouAccess */ = {
 			isa = XCSwiftPackageProductDependency;

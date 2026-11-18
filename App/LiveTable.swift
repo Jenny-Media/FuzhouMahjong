@@ -5,9 +5,8 @@ struct LiveTable: View {
     let table: TableState
     let names: [Seat: String]
     let latest: TableDiscard?
-    let drawingSeat: Seat?
-    let drawStarted: Date?
-    let drawingFromReserve: Bool
+    let opening: OpeningDeal.Stage?
+    let drawingFromReserve: Bool?
     let paused: Bool
     let size: CGSize
 
@@ -32,15 +31,6 @@ struct LiveTable: View {
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .foregroundStyle(TeaTheme.feltInk)
         .modifier(Felt(walnutRail: true))
-        .overlayPreferenceValue(TableAnchors.self) { anchors in
-            if let drawingSeat, let drawStarted, let wall = anchors[drawingFromReserve ? .reserve : .wall],
-               let seat = anchors[.player(drawingSeat)], !reduceMotion {
-                GeometryReader { geometry in
-                    DrawPickup(started: drawStarted, wall: geometry[wall], player: geometry[seat])
-                }
-                .clipShape(RoundedRectangle(cornerRadius: TeaTheme.tableRailCorner, style: .circular))
-            }
-        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("table-surface")
     }
@@ -92,7 +82,9 @@ struct LiveTable: View {
     @ViewBuilder
     private func seatCard(_ seat: Seat, width: CGFloat, height: CGFloat, vertical: Bool = false) -> some View {
         if let player = table.players.first(where: { $0.seat == seat }) {
-            let acting = !paused && table.step == .turn && table.current == seat
+            let acting = opening == nil && !paused && table.step == .turn && table.current == seat
+            let won = table.result?.winner == seat
+            let highlighted = acting || won
             let dealer = table.dealer == seat
             let wind = table.wind(for: seat)
             let name = name(of: seat)
@@ -105,20 +97,20 @@ struct LiveTable: View {
 
             layout {
                 HStack(spacing: 4) {
-                    SeatBadge(seat: wind, highlighted: acting)
+                    SeatBadge(seat: wind, highlighted: highlighted)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(name).font(.caption.weight(.semibold))
                         Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
                             .font(.caption2.monospacedDigit())
-                            .foregroundStyle(acting ? TeaTheme.brass : TeaTheme.muted)
+                            .foregroundStyle(highlighted ? TeaTheme.brass : TeaTheme.muted)
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 }
                 .frame(width: max(0, identityWidth), alignment: vertical ? .center : .leading)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(wind.wind)风，\(name)，\(dealer ? "庄家，" : "")\(acting ? "当前回合，" : "")\(player.score)分")
+                .accessibilityLabel("\(wind.wind)风，\(name)，\(dealer ? "庄家，" : "")\(won ? "本局赢家，" : acting ? "当前回合，" : "")\(player.score)分")
                 .accessibilityIdentifier("seat-score-\(seat.id)")
 
                 meldSummary(player.melds, width: meldWidth, columns: vertical ? 2 : 3)
@@ -126,16 +118,37 @@ struct LiveTable: View {
                     .accessibilityLabel("\(name)的副露")
                     .accessibilityIdentifier("seat-melds-\(seat.id)")
                     .accessibilityHidden(player.melds.isEmpty)
+                    .overlay {
+                        if seat != table.viewer, !won, player.melds.isEmpty {
+                            opponentRack(player)
+                        }
+                    }
+                    .anchorPreference(key: TableAnchors.self, value: .bounds) { [.player(seat): $0] }
             }
             .frame(width: width, height: height)
-            .background(TeaTheme.feltDark.opacity(acting ? 0.94 : 0.72), in: shape)
+            .background(TeaTheme.feltDark.opacity(highlighted ? 0.94 : 0.72), in: shape)
             .overlay {
-                shape.strokeBorder(acting ? TeaTheme.brass : TeaTheme.brassShade.opacity(0.35),
-                                   lineWidth: acting ? 1.5 : 1)
+                shape.strokeBorder(highlighted ? TeaTheme.brass : TeaTheme.brassShade.opacity(0.35),
+                                   lineWidth: won ? 2.5 : acting ? 1.5 : 1)
+                    .allowsHitTesting(false)
             }
-            .anchorPreference(key: TableAnchors.self, value: .bottom) { [.player(seat): $0] }
             .accessibilityElement(children: .contain)
         }
+    }
+
+    private func opponentRack(_ player: TableState.Player) -> some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: opening?.isDealing != true)) { time in
+            let landed = opening?.landed(for: player.seat, dealer: table.dealer, at: time.date) ?? player.rackCount
+            Canvas { context, size in
+                let back = context.resolve(Image("JadeTileBack"))
+                for index in 0..<min(FuzhouMatch.rackSize, landed) {
+                    let slot = OpeningDeal.opponentSlot(index, in: CGRect(origin: .zero, size: size))
+                    OpeningDeal.drawBack(back, in: context, at: slot.center, width: slot.width)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func meldSummary(_ melds: [Meld], width: CGFloat, columns: Int) -> some View {
@@ -162,7 +175,8 @@ struct LiveTable: View {
 
     private func tableStrip(width: CGFloat) -> some View {
         let tileWidth = min(17, max(0, (width - 118) / 6 - 3))
-        let previous = Array((table.discardTimeline ?? []).filter { $0.id != latest?.id }.suffix(6))
+        let winningTile = table.result?.winningTile?.id
+        let previous = Array((table.discardTimeline ?? []).filter { $0.id != latest?.id && $0.id != winningTile }.suffix(6))
         return HStack(spacing: 8) {
             wallSources
             Spacer(minLength: 0)
@@ -195,19 +209,21 @@ struct LiveTable: View {
             HStack(spacing: 2) {
                 ForEach(0..<7) { index in
                     ZStack {
-                        if index < stacks { stack }
-                        if index == pickup, drawingSeat != nil, !drawingFromReserve { pickupOutline }
+                        if index < stacks, opening?.showsWall != false { stack }
+                        if index == pickup, drawingFromReserve == false { pickupOutline }
                     }
                     .frame(width: 9, height: 13)
-                    .anchorPreference(key: TableAnchors.self, value: .center) { index == pickup ? [.wall: $0] : [:] }
+                    .anchorPreference(key: TableAnchors.self, value: .bounds) { anchor in
+                        index == pickup ? [.wall: anchor, .wallStack(index): anchor] : [.wallStack(index): anchor]
+                    }
                 }
             }
             ZStack {
-                stack
-                if drawingSeat != nil, drawingFromReserve { pickupOutline }
+                if opening?.showsWall != false { stack }
+                if drawingFromReserve == true { pickupOutline }
             }
             .frame(width: 9, height: 13)
-            .anchorPreference(key: TableAnchors.self, value: .center) { [.reserve: $0] }
+            .anchorPreference(key: TableAnchors.self, value: .bounds) { [.reserve: $0] }
         }
         .accessibilityHidden(true)
     }
@@ -228,7 +244,14 @@ struct LiveTable: View {
         let labelWidth = stacked ? width - 8 : width * 0.55
         let layout = stacked ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
         return ZStack {
-            if let latest {
+            if let result = table.result, let winner = result.winner {
+                WinningHandReveal(table: table, result: result, winner: winner, name: name(of: winner),
+                                  width: max(0, width - 8))
+            } else if table.result != nil {
+                Text("流局").font(.headline).foregroundStyle(TeaTheme.brass)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("drawn-hand")
+            } else if let latest {
                 let claim = claimedBy(latest)
                 layout {
                     TileFace(kind: latest.tile.kind, gold: table.isGold(latest.tile))
@@ -247,17 +270,18 @@ struct LiveTable: View {
                     .frame(width: max(0, labelWidth), alignment: stacked ? .center : .leading)
                 }
                 .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("latest-discard")
                 .id(latest.id)
                 .transition(.opacity)
-            } else {
+            } else if opening == nil {
                 Text("等待弃牌").font(.caption).foregroundStyle(TeaTheme.muted)
                     .transition(.opacity)
             }
         }
         .padding(.horizontal, 4)
         .frame(width: width, height: height)
+        .anchorPreference(key: TableAnchors.self, value: .bounds) { [.center: $0] }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: latest?.id)
-        .accessibilityIdentifier("latest-discard")
     }
 
     private func name(of seat: Seat) -> String {
@@ -277,10 +301,11 @@ struct LiveTable: View {
 struct MeldTiles: View {
     let meld: Meld
     let width: CGFloat
+    var showsLabel = true
 
     var body: some View {
         HStack(spacing: 2) {
-            Text(meld.kind.label).font(.caption2).padding(.trailing, 1)
+            if showsLabel { Text(meld.kind.label).font(.caption2).padding(.trailing, 1) }
             ForEach(meld.tiles) { tile in
                 TileFace(kind: tile.kind).frame(width: width, height: width * 1.34)
             }
@@ -288,14 +313,5 @@ struct MeldTiles: View {
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(meld.kind.label)，\(meld.tiles.map { $0.kind.spokenName }.joined(separator: "、"))")
-    }
-}
-
-private struct TableAnchors: PreferenceKey {
-    enum Marker: Hashable { case wall, reserve, player(Seat) }
-    static let defaultValue: [Marker: Anchor<CGPoint>] = [:]
-
-    static func reduce(value: inout [Marker: Anchor<CGPoint>], nextValue: () -> [Marker: Anchor<CGPoint>]) {
-        value.merge(nextValue()) { _, new in new }
     }
 }

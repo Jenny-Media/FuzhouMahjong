@@ -1,14 +1,27 @@
 import FuzhouCore
 import SwiftUI
 
+struct TableAnchors: PreferenceKey {
+    enum Marker: Hashable {
+        case center, wall, reserve, wallStack(Int), player(Seat), rack(Int), drawn
+    }
+
+    static let defaultValue: [Marker: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [Marker: Anchor<CGRect>], nextValue: () -> [Marker: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 struct OpeningDeal: View {
-    static let tileInterval = 0.040
-    static let flightDuration = 0.26
-    private static let tileCount = FuzhouMatch.rackSize * Seat.allCases.count
+    nonisolated static let tileInterval = 0.040
+    nonisolated static let flightDuration = 0.26
+    static let stackingDuration = 0.33
+    static let tileCount = FuzhouMatch.rackSize * Seat.allCases.count
 
     enum Stage: Equatable {
         case shuffle(Date?)
-        case stacking
+        case stacking(Date)
         case deal(Date)
         case settled
 
@@ -20,178 +33,139 @@ struct OpeningDeal: View {
             }
         }
 
-        var hasDealCount: Bool {
+        var isDealing: Bool {
+            if case .deal = self { return true }
+            return false
+        }
+
+        var showsWall: Bool {
             switch self {
             case .deal, .settled: true
             default: false
             }
         }
 
-        var isMoving: Bool {
+        func landed(for seat: Seat, dealer: Seat, at time: Date) -> Int {
             switch self {
-            case .shuffle(.some), .deal: true
-            default: false
+            case .settled: return FuzhouMatch.rackSize
+            case .deal(let start):
+                let age = time.timeIntervalSince(start) - Self.arrivalOffset(for: seat, dealer: dealer)
+                guard age >= 0 else { return 0 }
+                let circuit = OpeningDeal.tileInterval * Double(Seat.allCases.count)
+                return min(FuzhouMatch.rackSize, Int(age / circuit) + 1)
+            default: return 0
             }
+        }
+
+        private static func arrivalOffset(for seat: Seat, dealer: Seat) -> TimeInterval {
+            let position = (seat.id - dealer.id + Seat.allCases.count) % Seat.allCases.count
+            return OpeningDeal.flightDuration + Double(position) * OpeningDeal.tileInterval
         }
     }
 
     let viewer: Seat
     let dealer: Seat
     let stage: Stage
-    let reduceMotion: Bool
-    let skip: () -> Void
-    @Environment(\.dynamicTypeSize) private var typeSize
+    let anchors: [TableAnchors.Marker: CGRect]
 
     var body: some View {
-        GeometryReader { geometry in
-            let wide = geometry.size.width >= 520 && !typeSize.isAccessibilitySize
-            let layout = wide ? AnyLayout(HStackLayout(spacing: 24)) : AnyLayout(VStackLayout(spacing: 16))
-            let tableWidth = wide ? min(350, max(130, (geometry.size.height - 94) * 4 / 3)) : 350
-            ScrollView {
-                TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !stage.isMoving)) { time in
-                    let dealt = landedTiles(at: time.date)
-                    layout {
-                        Canvas { context, size in
-                            let back = context.resolve(Image("JadeTileBack"))
-                            switch stage {
-                            case .shuffle(let start):
-                                let elapsed = reduceMotion ? 0 : start.map { max(0, time.date.timeIntervalSince($0)) } ?? 0
-                                drawShuffle(in: context, size: size, back: back, elapsed: elapsed)
-                            case .stacking, .deal, .settled:
-                                drawWall(in: context, size: size, back: back, removed: dealt)
-                                drawDeal(in: context, size: size, back: back, clock: time.date, landed: dealt)
-                            }
-                        }
-                        .aspectRatio(4 / 3, contentMode: .fit)
-                        .frame(maxWidth: tableWidth)
-                        .modifier(Felt(walnutRail: true))
-                        .clipShape(RoundedRectangle(cornerRadius: TeaTheme.tableRailCorner, style: .circular))
-                        .accessibilityHidden(true)
-
-                        stageDetails(dealt: dealt)
-                    }
-                    .padding(TeaTheme.gutter)
-                    .frame(maxWidth: .infinity)
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: stage == .shuffle(nil) || stage == .settled)) { time in
+            Canvas { context, _ in
+                let back = context.resolve(Image("JadeTileBack"))
+                switch stage {
+                case .shuffle(let start):
+                    drawPile(in: context, back: back,
+                             elapsed: start.map { max(0, time.date.timeIntervalSince($0)) } ?? 0)
+                case .stacking(let start):
+                    drawPile(in: context, back: back, elapsed: ShuffleMotion.duration,
+                             stacking: progress(time.date.timeIntervalSince(start) / Self.stackingDuration))
+                case .deal(let start):
+                    drawFlights(in: context, back: back, elapsed: time.date.timeIntervalSince(start))
+                case .settled: break
                 }
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Button("跳过动画", action: skip)
-                    .buttonStyle(TeaButtonStyle(prominent: false))
-                    .accessibilityIdentifier("skip-opening")
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    .teaFooter()
+        }
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+
+    private func drawPile(in context: GraphicsContext, back: GraphicsContext.ResolvedImage,
+                          elapsed: TimeInterval, stacking: Double = 0) {
+        guard let center = anchors[.center] else { return }
+        let spread = min(center.width * 0.95, center.height * 1.75, 300)
+        let width = max(0, spread * 0.071)
+        let wall = (0..<7).compactMap { anchors[.wallStack($0)] }
+        for (index, pose) in ShuffleMotion.poses(at: elapsed).enumerated() {
+            let from = CGPoint(x: center.midX + (pose.center.x - 0.5) * spread,
+                               y: center.midY + (pose.center.y - 0.39) * spread)
+            if stacking > 0, !wall.isEmpty {
+                let stack = wall[index % wall.count]
+                let to = CGPoint(x: stack.midX, y: stack.midY + Double(index / wall.count % 2) * 2)
+                Self.drawBack(back, in: context, at: interpolate(from, to, stacking),
+                              width: width + (stack.width - width) * stacking,
+                              angle: pose.angle * (1 - stacking))
+            } else {
+                Self.drawBack(back, in: context, at: from, width: width, angle: pose.angle)
             }
         }
-        .modifier(HingeSafeContent())
     }
 
-    private func stageDetails(dealt: Int) -> some View {
-        VStack(spacing: 9) {
-            Text(stage.title)
-                .font(.system(.title2, design: .serif, weight: .semibold))
-                .accessibilityIdentifier("opening-stage")
-            if stage.hasDealCount {
-                let offset = (viewer.id - dealer.id + 4) % 4
-                let count = (dealt + 3 - offset) / 4
-                Text("手牌 \(count) / \(FuzhouMatch.rackSize)")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(TeaTheme.brass)
-                    .accessibilityHidden(true)
-                ProgressView(value: Double(count), total: Double(FuzhouMatch.rackSize))
-                    .tint(TeaTheme.brass)
-                    .frame(maxWidth: 150)
-                    .accessibilityHidden(true)
-            }
-        }
-        .frame(minHeight: 82)
-    }
-
-    private func landedTiles(at time: Date) -> Int {
-        switch stage {
-        case .settled: return Self.tileCount
-        case .deal(let start):
-            let elapsed = time.timeIntervalSince(start) - Self.flightDuration
-            guard elapsed >= 0 else { return 0 }
-            return min(Self.tileCount, Int(elapsed / Self.tileInterval) + 1)
-        default: return 0
-        }
-    }
-
-    private func drawShuffle(in context: GraphicsContext, size: CGSize,
-                             back: GraphicsContext.ResolvedImage, elapsed: Double) {
-        for pose in ShuffleMotion.poses(at: elapsed) {
-            let position = CGPoint(x: pose.center.x * size.width, y: pose.center.y * size.width)
-            drawBack(back, in: context, at: position, width: size.width * 0.055, angle: pose.angle, lift: 1)
-        }
-    }
-
-    private func drawWall(in context: GraphicsContext, size: CGSize,
-                          back: GraphicsContext.ResolvedImage, removed: Int) {
-        let width = size.width * 0.026
-        let stacks = max(0, 64 - removed / 2)
-        for index in 0..<stacks {
-            let side = index % 4
-            let column = index / 4
-            let offset = (Double(column) - 7.5) * width * 0.96
-            let position: CGPoint
-            switch side {
-            case 0: position = CGPoint(x: size.width * 0.50 + offset, y: size.height * 0.72)
-            case 1: position = CGPoint(x: size.width * 0.75, y: size.height * 0.50 + offset)
-            case 2: position = CGPoint(x: size.width * 0.50 + offset, y: size.height * 0.28)
-            default: position = CGPoint(x: size.width * 0.25, y: size.height * 0.50 + offset)
-            }
-            let angle = side.isMultiple(of: 2) ? 0.0 : .pi / 2
-            drawBack(back, in: context, at: CGPoint(x: position.x, y: position.y + 2.5), width: width,
-                     angle: angle, lift: 0.6)
-            drawBack(back, in: context, at: position, width: width, angle: angle, lift: 0.8)
-        }
-    }
-
-    private func drawDeal(in context: GraphicsContext, size: CGSize,
-                          back: GraphicsContext.ResolvedImage, clock: Date, landed: Int) {
-        let elapsed: Double
-        if case .deal(let start) = stage { elapsed = clock.timeIntervalSince(start) }
-        else { elapsed = -1 }
-        let width = size.width * 0.031
-        let source = CGPoint(x: size.width * 0.66, y: size.height * 0.28)
-
+    private func drawFlights(in context: GraphicsContext, back: GraphicsContext.ResolvedImage,
+                             elapsed: TimeInterval) {
+        guard let source = anchors[.wall] else { return }
         for index in 0..<Self.tileCount {
             let age = elapsed - Double(index) * Self.tileInterval
-            guard index < landed || age >= 0 else { break }
-            let seat = dealer.advanced(index % 4)
-            let side = (seat.id - viewer.id + 4) % 4
-            let offset = (Double(index / 4) - 7.5) * width * 1.06
-            let angle = side.isMultiple(of: 2) ? 0.0 : .pi / 2
-            let destination: CGPoint
-            switch side {
-            case 0: destination = CGPoint(x: size.width * 0.50 + offset, y: size.height * 0.89)
-            case 1: destination = CGPoint(x: size.width * 0.91, y: size.height * 0.50 + offset)
-            case 2: destination = CGPoint(x: size.width * 0.50 - offset, y: size.height * 0.11)
-            default: destination = CGPoint(x: size.width * 0.09, y: size.height * 0.50 - offset)
-            }
-            if index < landed {
-                drawBack(back, in: context, at: destination, width: width, angle: angle, lift: 0.6)
+            if age < 0 { break }
+            guard age < Self.flightDuration else { continue }
+            let seat = dealer.advanced(index % Seat.allCases.count)
+            let slot = index / Seat.allCases.count
+            let destination: CGRect
+            if seat == viewer {
+                guard let cell = anchors[.rack(slot)] else { continue }
+                destination = cell
             } else {
-                let t = min(1, age / Self.flightDuration)
-                let eased = t * t * (3 - 2 * t)
-                let lift = sin(t * .pi)
-                let point = CGPoint(x: source.x + (destination.x - source.x) * eased,
-                                    y: source.y + (destination.y - source.y) * eased - lift * size.height * 0.055)
-                drawBack(back, in: context, at: point, width: width * (1 + lift * 0.22),
-                         angle: angle * eased, lift: 1 + lift * 3)
+                guard let rack = anchors[.player(seat)] else { continue }
+                destination = Self.opponentSlot(slot, in: rack)
             }
+            let fraction = progress(age / Self.flightDuration)
+            let lift = sin(fraction * .pi)
+            var point = interpolate(source.center, destination.center, fraction)
+            point.y -= lift * 13
+            let width = source.width + (max(0, destination.width - 1) - source.width) * fraction + lift * 7
+            Self.drawBack(back, in: context, at: point, width: width, angle: lift * 0.16)
         }
     }
 
-    private func drawBack(_ back: GraphicsContext.ResolvedImage, in context: GraphicsContext,
-                          at position: CGPoint, width: CGFloat, angle: Double, lift: CGFloat) {
+    static func opponentSlot(_ index: Int, in rack: CGRect) -> CGRect {
+        let columns = FuzhouMatch.rackSize / 2
+        let width = max(0, min(9, (rack.width - 3) / CGFloat(columns), (rack.height - 2) / 2.8))
+        let height = width * 1.4
+        let column = index % columns
+        let row = index / columns
+        return CGRect(x: rack.midX + (CGFloat(column) - CGFloat(columns) / 2) * (width + 0.35),
+                      y: rack.midY + (CGFloat(row) - 1) * (height + 0.6),
+                      width: width, height: height)
+    }
+
+    static func drawBack(_ back: GraphicsContext.ResolvedImage, in context: GraphicsContext,
+                         at point: CGPoint, width: CGFloat, angle: Double = 0) {
         var tile = context
-        tile.translateBy(x: position.x, y: position.y)
+        tile.translateBy(x: point.x, y: point.y)
         tile.rotate(by: .radians(angle))
-        tile.addFilter(.shadow(color: .black.opacity(0.37), radius: lift, y: lift))
         let height = width * 1.4
         tile.draw(back, in: CGRect(x: -width / 2, y: -height / 2, width: width, height: height))
     }
+
+    private func progress(_ time: Double) -> Double {
+        let t = min(1, max(0, time))
+        return t * t * (3 - 2 * t)
+    }
+
+    private func interpolate(_ start: CGPoint, _ end: CGPoint, _ fraction: Double) -> CGPoint {
+        CGPoint(x: start.x + (end.x - start.x) * fraction, y: start.y + (end.y - start.y) * fraction)
+    }
+}
+
+extension CGRect {
+    var center: CGPoint { CGPoint(x: midX, y: midY) }
 }

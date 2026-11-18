@@ -143,6 +143,18 @@ final class NearbyLoopbackTests: XCTestCase {
         let clients = [host] + guests
         let states = try clients.map { try XCTUnwrap($0.table) }
         XCTAssertTrue(clients.allSatisfy { $0.openingRound == 1 })
+        guests[0].finishOpening(1)
+        XCTAssertNil(guests[0].openingRound)
+        XCTAssertTrue(([host] + guests.dropFirst()).allSatisfy { $0.openingRound == 1 })
+        let reconnectingDuringDeal = guests[2]
+        reconnectingDuringDeal.setBackgrounded(true)
+        try await until("host pauses during the opening deal") { host.paused }
+        reconnectingDuringDeal.setBackgrounded(false)
+        try await until("guest returns during the opening deal") {
+            reconnectingDuringDeal.connected && !host.paused
+        }
+        XCTAssertEqual(reconnectingDuringDeal.table, states[3])
+        XCTAssertNil(reconnectingDuringDeal.openingRound)
         clients.forEach { $0.finishOpening(1) }
         XCTAssertEqual(Set(states.map(\.viewer)), Set(Seat.allCases))
         let privateIDs = states.flatMap { $0.hand.map(\.id) }
@@ -189,10 +201,14 @@ final class NearbyLoopbackTests: XCTestCase {
             clients.allSatisfy { $0.table?.result == result }
         }
         XCTAssertEqual(Seat.allCases.map(result.delta).reduce(0, +), 0)
+        guests[0].nextHand()
+        XCTAssertEqual(host.table?.result, result)
         host.nextHand()
         try await until("all four clients advance to the next hand") {
-            clients.allSatisfy { $0.table?.roundNumber == 2 && $0.table?.result == nil && $0.openingRound == 2 }
+            clients.allSatisfy { $0.table?.roundNumber == 2 && $0.table?.result == nil }
         }
+        XCTAssertEqual(host.openingRound, 2)
+        XCTAssertTrue(guests.allSatisfy { $0.openingRound == nil })
 
         returning.leave()
         try await until("intentional departure releases the seat") {
