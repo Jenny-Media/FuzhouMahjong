@@ -22,7 +22,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: media.jenny.FuzhouMahjong$(VALIDATION_BUNDLE_SUFFIX)
         MARKETING_VERSION: '1.0'
-        CURRENT_PROJECT_VERSION: '25'
+        CURRENT_PROJECT_VERSION: '26'
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: 福州麻将
         INFOPLIST_KEY_UILaunchScreen_Generation: YES

@@ -16,7 +16,7 @@ struct TableAnchors: PreferenceKey {
 struct OpeningDeal: View {
     nonisolated static let tileInterval = 0.040
     nonisolated static let flightDuration = 0.26
-    static let stackingDuration = 0.33
+    static let stackingDuration = 0.46
     static let tileCount = FuzhouMatch.rackSize * Seat.allCases.count
 
     enum Stage: Equatable {
@@ -92,8 +92,8 @@ struct OpeningDeal: View {
     private func drawPile(in context: GraphicsContext, back: GraphicsContext.ResolvedImage,
                           elapsed: TimeInterval, stacking: Double = 0) {
         guard let center = anchors[.center] else { return }
-        let spread = min(center.width * 0.95, center.height * 1.75, 300)
-        let width = max(0, spread * 0.071)
+        let spread = min(center.width * 0.95, center.height * 1.47, 300)
+        let width = max(0, spread * 0.077)
         let wall = (0..<7).compactMap { anchors[.wallStack($0)] }
         for (index, pose) in ShuffleMotion.poses(at: elapsed).enumerated() {
             let from = CGPoint(x: center.midX + (pose.center.x - 0.5) * spread,
@@ -103,9 +103,9 @@ struct OpeningDeal: View {
                 let to = CGPoint(x: stack.midX, y: stack.midY + Double(index / wall.count % 2) * 2)
                 Self.drawBack(back, in: context, at: interpolate(from, to, stacking),
                               width: width + (stack.width - width) * stacking,
-                              angle: pose.angle * (1 - stacking))
+                              angle: pose.angle * (1 - stacking), depth: width * 0.15 * (1 - stacking))
             } else {
-                Self.drawBack(back, in: context, at: from, width: width, angle: pose.angle)
+                Self.drawBack(back, in: context, at: from, width: width, angle: pose.angle, depth: width * 0.15)
             }
         }
     }
@@ -148,12 +148,19 @@ struct OpeningDeal: View {
     }
 
     static func drawBack(_ back: GraphicsContext.ResolvedImage, in context: GraphicsContext,
-                         at point: CGPoint, width: CGFloat, angle: Double = 0) {
+                         at point: CGPoint, width: CGFloat, angle: Double = 0, depth: CGFloat = 0) {
         var tile = context
         tile.translateBy(x: point.x, y: point.y)
         tile.rotate(by: .radians(angle))
         let height = width * 1.4
-        tile.draw(back, in: CGRect(x: -width / 2, y: -height / 2, width: width, height: height))
+        let face = CGRect(x: -width / 2, y: -height / 2, width: width, height: height)
+        if depth > 0 {
+            var base = tile
+            base.addFilter(.shadow(color: .black.opacity(0.48), radius: depth, y: depth))
+            base.fill(Path(roundedRect: face.offsetBy(dx: 0, dy: depth), cornerRadius: width * 0.13),
+                      with: .color(TeaTheme.porcelain.opacity(0.8)))
+        }
+        tile.draw(back, in: face)
     }
 
     private func progress(_ time: Double) -> Double {

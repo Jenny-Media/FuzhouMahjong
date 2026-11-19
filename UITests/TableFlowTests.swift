@@ -10,6 +10,7 @@ final class TableFlowTests: XCTestCase {
         app.launchArguments = ["-play-access.archive.v1", "", "-table.custom-rulesets.v1", "<5b5d>", "-solo.ruleset", "pureSuit"]
         app.launch()
 
+        app.buttons["practice-entry"].tap()
         let menu = app.buttons["custom-rules-menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         menu.tap()
@@ -72,6 +73,7 @@ final class TableFlowTests: XCTestCase {
         let friends = "Friends \(suffix)"
         app.launch()
 
+        app.buttons["practice-entry"].tap()
         let menu = app.buttons["custom-rules-menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         menu.tap()
@@ -96,12 +98,12 @@ final class TableFlowTests: XCTestCase {
         app.terminate()
         app.launchArguments = ["-play-access.archive.v1", ""]
         app.launch()
+        app.buttons["practice-entry"].tap()
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
-        XCTAssertTrue(menu.label.contains(friends))
         menu.tap()
         XCTAssertTrue(app.buttons[friends].exists)
         app.buttons[family].tap()
-        app.buttons["practice-entry"].tap()
+        app.buttons["start-solo-setup"].tap()
         let skip = app.buttons["skip-opening"]
         XCTAssertTrue(skip.waitForExistence(timeout: 5))
         skip.tap()
@@ -118,6 +120,9 @@ final class TableFlowTests: XCTestCase {
         app.launchArguments = ["-play-access.archive.v1", ""]
         app.launch()
 
+        XCTAssertTrue(app.buttons["practice-entry"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["清一色加分"].exists)
+        app.buttons["practice-entry"].tap()
         let oldThree = app.buttons["三样加分"]
         XCTAssertTrue(oldThree.waitForExistence(timeout: 5))
         oldThree.tap()
@@ -129,7 +134,7 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(details.label.contains("清一色按普通胡牌计分"))
         app.buttons["完成"].tap()
-        app.buttons["practice-entry"].tap()
+        app.buttons["start-solo-setup"].tap()
         let skip = app.buttons["skip-opening"]
         XCTAssertTrue(skip.waitForExistence(timeout: 5))
         skip.tap()
@@ -140,6 +145,7 @@ final class TableFlowTests: XCTestCase {
         app.buttons["完成"].tap()
         app.buttons["BackButton"].tap()
 
+        app.buttons["new-solo-game"].tap()
         app.buttons["清一色加分"].tap()
         app.buttons["selected-ruleset-details"].tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
@@ -147,6 +153,9 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(details.label.contains("清一色有特殊加分"))
         app.buttons["完成"].tap()
+        let cancelSetup = app.buttons["cancel-solo-setup"]
+        cancelSetup.tap()
+        XCTAssertTrue(cancelSetup.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.buttons["practice-entry"].label.contains("三样加分"))
         app.buttons["practice-entry"].tap()
         app.buttons["table-rules"].tap()
@@ -173,6 +182,7 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(practice.waitForExistence(timeout: 5))
         XCTAssertTrue(practice.label.contains("开始新牌局"))
         XCTAssertFalse(app.buttons["saved-solo-rules"].exists)
+        practice.tap()
         let newDetails = app.buttons["selected-ruleset-details"]
         newDetails.tap()
         let title = app.staticTexts["ruleset-details-title"]
@@ -258,7 +268,9 @@ final class TableFlowTests: XCTestCase {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         defer { XCUIDevice.shared.orientation = .portrait }
-        let app = try launchSavedMatch(match(seed: 193, after: 1))
+        let fixture = try match(seed: 193, after: 1)
+        let state = fixture.table(for: .south)
+        let app = try launchSavedMatch(fixture)
         let table = element("table-surface", in: app)
         let actions = element("table-actions", in: app)
         let discard = element("latest-discard", in: app)
@@ -278,6 +290,49 @@ final class TableFlowTests: XCTestCase {
             XCTAssertFalse(actions.frame.intersects(discard.frame))
             capture(landscape ? "multiple-claims-landscape" : "multiple-claims-portrait")
         }
+        for (label, kind, count) in [("碰", MeldKind.pung, 2), ("杠", .openKong, 3)] {
+            let ids = try XCTUnwrap(state.moves.compactMap { move -> [Tile.ID]? in
+                if case .meld(let candidate, let ids) = move, candidate == kind { return ids }
+                return nil
+            }.first)
+            XCTAssertEqual(ids.count, count)
+            app.buttons["table-move-\(label)"].tap()
+            let confirm = app.buttons["confirm-meld"]
+            XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+            XCTAssertTrue(table.frame.contains(actions.frame))
+            XCTAssertFalse(actions.frame.intersects(discard.frame))
+            assertHighlighted(Set(ids), in: state.hand, app: app)
+            app.buttons["cancel-meld-preview"].tap()
+        }
+    }
+
+    func testChoosingAnotherChowHighlightsExactlyItsTwoTiles() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 56, after: 47)
+        let state = fixture.table(for: .south)
+        let options = state.moves.compactMap { move -> [Tile.ID]? in
+            if case .meld(.chow, let ids) = move { return ids }
+            return nil
+        }
+        XCTAssertEqual(options.count, 3)
+        let eligible = state.moves.flatMap { move -> [Tile.ID] in
+            if case .meld(_, let ids) = move { return ids }
+            return []
+        }
+        let app = try launchSavedMatch(fixture)
+        assertHighlighted(Set(eligible), in: state.hand, app: app)
+        app.buttons["table-move-吃"].tap()
+        let choices = app.buttons["meld-options"]
+        XCTAssertTrue(choices.waitForExistence(timeout: 5))
+        assertHighlighted(Set(options[0]), in: state.hand, app: app)
+        choices.tap()
+        app.buttons["meld-option-2"].firstMatch.tap()
+        assertHighlighted(Set(options[2]), in: state.hand, app: app)
+        capture("selected-chow-tiles")
+        app.buttons["confirm-meld"].tap()
+        XCTAssertTrue(app.buttons["discard-action"].waitForExistence(timeout: 5))
+        for id in options[2] { XCTAssertFalse(app.buttons["tile-\(id)"].exists) }
     }
 
     func testOpeningAndSkippingKeepTheBoardAndRackInPlace() throws {
@@ -289,7 +344,7 @@ final class TableFlowTests: XCTestCase {
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
             XCUIDevice.shared.orientation = orientation
             app.launch()
-            app.buttons["practice-entry"].tap()
+            openFreshSoloGame(app)
             let skip = app.buttons["skip-opening"]
             XCTAssertTrue(skip.waitForExistence(timeout: 5))
             let table = element("table-surface", in: app)
@@ -318,9 +373,12 @@ final class TableFlowTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-play-access.archive.v1", ""]
         app.launch()
-        app.buttons["practice-entry"].tap()
+        openFreshSoloGame(app)
         let skip = app.buttons["skip-opening"]
         XCTAssertTrue(skip.waitForExistence(timeout: 5))
+        let status = app.staticTexts["table-status"]
+        let dealing = NSPredicate(format: "label == %@", "正在发牌")
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: dealing, evaluatedWith: status)], timeout: 6), .completed)
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(skip.waitForNonExistence(timeout: 8))
         let board = element("table-surface", in: app)
@@ -361,7 +419,11 @@ final class TableFlowTests: XCTestCase {
                     XCTAssertFalse(actions.frame.intersects(element("latest-discard", in: app).frame))
                     capture("claim-actions")
                 }
-                app.buttons["declare-win"].tap()
+                let win = app.buttons["declare-win"]
+                let pass = app.buttons["table-move-过"]
+                XCTAssertGreaterThan(win.frame.width, pass.frame.width)
+                XCTAssertGreaterThan(win.frame.height, pass.frame.height)
+                win.tap()
             }
 
             let scorecard = app.buttons["view-scorecard"]
@@ -420,6 +482,21 @@ final class TableFlowTests: XCTestCase {
 
     private func element(_ id: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
+    private func openFreshSoloGame(_ app: XCUIApplication) {
+        app.buttons["practice-entry"].tap()
+        let start = app.buttons["start-solo-setup"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        start.tap()
+    }
+
+    private func assertHighlighted(_ ids: Set<Tile.ID>, in hand: [Tile], app: XCUIApplication,
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        for tile in hand {
+            let highlighted = app.buttons["tile-\(tile.id)"].value as? String == "牌组候选"
+            XCTAssertEqual(highlighted, ids.contains(tile.id), "Tile \(tile.id)", file: file, line: line)
+        }
     }
 
     private func assertFrames(_ frames: [CGRect], match expected: [CGRect],

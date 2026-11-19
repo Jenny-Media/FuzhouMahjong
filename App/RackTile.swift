@@ -6,6 +6,7 @@ struct RackTile: View {
     let isGold: Bool
     let isSelected: Bool
     var isDrawn = false
+    var isMeldCandidate = false
     let canSelect: Bool
     let canDiscard: Bool
     var rackCellWidth: CGFloat? = nil
@@ -35,6 +36,13 @@ struct RackTile: View {
         return Button(action: select) {
             TileFace(kind: tile.kind, gold: isGold, selected: isSelected || offset != .zero)
                 .frame(width: face.width, height: face.height)
+                .overlay {
+                    if isMeldCandidate {
+                        RoundedRectangle(cornerRadius: face.width * 0.13)
+                            .strokeBorder(TeaTheme.feltDark, style: StrokeStyle(lineWidth: 2.5, dash: [5, 2]))
+                            .allowsHitTesting(false)
+                    }
+                }
                 .offset(x: reduceMotion || showsPreview ? 0 : offset.width,
                         y: reduceMotion ? 0 : (showsPreview ? 0 : offset.height) - (isSelected ? 3 : 0))
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
@@ -52,6 +60,7 @@ struct RackTile: View {
         .highPriorityGesture(placement, including: canDiscard || reposition != nil ? .all : .none)
         .zIndex(offset != .zero ? 1 : 0)
         .accessibilityLabel(isDrawn ? "刚摸到，\(tileLabel)" : tileLabel)
+        .accessibilityValue(isMeldCandidate ? "牌组候选" : "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("tile-\(tile.id)")
         .accessibilityActions {

@@ -7,10 +7,23 @@ struct ShuffleMotion {
         var angle: Double
     }
 
-    static let duration = 1.20
+    struct Sweep {
+        let time: Double
+        let angle: Double
+        let force: Double
+    }
+
+    static let duration = 2.45
+    static let sweeps = [
+        Sweep(time: 0, angle: -0.34, force: 1),
+        Sweep(time: 0.45, angle: 2.78, force: 0.88),
+        Sweep(time: 0.91, angle: 1.19, force: 0.98),
+        Sweep(time: 1.39, angle: -1.82, force: 0.83),
+        Sweep(time: 1.86, angle: 0.22, force: 0.57),
+    ]
     private static let framesPerSecond = 60.0
     private static let frameCount = Int(duration * framesPerSecond)
-    private static let tileSpacing = 0.057
+    private static let tileSpacing = 0.072
     private static let frames: [[Pose]] = simulate()
 
     static func poses(at elapsed: Double) -> [Pose] {
@@ -26,41 +39,53 @@ struct ShuffleMotion {
 
     // Positions use the table's width as a unit on both axes.
     private static func simulate() -> [[Pose]] {
-        var pieces = (0..<24).map { index in
+        var pieces = (0..<30).map { index in
             let column = Double(index % 6)
             let row = Double(index / 6)
             let offset = Double((index * 19) % 13 - 6) / 500
             return Piece(pose: Pose(
-                center: CGPoint(x: 0.29 + column * 0.081 + offset, y: 0.267 + row * 0.078 - offset),
+                center: CGPoint(x: 0.24 + column * 0.100 + offset, y: 0.207 + row * 0.092 - offset),
                 angle: Double((index * 13) % 23 - 11) * 0.09
             ))
         }
         var frames: [[Pose]] = []
         for frame in 0..<frameCount {
             for index in pieces.indices {
-                if frame == (index * 3) % 7 || frame == 19 + (index * 5) % 9 {
-                    nudge(&pieces[index], index: index, secondPass: frame >= 19)
+                for (pass, sweep) in sweeps.enumerated() {
+                    // A push travels through the pile, with neighboring tiles reacting a few frames apart.
+                    let stagger = (index * 3 + pass * 7) % 10
+                    if frame == Int(sweep.time * framesPerSecond) + stagger {
+                        nudge(&pieces[index], index: index, pass: pass, sweep: sweep)
+                    }
                 }
                 pieces[index].pose.center.x += pieces[index].velocity.dx / framesPerSecond
                 pieces[index].pose.center.y += pieces[index].velocity.dy / framesPerSecond
                 pieces[index].pose.angle += pieces[index].spin / framesPerSecond
-                pieces[index].velocity.dx *= 0.92
-                pieces[index].velocity.dy *= 0.92
-                pieces[index].spin *= 0.90
+                pieces[index].velocity.dx *= 0.947
+                pieces[index].velocity.dy *= 0.947
+                pieces[index].spin *= 0.93
             }
             resolveContacts(&pieces)
+            for index in pieces.indices { keepOnFelt(&pieces[index]) }
             frames.append(pieces.map(\.pose))
         }
         return frames
     }
 
-    private static func nudge(_ piece: inout Piece, index: Int, secondPass: Bool) {
-        let upper = index / 6 < 2
-        let across = (upper == secondPass ? -1.0 : 1.0)
-        let force = secondPass ? 0.68 : 1.0
-        piece.velocity.dx += across * (0.34 + Double((index * 7) % 11) * 0.034) * force
-        piece.velocity.dy += (Double((index * 3) % 9) - 4) * 0.036 * force
-        piece.spin += (Double((index * 11) % 13) - 6) * 0.45 * force
+    private static func nudge(_ piece: inout Piece, index: Int, pass: Int, sweep: Sweep) {
+        let fan = Double((index * 7 + pass * 5) % 17 - 8) * 0.085
+        let force = (0.68 + Double((index * 13 + pass) % 11) * 0.054) * sweep.force
+        piece.velocity.dx += cos(sweep.angle + fan) * force
+        piece.velocity.dy += sin(sweep.angle + fan) * force
+        piece.spin += Double((index * 11 + pass * 3) % 13 - 6) * 0.72 * sweep.force
+    }
+
+    private static func keepOnFelt(_ piece: inout Piece) {
+        let x = min(0.92, max(0.08, piece.pose.center.x))
+        let y = min(0.70, max(0.08, piece.pose.center.y))
+        if x != piece.pose.center.x { piece.velocity.dx *= -0.45 }
+        if y != piece.pose.center.y { piece.velocity.dy *= -0.45 }
+        piece.pose.center = CGPoint(x: x, y: y)
     }
 
     private static func resolveContacts(_ pieces: inout [Piece]) {
@@ -81,11 +106,14 @@ struct ShuffleMotion {
                                         dy: pieces[right].velocity.dy - pieces[left].velocity.dy)
                 let toward = relative.dx * normal.dx + relative.dy * normal.dy
                 guard toward < 0 else { continue }
-                let impulse = -toward * 0.55
+                let impulse = -toward * 0.63
                 pieces[left].velocity.dx -= normal.dx * impulse
                 pieces[left].velocity.dy -= normal.dy * impulse
                 pieces[right].velocity.dx += normal.dx * impulse
                 pieces[right].velocity.dy += normal.dy * impulse
+                let twist = (relative.dx * normal.dy - relative.dy * normal.dx) * 1.4
+                pieces[left].spin += twist
+                pieces[right].spin -= twist
             }
         }
     }

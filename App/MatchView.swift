@@ -30,6 +30,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var arrangementSelection: Tile.ID?
     @State private var rackFrame = CGRect.zero
     @State private var goldDiscard: GoldDiscard?
+    @State private var previewedMeld: Move?
 
     private var opening: Int? { session.openingRound }
     private var active: Bool { scenePhase == .active && !session.paused }
@@ -122,6 +123,10 @@ struct MatchView<Session: MatchSession>: View {
         }
         .onChange(of: session.table) { before, after in
             guard let before, let after else { return }
+            if let previewedMeld, before.roundNumber != after.roundNumber || before.step != after.step ||
+                before.offeredTile != after.offeredTile || !after.moves.contains(previewedMeld) {
+                self.previewedMeld = nil
+            }
             readTableChange(from: before, to: after)
         }
         .onChange(of: soundEnabled) { _, enabled in
@@ -139,6 +144,7 @@ struct MatchView<Session: MatchSession>: View {
                 audio.stop()
                 drawCue = nil
                 goldDiscard = nil
+                previewedMeld = nil
                 resetDiscardMotion()
                 if let opening { finishOpening(opening) }
             }
@@ -256,14 +262,14 @@ struct MatchView<Session: MatchSession>: View {
     private func performOpening(_ round: Int) async {
         openingAnimationRound = round
         openingStage = .shuffle(reduceMotion ? nil : .now)
-        play(.shuffle)
         do {
             if reduceMotion {
+                play(.shuffle)
                 try await Task.sleep(for: .milliseconds(650))
                 openingStage = .settled
                 play(.deal)
             } else {
-                try await Task.sleep(for: .seconds(ShuffleMotion.duration))
+                try await performShuffle(round)
                 openingStage = .stacking(.now)
                 try await Task.sleep(for: .seconds(OpeningDeal.stackingDuration))
                 let start = Date.now
@@ -281,6 +287,28 @@ struct MatchView<Session: MatchSession>: View {
         } catch { return }
         guard !Task.isCancelled else { return }
         finishOpening(round, animateDraw: true)
+    }
+
+    private func performShuffle(_ round: Int) async throws {
+        let clock = ContinuousClock()
+        let began = clock.now
+        let heavy = UIImpactFeedbackGenerator(style: .heavy)
+        let rigid = UIImpactFeedbackGenerator(style: .rigid)
+        if hapticsEnabled {
+            heavy.prepare()
+            rigid.prepare()
+        }
+        for (index, sweep) in ShuffleMotion.sweeps.enumerated() {
+            try await clock.sleep(until: began.advanced(by: .seconds(sweep.time)))
+            guard !Task.isCancelled, active, opening == round else { throw CancellationError() }
+            let strongBeat = index.isMultiple(of: 2)
+            if hapticsEnabled {
+                (strongBeat ? heavy : rigid).impactOccurred()
+                (strongBeat ? rigid : heavy).prepare()
+            }
+            if strongBeat { play(.shuffle) }
+        }
+        try await clock.sleep(until: began.advanced(by: .seconds(ShuffleMotion.duration)))
     }
 
     private func finishOpening(_ round: Int, animateDraw: Bool = false) {
@@ -617,6 +645,7 @@ struct MatchView<Session: MatchSession>: View {
         let rim: CGFloat = 6
         let cellWidth = min(46, max(0, availableWidth - rim * 2) / CGFloat(slotCount))
         let cellHeight = max(TeaTheme.hitTarget, RackTile.faceSize(for: cellWidth).height)
+        let highlighted = highlightedMeldTiles(table)
         let rackHeight = landscape ? cellHeight : cellHeight * 2 + 4
         let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: 0), count: count)
         return HStack(alignment: .bottom, spacing: 0) {
@@ -634,7 +663,8 @@ struct MatchView<Session: MatchSession>: View {
                                 }, moveEarlier: index > 0 ? { moveInHand(tile.id, to: index - 1) } : nil,
                                          moveLater: index + 1 < tiles.count ? { moveInHand(tile.id, to: index + 1) } : nil)
                             } else {
-                                tileButton(tile, table: table, rackCellWidth: cellWidth)
+                                tileButton(tile, table: table, rackCellWidth: cellWidth,
+                                           isMeldCandidate: highlighted.contains(tile.id))
                             }
                         }
                         .opacity(index < landed ? 1 : 0)
@@ -679,7 +709,8 @@ struct MatchView<Session: MatchSession>: View {
                 .accessibilityHidden(true)
             Group {
                 if let tile {
-                    tileButton(tile, table: table, rackCellWidth: rackCellWidth, isDrawn: true)
+                    tileButton(tile, table: table, rackCellWidth: rackCellWidth, isDrawn: true,
+                               isMeldCandidate: highlightedMeldTiles(table).contains(tile.id))
                 } else {
                     Color.clear.accessibilityHidden(true)
                 }
@@ -750,13 +781,21 @@ struct MatchView<Session: MatchSession>: View {
         arrangementSelection = nil
     }
 
+    private func highlightedMeldTiles(_ table: TableState) -> Set<Tile.ID> {
+        guard active, !arranging, opening == nil, !localDrawInFlight(table) else { return [] }
+        if let previewedMeld, table.moves.contains(previewedMeld), let meld = previewedMeld.meld {
+            return Set(meld.ids)
+        }
+        return Set(table.moves.compactMap(\.meld).flatMap(\.ids))
+    }
+
     private func tileButton(_ tile: Tile, table: TableState, rackCellWidth: CGFloat? = nil,
-                            isDrawn: Bool = false) -> some View {
+                            isDrawn: Bool = false, isMeldCandidate: Bool) -> some View {
         let playable = active && !arranging && opening == nil && !localDrawInFlight(table)
         let canDiscard = playable && table.moves.contains(.discard(tile.id))
         let canSelect = canDiscard || (playable && table.moves.contains(.replaceFlower(tile.id)))
         return RackTile(tile: tile, isGold: table.isGold(tile), isSelected: playable && tile.id == activeTile(table),
-                        isDrawn: isDrawn,
+                        isDrawn: isDrawn, isMeldCandidate: isMeldCandidate,
                         canSelect: canSelect, canDiscard: canDiscard, rackCellWidth: rackCellWidth, select: {
             guard selectedID != tile.id else { return }
             if reduceMotion { selectedID = tile.id }
@@ -770,24 +809,28 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func actions(_ table: TableState) -> some View {
+        Group {
+            if let previewedMeld, table.moves.contains(previewedMeld), let meld = previewedMeld.meld {
+                meldConfirmation(previewedMeld, kind: meld.kind, table: table)
+            } else {
+                availableActions(table)
+            }
+        }
+        .disabled(!active || pendingThrow != nil || localDrawInFlight(table))
+    }
+
+    private func availableActions(_ table: TableState) -> some View {
         let selected = activeTile(table)
         let replacesFlower = selected.map { table.moves.contains(.replaceFlower($0)) } ?? false
         let canWin = table.moves.contains(.win)
         let canPass = table.moves.contains(.pass)
-        let chows = table.moves.filter { if case .meld(.chow, _) = $0 { true } else { false } }
-        let pung = table.moves.first { if case .meld(.pung, _) = $0 { true } else { false } }
-        let kongs = table.moves.filter {
-            switch $0 {
-            case .meld(.openKong, _), .meld(.concealedKong, _), .meld(.addedKong, _): true
-            default: false
-            }
-        }
+        let melds = table.moves.filter { $0.meld != nil }
 
         return HStack(spacing: 4) {
             if canWin { moveButton(.win, label: title(.win, table: table), table: table) }
-            if let pung { moveButton(pung, label: "碰", table: table) }
-            meldControl(kongs, label: "杠", table: table)
-            meldControl(chows, label: "吃", table: table)
+            meldControl(melds, label: "碰", table: table)
+            meldControl(melds, label: "杠", table: table)
+            meldControl(melds, label: "吃", table: table)
             if canPass {
                 moveButton(.pass, label: "过", table: table)
             } else {
@@ -803,7 +846,6 @@ struct MatchView<Session: MatchSession>: View {
                 .accessibilityIdentifier("discard-action")
             }
         }
-        .disabled(!active || pendingThrow != nil || localDrawInFlight(table))
     }
 
     private func status(_ table: TableState) -> String {
@@ -826,38 +868,103 @@ struct MatchView<Session: MatchSession>: View {
 
     @ViewBuilder
     private func meldControl(_ moves: [Move], label: String, table: TableState) -> some View {
-        if let first = moves.first {
-            if moves.count == 1 {
-                moveButton(first, label: label, table: table)
-            } else {
+        if let first = moves.first(where: { $0.meld?.kind.actionLabel == label }) {
+            Button {
+                if moves.count == 1 { send(first) }
+                else { previewedMeld = first }
+            } label: {
+                tableControlLabel(label)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(moves.count == 1 ? title(first, table: table) : label)
+            .accessibilityIdentifier("table-move-\(label)")
+        }
+    }
+
+    private func meldConfirmation(_ move: Move, kind: MeldKind, table: TableState) -> some View {
+        let alternatives = table.moves.filter { $0.meld?.kind.actionLabel == kind.actionLabel }
+        return HStack(spacing: 4) {
+            Button { previewedMeld = nil } label: {
+                Image(systemName: "chevron.left")
+                    .frame(minWidth: TeaTheme.hitTarget, minHeight: TeaTheme.hitTarget)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("返回牌桌选项")
+            .accessibilityIdentifier("cancel-meld-preview")
+
+            if alternatives.count > 1 {
                 Menu {
-                    ForEach(moves, id: \.self) { move in
-                        Button(title(move, table: table)) { send(move) }
+                    ForEach(Array(alternatives.enumerated()), id: \.element) { index, option in
+                        Button {
+                            previewedMeld = option
+                            if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
+                        } label: {
+                            if option == move { Label(title(option, table: table), systemImage: "checkmark") }
+                            else { Text(title(option, table: table)) }
+                        }
+                        .accessibilityIdentifier("meld-option-\(index)")
                     }
                 } label: {
-                    tableControlLabel(label)
+                    HStack(spacing: 3) {
+                        meldTilesPreview(move, table: table)
+                        Image(systemName: "chevron.up.chevron.down").font(.caption2)
+                    }
+                    .frame(minHeight: TeaTheme.hitTarget)
                 }
-                .accessibilityIdentifier("table-move-\(label)")
+                .accessibilityLabel("选择\(kind.actionLabel)牌组")
+                .accessibilityValue(title(move, table: table))
+                .accessibilityIdentifier("meld-options")
+            } else {
+                meldTilesPreview(move, table: table)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(title(move, table: table))
+            }
+            Button { send(move) } label: {
+                tableControlLabel("确认\(kind.label)", prominent: !table.moves.contains(.win))
+            }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("confirm-meld")
+            if table.moves.contains(.win) { moveButton(.win, label: title(.win, table: table), table: table) }
+        }
+    }
+
+    private func meldTilesPreview(_ move: Move, table: TableState) -> some View {
+        HStack(spacing: 1) {
+            ForEach(meldTiles(for: move, table: table)) { tile in
+                TileFace(kind: tile.kind)
+                    .frame(width: 13, height: 13 / TileFace.artworkAspectRatio)
+                    .accessibilityHidden(true)
             }
         }
     }
 
+    private func meldTiles(for move: Move, table: TableState) -> [Tile] {
+        guard let meld = move.meld else { return [] }
+        let rack = table.hand + [table.drawn].compactMap { $0 }
+        let offered = table.step == .claim ? [table.offeredTile].compactMap { $0 } : []
+        return (rack.filter { meld.ids.contains($0.id) } + offered).sorted { $0.kind < $1.kind }
+    }
+
     private func moveButton(_ move: Move, label: String, table: TableState) -> some View {
-        Button { send(move) } label: { tableControlLabel(label, prominent: move == .win && !session.paused) }
+        Button { send(move) } label: {
+            tableControlLabel(label, prominent: move == .win && !session.paused, winning: move == .win)
+        }
             .buttonStyle(.plain)
             .accessibilityLabel(title(move, table: table))
             .accessibilityIdentifier(move == .win ? "declare-win" : "table-move-\(label)")
     }
 
-    private func tableControlLabel(_ title: String, prominent: Bool = false, primary: Bool = false) -> some View {
+    private func tableControlLabel(_ title: String, prominent: Bool = false, primary: Bool = false,
+                                   winning: Bool = false) -> some View {
         let shape = RoundedRectangle(cornerRadius: 10)
         return Text(title)
-            .font(.subheadline.weight(.semibold))
+            .font(winning ? .title3.weight(.bold) : .subheadline.weight(.semibold))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .foregroundStyle(prominent ? TeaTheme.brassInk : TeaTheme.ink)
             .padding(.horizontal, 5)
-            .frame(minWidth: primary ? min(112, primaryControlWidth) : TeaTheme.hitTarget, minHeight: TeaTheme.hitTarget)
+            .frame(minWidth: winning ? 64 : primary ? min(112, primaryControlWidth) : TeaTheme.hitTarget,
+                   minHeight: winning ? 48 : TeaTheme.hitTarget)
             .background(prominent ? TeaTheme.brassFinish : TeaTheme.panelFinish, in: shape)
             .overlay { shape.strokeBorder(prominent ? TeaTheme.brass : TeaTheme.line).allowsHitTesting(false) }
     }
@@ -865,19 +972,20 @@ struct MatchView<Session: MatchSession>: View {
     private func title(_ move: Move, table: TableState) -> String {
         switch move {
         case .win:
-            switch table.step {
+            return switch table.step {
             case .opening: "抢金"
             case .claim: "胡"
             default: table.canDeclareThreeGold ? "三金倒" : "自摸"
             }
-        case .pass: "过"
-        case .meld(let kind, let ids):
+        case .pass: return "过"
+        case .meld(let kind, _):
+            let tiles = meldTiles(for: move, table: table)
             if kind == .chow {
-                "吃 \(table.hand.filter { ids.contains($0.id) }.map(\.kind.spokenName).joined(separator: "、"))"
+                return "吃 \(tiles.map(\.kind.spokenName).joined(separator: "、"))"
             } else {
-                "\(kind.label) \(table.hand.first { ids.contains($0.id) }?.kind.spokenName ?? "")"
+                return "\(kind.label) \(tiles.first?.kind.spokenName ?? "")"
             }
-        default: ""
+        default: return ""
         }
     }
 
@@ -907,6 +1015,7 @@ struct MatchView<Session: MatchSession>: View {
             pendingThrow = nil
             return
         }
+        previewedMeld = nil
         selectedID = nil
         guard hapticsEnabled else { return }
         if move == .win { UINotificationFeedbackGenerator().notificationOccurred(.success) }
@@ -968,7 +1077,18 @@ func displayName(_ seat: Seat, viewer: Seat, names: [Seat: String]) -> String {
 }
 
 extension MeldKind {
+    fileprivate var actionLabel: String {
+        switch self { case .chow, .pung: label; case .openKong, .concealedKong, .addedKong: "杠" }
+    }
+
     var label: String {
         switch self { case .chow: "吃"; case .pung: "碰"; case .openKong: "明杠"; case .concealedKong: "暗杠"; case .addedKong: "加杠" }
+    }
+}
+
+private extension Move {
+    var meld: (kind: MeldKind, ids: [Tile.ID])? {
+        if case .meld(let kind, let ids) = self { return (kind, ids) }
+        return nil
     }
 }

@@ -77,7 +77,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     }
 
     private func wideTable(width: CGFloat, height: CGFloat) -> some View {
-        let playersWidth = min(width * 0.56, width - gap - 250)
+        let playersWidth = min(width * 0.56, width - gap - 272)
         let seatWidth = (playersWidth - gap) / 2
         let seatHeight = max(0, (height - gap) / 2)
         let centerWidth = max(0, width - playersWidth - gap)

@@ -39,6 +39,7 @@ final class PurchaseFlowTests: XCTestCase {
         app.buttons["BackButton"].tap()
         XCUIDevice.shared.orientation = .portrait
         app.buttons["practice-entry"].tap()
+        startSetup(app)
         skipOpening(app)
         app.buttons["BackButton"].tap()
         XCTAssertTrue(app.buttons["solo-remaining"].label.contains("1"))
@@ -48,14 +49,19 @@ final class PurchaseFlowTests: XCTestCase {
         let newGame = app.buttons["new-solo-game"]
         reveal(newGame, in: app)
         newGame.tap()
+        startSetup(app)
         let prompt = app.alerts["开始新的单机牌局？"]
         let confirm = prompt.buttons["confirm-new-solo-game"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         prompt.buttons["取消"].firstMatch.tap()
         XCTAssertTrue(prompt.waitForNonExistence(timeout: 5))
+        let cancelSetup = app.buttons["cancel-solo-setup"]
+        cancelSetup.tap()
+        XCTAssertTrue(cancelSetup.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.buttons["practice-entry"].label.contains("继续单机"))
         XCTAssertTrue(app.buttons["solo-remaining"].label.contains("1"))
         newGame.tap()
+        startSetup(app)
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
         skipOpening(app)
@@ -63,6 +69,7 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["solo-remaining"].label.contains("0"))
         reveal(newGame, in: app)
         newGame.tap()
+        startSetup(app)
         XCTAssertTrue(app.staticTexts["access-status"].waitForExistence(timeout: 5))
         let trial = app.buttons["trial-start"]
         reveal(trial, in: app); trial.tap()
@@ -111,6 +118,7 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 8))
         capture("home-portrait")
         play.tap()
+        startSetup(app)
         skipOpening(app)
 
         let gold = app.buttons["gold-rules"]
@@ -186,6 +194,12 @@ final class PurchaseFlowTests: XCTestCase {
         let skip = app.buttons["skip-opening"]
         if skip.waitForExistence(timeout: 3) { skip.tap() }
         XCTAssertTrue(app.buttons["BackButton"].waitForExistence(timeout: 8))
+    }
+
+    private func startSetup(_ app: XCUIApplication) {
+        let start = app.buttons["start-solo-setup"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        start.tap()
     }
     private func capture(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
