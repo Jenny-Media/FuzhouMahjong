@@ -3,6 +3,128 @@ import XCTest
 
 @MainActor
 final class TableFlowTests: XCTestCase {
+    func testMaterialCombinationsAtPlaySize() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        let base = try savedMatchArguments(match(seed: 29, after: 0))
+        let combinations = [
+            ("redwoodSuede", "ivoryRedwood"),
+            ("bronzeLeather", "creamBakelite"),
+            ("inkBlue", "paleJade"),
+            ("jadeWalnut", "classic"),
+        ]
+        for (board, tile) in combinations {
+            app.launchArguments = base + ["-appearance.mode", "dark", "-table.boardStyle", board, "-table.tileStyle", tile]
+            app.launch()
+            let practice = app.buttons["practice-entry"]
+            XCTAssertTrue(practice.waitForExistence(timeout: 5))
+            practice.tap()
+            XCTAssertTrue(element("table-rack", in: app).waitForExistence(timeout: 5))
+            XCTAssertTrue(element("latest-discard", in: app).waitForExistence(timeout: 5))
+            capture("materials-\(board)-\(tile)")
+            app.terminate()
+        }
+    }
+
+    func testAppearanceKeepsManualMaterialsAcrossModeChangesAndRelaunch() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        let launchArguments = try savedMatchArguments(match(seed: 29, after: 0))
+        app.launchArguments = launchArguments + ["-table.boardStyle", "charcoal", "-table.tileStyle", "inkCeramic"]
+        app.launch()
+
+        func settings() {
+            app.buttons["home-more"].tap()
+            app.buttons["设置"].tap()
+            XCTAssertTrue(element("appearance-picker", in: app).waitForExistence(timeout: 5))
+        }
+
+        func choose(_ option: String, using id: String) {
+            let picker = element(id, in: app)
+            picker.tap()
+            let selection = app.buttons[option]
+            XCTAssertTrue(selection.waitForExistence(timeout: 5))
+            selection.tap()
+            XCTAssertEqual(picker.value as? String, option)
+        }
+
+        func captureTable(_ name: String) {
+            app.buttons["完成"].tap()
+            app.buttons["practice-entry"].tap()
+            XCTAssertTrue(element("table-rack", in: app).waitForExistence(timeout: 5))
+            capture(name)
+        }
+
+        func settingsBrightness(capturing name: String) throws -> Int {
+            let bar = app.navigationBars["设置"].frame
+            let screenshot = XCUIScreen.main.screenshot()
+            capture(name, screenshot: screenshot)
+            let image = try XCTUnwrap(screenshot.image.cgImage)
+            let scale = CGFloat(image.width) / app.frame.width
+            // Sample the empty area between the leading edge and the centered title.
+            let blank = CGRect(x: bar.minX + bar.width * 0.2, y: bar.midY, width: 4, height: 4)
+            let sample = try XCTUnwrap(image.cropping(to: blank.applying(CGAffineTransform(scaleX: scale, y: scale))))
+            var pixel = [UInt8](repeating: 0, count: 4)
+            try pixel.withUnsafeMutableBytes { bytes in
+                let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1,
+                                                    bitsPerComponent: 8, bytesPerRow: 4,
+                                                    space: CGColorSpaceCreateDeviceRGB(),
+                                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            }
+            return pixel.prefix(3).map(Int.init).reduce(0, +) / 3
+        }
+
+        settings()
+        XCTAssertEqual(element("board-style-picker", in: app).value as? String, "自动")
+        XCTAssertEqual(element("tile-style-picker", in: app).value as? String, "自动")
+        app.terminate()
+        app.launchArguments = launchArguments
+        app.launch()
+        settings()
+        choose("跟随系统", using: "appearance-picker")
+        choose("自动", using: "board-style-picker")
+        choose("自动", using: "tile-style-picker")
+        let systemBrightness = try settingsBrightness(capturing: "appearance-system-settings")
+        choose("浅色", using: "appearance-picker")
+        XCTAssertGreaterThan(try settingsBrightness(capturing: "appearance-light-settings"), 150)
+        choose("深色", using: "appearance-picker")
+        XCTAssertLessThan(try settingsBrightness(capturing: "appearance-dark-settings"), 110,
+                          "An open Settings sheet should switch to Dark immediately.")
+        choose("跟随系统", using: "appearance-picker")
+        XCTAssertEqual(try settingsBrightness(capturing: "appearance-restored-system-settings"),
+                       systemBrightness, accuracy: 20)
+        choose("浅色", using: "appearance-picker")
+        captureTable("appearance-light-table")
+        app.terminate()
+        app.launch()
+
+        settings()
+        choose("墨蓝 · 枪灰金属", using: "board-style-picker")
+        choose("白釉瓷", using: "tile-style-picker")
+        choose("深色", using: "appearance-picker")
+        XCTAssertEqual(element("board-style-picker", in: app).value as? String, "墨蓝 · 枪灰金属")
+        XCTAssertEqual(element("tile-style-picker", in: app).value as? String, "白釉瓷")
+        app.terminate()
+        app.launch()
+        settings()
+        XCTAssertEqual(element("appearance-picker", in: app).value as? String, "深色")
+        XCTAssertEqual(element("board-style-picker", in: app).value as? String, "墨蓝 · 枪灰金属")
+        XCTAssertEqual(element("tile-style-picker", in: app).value as? String, "白釉瓷")
+        capture("appearance-pinned-settings")
+        captureTable("appearance-ink-blue-table")
+        app.terminate()
+        app.launch()
+        settings()
+
+        choose("自动", using: "board-style-picker")
+        XCTAssertEqual(element("tile-style-picker", in: app).value as? String, "白釉瓷")
+        choose("自动", using: "tile-style-picker")
+        captureTable("appearance-dark-table")
+    }
+
     func testCustomRulesPreviewUpdatesForDraftChoices() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -679,8 +801,8 @@ final class TableFlowTests: XCTestCase {
         }
     }
 
-    private func capture(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    private func capture(_ name: String, screenshot: XCUIScreenshot = XCUIScreen.main.screenshot()) {
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)

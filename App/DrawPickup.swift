@@ -2,7 +2,6 @@ import SwiftUI
 
 struct DrawPickup: View {
     static let duration = 0.66
-    static let contactDelay = 0.12
     static let flowerDuration = 0.23
 
     struct Flight: Equatable {

@@ -17,6 +17,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     @ViewBuilder let drawDock: () -> DrawDock
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.boardStyle) private var board
+    @Environment(\.tileStyle) private var tileStyle
 
     private let inset: CGFloat = 10
     private let gap: CGFloat = 6
@@ -34,8 +36,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         }
         .frame(width: width, height: height)
         .frame(width: size.width, height: size.height)
-        .foregroundStyle(TeaTheme.feltInk)
-        .modifier(Felt(walnutRail: true))
+        .foregroundStyle(board.ink)
+        .modifier(Felt(gameTable: true))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("table-surface")
     }
@@ -126,13 +128,13 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
 
             layout {
                 HStack(spacing: 4) {
-                    SeatBadge(seat: wind, highlighted: highlighted)
+                    SeatBadge(seat: wind, highlighted: highlighted, board: board)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(name).font(.caption.weight(.semibold))
                         Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
                             .font(.caption2.monospacedDigit())
-                            .foregroundStyle(highlighted ? TeaTheme.brass : TeaTheme.muted)
+                            .foregroundStyle(highlighted ? board.accent : board.muted)
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -156,9 +158,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             }
             .frame(width: width, height: height)
             .dynamicTypeSize(...DynamicTypeSize.xLarge)
-            .background(TeaTheme.feltDark.opacity(highlighted ? 0.94 : 0.72), in: shape)
+            .background(board.seatSurface.opacity(highlighted ? 0.94 : 0.72), in: shape)
             .overlay {
-                shape.strokeBorder(highlighted ? TeaTheme.brass : TeaTheme.brassShade.opacity(0.35),
+                shape.strokeBorder(board.accent.opacity(highlighted ? 1 : 0.34),
                                    lineWidth: won ? 2.5 : acting ? 1.5 : 1)
                     .allowsHitTesting(false)
             }
@@ -170,7 +172,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: opening?.isDealing != true)) { time in
             let landed = opening?.landed(for: player.seat, dealer: table.dealer, at: time.date) ?? player.rackCount
             Canvas { context, size in
-                let back = context.resolve(Image("JadeTileBack"))
+                let back = context.resolve(Image(decorative: tileStyle.backArtwork))
                 for index in 0..<min(FuzhouMatch.rackSize, landed) {
                     let slot = OpeningDeal.opponentSlot(index, in: CGRect(origin: .zero, size: size))
                     OpeningDeal.drawBack(back, in: context, at: slot.center, width: slot.width)
@@ -275,7 +277,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     }
 
     private var pickupOutline: some View {
-        RoundedRectangle(cornerRadius: 2).strokeBorder(TeaTheme.brass, lineWidth: 1.5)
+        RoundedRectangle(cornerRadius: 2).strokeBorder(board.accent, lineWidth: 1.5)
     }
 
     private func discardFocus(width: CGFloat, height: CGFloat, stacked: Bool) -> some View {
@@ -287,7 +289,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 WinningHandReveal(table: table, result: result, winner: winner, name: name(of: winner),
                                   width: max(0, width - 8))
             } else if table.result != nil {
-                Text("流局").font(.headline).foregroundStyle(TeaTheme.brass)
+                Text("流局").font(.headline).foregroundStyle(board.accent)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("drawn-hand")
             } else if let latest {
@@ -313,11 +315,11 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                         .accessibilityHidden(true)
                     VStack(alignment: stacked ? .center : .leading, spacing: compact ? 1 : 2) {
                         if !singleLine {
-                            Text(owner).font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass)
+                            Text(owner).font(.caption2.weight(.semibold)).foregroundStyle(board.accent)
                         }
                         Text(singleLine ? "\(owner) · \(visibleTitle)" : visibleTitle)
                             .font(.system(compact ? .caption : .subheadline, design: .serif, weight: .bold))
-                        if !compact, let detail { Text(detail).font(.caption2).foregroundStyle(TeaTheme.muted) }
+                        if !compact, let detail { Text(detail).font(.caption2).foregroundStyle(board.muted) }
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -329,7 +331,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 .id(latest.id)
                 .transition(.opacity)
             } else if opening == nil {
-                Text("等待第一张出牌").font(.caption).foregroundStyle(TeaTheme.muted)
+                Text("等待第一张出牌").font(.caption).foregroundStyle(board.muted)
                     .transition(.opacity)
             }
         }

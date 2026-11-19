@@ -78,12 +78,13 @@ struct OpeningDeal: View {
     let dealsDealerTile: Bool
     let stage: Stage
     let anchors: [TableAnchors.Marker: CGRect]
+    @Environment(\.tileStyle) private var tileStyle
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30,
                                 paused: stage == .shuffle(nil) || (stage.showsWall && !stage.isDealing))) { time in
             Canvas { context, _ in
-                let back = context.resolve(Image("JadeTileBack"))
+                let back = context.resolve(Image(decorative: tileStyle.backArtwork))
                 switch stage {
                 case .shuffle(let start):
                     drawPile(in: context, back: back,
@@ -117,7 +118,8 @@ struct OpeningDeal: View {
                               width: width + (stack.width - width) * stacking,
                               angle: pose.angle * (1 - stacking), depth: width * 0.15 * (1 - stacking))
             } else {
-                Self.drawBack(back, in: context, at: from, width: width, angle: pose.angle, depth: width * 0.15)
+                Self.drawBack(back, in: context, at: from, width: width,
+                              angle: pose.angle, depth: width * 0.15)
             }
         }
     }

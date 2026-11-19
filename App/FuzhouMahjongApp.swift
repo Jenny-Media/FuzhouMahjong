@@ -5,8 +5,13 @@ import SwiftUI
 
 @main
 struct FuzhouMahjongApp: App {
+    @AppStorage("appearance.mode") private var appearance = GameAppearance.system
+
     var body: some Scene {
-        WindowGroup { HomeView() }
+        WindowGroup {
+            HomeView(appearance: $appearance)
+                .gameAppearance(appearance)
+        }
     }
 }
 
@@ -25,8 +30,11 @@ private struct HomeView: View {
 
     @Environment(\.scenePhase) private var phase
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("nearby.nickname") private var nickname = ""
-    @AppStorage("table.tileStyle") private var tileStyle = TileStyle.classic
+    @AppStorage("table.tileStyle") private var tileStyle = TileStyle.automatic
+    @AppStorage("table.boardStyle") private var boardStyle = BoardStyle.automatic
+    @Binding var appearance: GameAppearance
     @AppStorage("solo.ruleset") private var ruleset = FuzhouRuleset.pureSuit
     @AppStorage("solo.customRulesetID") private var customRulesetID = ""
     @State private var access: GameAccess
@@ -49,7 +57,8 @@ private struct HomeView: View {
     @State private var saveChoiceFailed = false
     @State private var opensSoloAfterSetup = false
 
-    init() {
+    init(appearance: Binding<GameAppearance>) {
+        _appearance = appearance
         let access = GameAccess()
         let session = SoloMatch(access: access)
         _access = State(initialValue: access)
@@ -79,7 +88,7 @@ private struct HomeView: View {
             }
             .sheet(item: $sheet, onDismiss: openPreparedSoloGame) { destination in
                 switch destination {
-                case .settings: SettingsView(tileStyle: $tileStyle)
+                case .settings: SettingsView(appearance: $appearance, boardStyle: $boardStyle, tileStyle: $tileStyle)
                 case .soloSetup:
                     SoloSetup(ruleset: ruleset, customID: customRulesetID,
                               replacesUnfinishedGame: session.table?.matchFinished == false,
@@ -119,8 +128,8 @@ private struct HomeView: View {
         }
         .environment(access)
         .environment(rulesetLibrary)
-        .environment(\.tileStyle, tileStyle)
-        .preferredColorScheme(.dark)
+        .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
+        .environment(\.tileStyle, tileStyle.resolved(for: colorScheme))
         .tint(TeaTheme.brass)
         .foregroundStyle(TeaTheme.ink)
         .task {
@@ -391,6 +400,8 @@ private struct SettingsView: View {
     @AppStorage("table.sound.enabled") private var soundEnabled = true
     @AppStorage("table.sound.nearbyOwnMovesOnly") private var nearbyOwnMovesOnly = true
     @AppStorage("nearby.nickname") private var nickname = ""
+    @Binding var appearance: GameAppearance
+    @Binding var boardStyle: BoardStyle
     @Binding var tileStyle: TileStyle
 
     var body: some View {
@@ -408,36 +419,14 @@ private struct SettingsView: View {
                     .accessibilityIdentifier("access-entry")
                 }
                 .listRowBackground(TeaTheme.surface)
-                Section("牌面") {
-                    Picker("牌面", selection: $tileStyle) {
-                        ForEach(TileStyle.allCases, id: \.self) { style in
-                            Text(style.title).tag(style)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .accessibilityIdentifier("tile-style-picker")
-
-                    HStack(spacing: 7) {
-                        TileFace(kind: TileKind(.characters, 6), selected: true).frame(width: 32, height: 44)
-                        TileFace(kind: TileKind(.circles, 5), gold: true).frame(width: 32, height: 44)
-                        TileFace(kind: TileKind(.bamboo, 1)).frame(width: 32, height: 44)
-                        TileFace(kind: TileKind(.dragon, 2)).frame(width: 32, height: 44)
-                    }
-                    .environment(\.tileStyle, tileStyle)
-                    .padding(.vertical, 16)
-                    .frame(maxWidth: .infinity)
-                    .modifier(Felt(inlaid: true))
-                    .accessibilityHidden(true)
-                }
-                .listRowBackground(TeaTheme.surface)
+                AppearanceSettings(appearance: $appearance, boardStyle: $boardStyle, tileStyle: $tileStyle)
 
                 Section("操作反馈") {
                     Toggle("触感", isOn: $hapticsEnabled)
                     Toggle("牌桌音效", isOn: $soundEnabled)
                     Toggle("联机时只播自己的音效", isOn: $nearbyOwnMovesOnly)
                         .disabled(!soundEnabled)
-                    Text("开启后，附近联机时只会听到自己摸牌、出牌、吃、碰、杠和胡牌的音效。")
+                    Text("开启后，附近联机时只会听到自己出牌、吃、碰、杠和胡牌的音效。")
                         .font(.footnote)
                 }
                 .listRowBackground(TeaTheme.surface)
@@ -462,5 +451,6 @@ private struct SettingsView: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
             }
         }
+        .gameAppearance(appearance)
     }
 }

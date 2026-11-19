@@ -135,6 +135,7 @@ struct MatchResults: View {
 }
 
 struct WinningHandReveal: View {
+    @Environment(\.boardStyle) private var board
     let table: TableState
     let result: RoundResult
     let winner: Seat
@@ -146,7 +147,7 @@ struct WinningHandReveal: View {
                 VStack(spacing: 6) {
                     Text("\(name) · \(result.winTitle)")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(TeaTheme.brass)
+                        .foregroundStyle(board.accent)
                         .multilineTextAlignment(.center)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("winning-hand-reveal")
@@ -169,8 +170,15 @@ private struct WinningGroups: View {
     let winner: Seat
     let boardSize: CGSize?
 
+    @Environment(\.boardStyle) private var board
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .caption2) private var captionHeight: CGFloat = 13
+
+    private var accent: Color { boardSize == nil ? TeaTheme.brass : board.accent }
+    private var accentInk: Color { boardSize == nil ? TeaTheme.brassInk : board.accentInk }
+    private var ink: Color { boardSize == nil ? TeaTheme.feltInk : board.ink }
+    private var muted: Color { boardSize == nil ? TeaTheme.muted : board.muted }
+    private var surface: Color { boardSize == nil ? TeaTheme.feltDark : board.seatSurface }
 
     var body: some View {
         let labels = result.patterns.filter { $0 != .robGold && $0 != .threeGold }
@@ -178,7 +186,7 @@ private struct WinningGroups: View {
             if !labels.isEmpty {
                 Text(labels.map(\.title).joined(separator: " · "))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(TeaTheme.brass)
+                    .foregroundStyle(accent)
                     .accessibilityIdentifier("winning-patterns")
             }
             revealedGroups
@@ -191,7 +199,7 @@ private struct WinningGroups: View {
             VStack(alignment: boardSize == nil ? .leading : .center, spacing: 6) {
                 Text("自摸时集齐三张金，直接胡牌")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(TeaTheme.feltInk)
+                    .foregroundStyle(ink)
                     .accessibilityIdentifier("three-gold-explanation")
                 HStack(spacing: 4) {
                     ForEach(result.winningHand.filter(table.isGold)) { tile in
@@ -216,7 +224,7 @@ private struct WinningGroups: View {
             VStack(alignment: compact ? .center : .leading, spacing: 5) {
                 Text("五组牌和一对将牌")
                     .font(compact ? .caption2 : .footnote)
-                    .foregroundStyle(TeaTheme.muted)
+                    .foregroundStyle(muted)
                 LazyVGrid(columns: grid, alignment: .leading, spacing: gap) {
                     ForEach(groups) { group in
                         groupCard(group, tileWidth: tileWidth, labelWidth: labelWidth, compact: compact)
@@ -261,7 +269,7 @@ private struct WinningGroups: View {
             HStack(spacing: 3) {
                 Text(group.kind.label)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(completesHand ? TeaTheme.brass : TeaTheme.feltInk)
+                    .foregroundStyle(completesHand ? accent : ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(width: labelWidth, alignment: .leading)
@@ -275,15 +283,15 @@ private struct WinningGroups: View {
             if !replacements.isEmpty {
                 Text(replacements.joined(separator: " · "))
                     .font(compact ? .caption2 : .caption)
-                    .foregroundStyle(TeaTheme.brass)
+                    .foregroundStyle(accent)
                     .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TeaTheme.feltDark, in: shape)
-        .overlay { if completesHand { shape.strokeBorder(TeaTheme.brass.opacity(0.7)) } }
+        .background(surface, in: shape)
+        .overlay { if completesHand { shape.strokeBorder(accent.opacity(0.7)) } }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(group.kind.label)
         .accessibilityIdentifier(group.accessibilityID)
@@ -307,9 +315,9 @@ private struct WinningGroups: View {
                 if winning {
                     Text(compact ? "胡" : "胡牌")
                         .font(.system(size: compact ? 8 : 9, weight: .bold))
-                        .foregroundStyle(TeaTheme.brassInk)
+                        .foregroundStyle(accentInk)
                         .padding(.horizontal, 2)
-                        .background(TeaTheme.brass, in: RoundedRectangle(cornerRadius: 2))
+                        .background(accent, in: RoundedRectangle(cornerRadius: 2))
                 }
             }
             .accessibilityElement(children: .ignore)

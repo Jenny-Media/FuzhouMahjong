@@ -10,7 +10,12 @@ targets:
   FuzhouMahjong:
     type: application
     platform: iOS
-    sources: [App]
+    sources:
+      - path: App
+        excludes: [Sounds/MaterialSounds]
+      - path: App/Sounds/MaterialSounds
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: FuzhouCore
         product: FuzhouCore
