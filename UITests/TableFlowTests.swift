@@ -122,11 +122,20 @@ final class TableFlowTests: XCTestCase {
 
         XCTAssertTrue(app.buttons["practice-entry"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["清一色加分"].exists)
+        capture("home-new-player")
         app.buttons["practice-entry"].tap()
         let oldThree = app.buttons["三样加分"]
         XCTAssertTrue(oldThree.waitForExistence(timeout: 5))
+        let start = app.buttons["start-solo-setup"]
+        let rulesDetails = app.buttons["selected-ruleset-details"]
+        let cancelSetup = app.buttons["cancel-solo-setup"]
+        XCTAssertTrue(start.isHittable)
+        XCTAssertGreaterThanOrEqual(start.frame.height, 50)
+        XCTAssertLessThan(start.frame.minY - rulesDetails.frame.maxY, 36)
+        XCTAssertGreaterThan(cancelSetup.frame.midY, app.frame.height * 0.35)
         oldThree.tap()
-        app.buttons["selected-ruleset-details"].tap()
+        capture("compact-solo-setup")
+        rulesDetails.tap()
         let title = app.staticTexts["ruleset-details-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertEqual(title.label, "三样加分")
@@ -134,7 +143,7 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(details.label.contains("清一色按普通胡牌计分"))
         app.buttons["完成"].tap()
-        app.buttons["start-solo-setup"].tap()
+        start.tap()
         let skip = app.buttons["skip-opening"]
         XCTAssertTrue(skip.waitForExistence(timeout: 5))
         skip.tap()
@@ -145,7 +154,14 @@ final class TableFlowTests: XCTestCase {
         app.buttons["完成"].tap()
         app.buttons["BackButton"].tap()
 
-        app.buttons["new-solo-game"].tap()
+        let newGame = app.buttons["new-solo-game"]
+        XCTAssertTrue(newGame.waitForExistence(timeout: 5))
+        for button in [app.buttons["practice-entry"], newGame, app.buttons["nearby-entry"]] {
+            XCTAssertTrue(button.isHittable)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 60)
+        }
+        capture("home-saved-game")
+        newGame.tap()
         app.buttons["清一色加分"].tap()
         app.buttons["selected-ruleset-details"].tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
@@ -153,7 +169,6 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(details.label.contains("清一色有特殊加分"))
         app.buttons["完成"].tap()
-        let cancelSetup = app.buttons["cancel-solo-setup"]
         cancelSetup.tap()
         XCTAssertTrue(cancelSetup.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.buttons["practice-entry"].label.contains("三样加分"))

@@ -161,26 +161,23 @@ private struct HomeView: View {
                     playModes
                 }
                 .frame(maxWidth: wide ? 860 : 500)
-                .padding(TeaTheme.gutter)
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                .padding([.horizontal, .bottom], TeaTheme.gutter)
+                .padding(.top, wide ? TeaTheme.gutter : 28)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: wide ? .center : .top)
             }
             .scrollBounceBehavior(.basedOnSize)
         }
     }
 
     private var playModes: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             if session.savedTableChoices.isEmpty {
                 if let table = session.table { savedSoloEntry(table) }
                 Button { sheet = .soloSetup } label: {
-                    if session.canResume {
-                        Label("开始新牌局", systemImage: "plus")
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        modeRow("开始新牌局", detail: "和三位电脑玩家一起打牌", icon: "person.fill")
-                    }
+                    modeRow("开始新牌局", detail: session.canResume ? nil : "和三位电脑玩家一起打牌",
+                            icon: "plus")
                 }
-                .buttonStyle(TeaButtonStyle(prominent: !session.canResume))
+                .buttonStyle(TeaButtonStyle(prominent: !session.canResume, verticalPadding: 13))
                 .accessibilityIdentifier(session.canResume ? "new-solo-game" : "practice-entry")
             } else {
                 soloSaveChoices
@@ -190,7 +187,7 @@ private struct HomeView: View {
                 modeRow(nearby.isInRoom ? "返回附近牌桌" : "附近联机",
                         detail: "与身边的牌友同桌", icon: "person.2.fill")
             }
-            .buttonStyle(TeaButtonStyle(prominent: false))
+            .buttonStyle(TeaButtonStyle(prominent: false, verticalPadding: 13))
             .accessibilityIdentifier("nearby-entry")
 
             Button { sheet = .purchase(.settings) } label: {
@@ -205,6 +202,7 @@ private struct HomeView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("solo-remaining")
         }
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity)
     }
 
@@ -214,7 +212,7 @@ private struct HomeView: View {
                 modeRow("继续单机", detail: "本桌规则 · \(table.ruleset.displayTitle(houseRules: table.houseRules))",
                         icon: "arrow.counterclockwise")
             }
-            .buttonStyle(TeaButtonStyle())
+            .buttonStyle(TeaButtonStyle(verticalPadding: 13))
             .accessibilityIdentifier("practice-entry")
             RulesetDetailsButton(ruleset: table.ruleset, houseRules: table.houseRules,
                                  title: "本桌规则详情", subtitle: "\(table.wind.wind)\(table.handNumber)局",
@@ -242,7 +240,7 @@ private struct HomeView: View {
                             detail: "\(title) · \(table.wind.wind)\(table.handNumber)局 · \(score)分",
                             icon: "rectangle.on.rectangle")
                 }
-                .buttonStyle(TeaButtonStyle(prominent: false))
+                .buttonStyle(TeaButtonStyle(prominent: false, verticalPadding: 13))
                 .accessibilityIdentifier(saved.slot == .first ? "keep-first-solo" : "keep-second-solo")
             }
         }
@@ -302,7 +300,7 @@ private struct HomeView: View {
         .modifier(Felt(inlaid: true))
     }
 
-    private func modeRow(_ title: String, detail: String, icon: String) -> some View {
+    private func modeRow(_ title: String, detail: String?, icon: String) -> some View {
         HStack(spacing: 13) {
             Image(systemName: icon)
                 .font(.body.weight(.semibold))
@@ -311,19 +309,20 @@ private struct HomeView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.headline)
-                Text(detail).font(.footnote).opacity(0.85)
+                if let detail { Text(detail).font(.footnote).opacity(0.85) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.right")
                 .font(.footnote.weight(.semibold))
                 .accessibilityHidden(true)
         }
-        .padding(.vertical, 6)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
 private struct SoloSetup: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(GameAccess.self) private var access
     @Environment(RulesetLibrary.self) private var library
     @State var ruleset: FuzhouRuleset
@@ -336,11 +335,19 @@ private struct SoloSetup: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                RulesetPicker(title: "新牌桌的规则", selection: $ruleset, selectedCustomID: $customID)
-                    .padding(TeaTheme.gutter)
-                    .frame(maxWidth: TeaTheme.contentWidth)
-                    .frame(maxWidth: .infinity)
+                VStack(spacing: 16) {
+                    RulesetPicker(title: "选择规则", selection: $ruleset, selectedCustomID: $customID)
+                    Button(action: requestStart) {
+                        Text("开局").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(TeaButtonStyle(verticalPadding: 16))
+                    .accessibilityIdentifier("start-solo-setup")
+                }
+                .padding(TeaTheme.gutter)
+                .frame(maxWidth: 500)
+                .frame(maxWidth: .infinity)
             }
+            .scrollBounceBehavior(.basedOnSize)
             .teaBackdrop()
             .modifier(HingeSafeContent())
             .navigationTitle("开始新牌局")
@@ -350,22 +357,6 @@ private struct SoloSetup: View {
                     Button("取消") { dismiss() }
                         .accessibilityIdentifier("cancel-solo-setup")
                 }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Button {
-                    access.refreshClock()
-                    if !access.canBeginSoloHand { showsPurchase = true }
-                    else if replacesUnfinishedGame { confirmsRestart = true }
-                    else { begin() }
-                } label: {
-                    Text("开局").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(TeaButtonStyle())
-                .accessibilityIdentifier("start-solo-setup")
-                .padding(TeaTheme.gutter)
-                .frame(maxWidth: TeaTheme.contentWidth)
-                .frame(maxWidth: .infinity)
-                .teaFooter()
             }
             .alert("开始新的单机牌局？", isPresented: $confirmsRestart) {
                 Button("重新开始", role: .destructive, action: begin)
@@ -377,6 +368,14 @@ private struct SoloSetup: View {
             }
             .sheet(isPresented: $showsPurchase) { PurchaseSheet(reason: .solo) }
         }
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+    }
+
+    private func requestStart() {
+        access.refreshClock()
+        if !access.canBeginSoloHand { showsPurchase = true }
+        else if replacesUnfinishedGame { confirmsRestart = true }
+        else { begin() }
     }
 
     private func begin() {

@@ -65,6 +65,7 @@ extension View {
 
 struct TeaButtonStyle: ButtonStyle {
     var prominent = true
+    var verticalPadding: CGFloat = 6
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -74,7 +75,7 @@ struct TeaButtonStyle: ButtonStyle {
             .font(.body.weight(.semibold))
             .foregroundStyle(raised ? TeaTheme.brassInk : TeaTheme.ink)
             .padding(.horizontal, 14)
-            .padding(.vertical, 6)
+            .padding(.vertical, verticalPadding)
             .frame(minWidth: TeaTheme.hitTarget, minHeight: TeaTheme.hitTarget)
             .background(raised ? TeaTheme.brassFinish : TeaTheme.panelFinish, in: shape)
             .overlay { shape.strokeBorder(raised ? TeaTheme.brass : TeaTheme.line).allowsHitTesting(false) }

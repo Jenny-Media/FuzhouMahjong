@@ -106,15 +106,18 @@ struct RulesetPicker: View {
     let title: String
     @Binding var selection: FuzhouRuleset
     @Binding var selectedCustomID: String
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(RulesetLibrary.self) private var library
     @State private var showsLibrary = false
 
     var body: some View {
         let custom = library.preset(for: selectedCustomID)
-        VStack(alignment: .leading, spacing: 6) {
+        let choices = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.footnote.weight(.semibold)).foregroundStyle(TeaTheme.muted)
                 .accessibilityHidden(true)
-            HStack(spacing: 6) {
+            choices {
                 ForEach(FuzhouRuleset.builtIn, id: \.self) { ruleset in
                     let selected = custom == nil && selection == ruleset
                     Button {
@@ -123,7 +126,7 @@ struct RulesetPicker: View {
                     } label: {
                         Text(ruleset.title).frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(TeaButtonStyle(prominent: selected))
+                    .buttonStyle(TeaButtonStyle(prominent: selected, verticalPadding: 13))
                     .accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }
@@ -146,7 +149,7 @@ struct RulesetPicker: View {
             } label: {
                 HStack {
                     Label(custom?.name ?? "自定义规则", systemImage: custom == nil ? "slider.horizontal.3" : "checkmark.circle.fill")
-                        .lineLimit(1)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     Spacer()
                     Image(systemName: "chevron.up.chevron.down").font(.caption)
                 }
@@ -158,13 +161,12 @@ struct RulesetPicker: View {
 
             RulesetDetailsButton(ruleset: selection, houseRules: custom)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(12)
         .teaPanel(corner: TeaTheme.controlCorner)
         .onAppear {
             if selection == .legacy { selection = .pureSuit }
         }
-        .sheet(isPresented: $showsLibrary) {
+        .fullScreenCover(isPresented: $showsLibrary) {
             CustomRulesLibrary(template: selection) { selectedCustomID = $0.uuidString }
         }
     }
@@ -176,25 +178,31 @@ struct RulesetDetailsButton: View {
     var title = "规则详情"
     var subtitle: String? = nil
     var identifier = "selected-ruleset-details"
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showsDetails = false
 
     var body: some View {
         let summary = subtitle ?? houseRules?.summary ?? ruleset.summary
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
         Button { showsDetails = true } label: {
-            HStack(spacing: 8) {
+            layout {
                 Text(summary)
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
                     .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("ruleset-summary")
-                Spacer(minLength: 2)
-                Text(title).font(.subheadline.weight(.semibold))
-                    .foregroundStyle(TeaTheme.brass)
-                    .fixedSize(horizontal: true, vertical: false)
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass)
-                    .accessibilityHidden(true)
+                if !typeSize.isAccessibilitySize { Spacer(minLength: 2) }
+                HStack(spacing: 8) {
+                    Text(title).font(.subheadline.weight(.semibold))
+                    Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(TeaTheme.brass)
+                .fixedSize(horizontal: true, vertical: false)
             }
-            .frame(minHeight: TeaTheme.hitTarget)
+            .padding(.vertical, typeSize.isAccessibilitySize ? 5 : 0)
+            .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
