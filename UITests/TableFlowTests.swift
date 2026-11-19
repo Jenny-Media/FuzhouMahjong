@@ -41,14 +41,37 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(element("appearance-picker", in: app).waitForExistence(timeout: 5))
         }
 
-        func choose(_ option: String, using id: String) {
-            let picker = element(id, in: app)
+        func chooseMode(_ option: String) {
+            let picker = element("appearance-picker", in: app)
             picker.tap()
             let selection = app.buttons[option]
             XCTAssertTrue(selection.waitForExistence(timeout: 5))
             selection.tap()
             XCTAssertEqual(picker.value as? String, option)
         }
+
+        func swipeToMaterial(_ option: String, using id: String, options: [String]) throws {
+            let picker = element(id, in: app)
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            for _ in 0..<3 where !picker.isHittable { app.swipeUp() }
+            XCTAssertTrue(picker.isHittable)
+            let current = try XCTUnwrap(picker.value as? String)
+            let startingIndex = try XCTUnwrap(options.firstIndex(of: current))
+            let target = try XCTUnwrap(options.firstIndex(of: option))
+            let step = startingIndex < target ? 1 : -1
+            var index = startingIndex
+            while index != target {
+                swipeMaterial(picker, forward: step == 1, span: 0.29, velocity: .slow)
+                index += step
+                let selected = expectation(for: NSPredicate(format: "value == %@", options[index]),
+                                           evaluatedWith: picker)
+                XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed,
+                               "One swipe should select \(options[index]).")
+            }
+        }
+
+        let boards = ["自动", "碧玉胡桃木", "雪白 · 白瓷", "墨蓝 · 枪灰金属", "紫檀 · 烟灰绒", "古铜 · 马鞍革"]
+        let tiles = ["自动", "经典", "白釉瓷", "现代", "牙白 · 紫檀拼", "青白玉", "奶油电木"]
 
         func captureTable(_ name: String) {
             app.buttons["完成"].tap()
@@ -84,27 +107,28 @@ final class TableFlowTests: XCTestCase {
         app.launchArguments = launchArguments
         app.launch()
         settings()
-        choose("跟随系统", using: "appearance-picker")
-        choose("自动", using: "board-style-picker")
-        choose("自动", using: "tile-style-picker")
+        chooseMode("跟随系统")
+        try swipeToMaterial("自动", using: "board-style-picker", options: boards)
+        try swipeToMaterial("自动", using: "tile-style-picker", options: tiles)
         let systemBrightness = try settingsBrightness(capturing: "appearance-system-settings")
-        choose("浅色", using: "appearance-picker")
+        chooseMode("浅色")
         XCTAssertGreaterThan(try settingsBrightness(capturing: "appearance-light-settings"), 150)
-        choose("深色", using: "appearance-picker")
+        chooseMode("深色")
         XCTAssertLessThan(try settingsBrightness(capturing: "appearance-dark-settings"), 110,
                           "An open Settings sheet should switch to Dark immediately.")
-        choose("跟随系统", using: "appearance-picker")
+        chooseMode("跟随系统")
         XCTAssertEqual(try settingsBrightness(capturing: "appearance-restored-system-settings"),
                        systemBrightness, accuracy: 20)
-        choose("浅色", using: "appearance-picker")
+        chooseMode("浅色")
         captureTable("appearance-light-table")
         app.terminate()
         app.launch()
 
         settings()
-        choose("墨蓝 · 枪灰金属", using: "board-style-picker")
-        choose("白釉瓷", using: "tile-style-picker")
-        choose("深色", using: "appearance-picker")
+        try swipeToMaterial("墨蓝 · 枪灰金属", using: "board-style-picker", options: boards)
+        XCTAssertEqual(element("tile-style-picker", in: app).value as? String, "自动")
+        try swipeToMaterial("白釉瓷", using: "tile-style-picker", options: tiles)
+        chooseMode("深色")
         XCTAssertEqual(element("board-style-picker", in: app).value as? String, "墨蓝 · 枪灰金属")
         XCTAssertEqual(element("tile-style-picker", in: app).value as? String, "白釉瓷")
         app.terminate()
@@ -119,10 +143,58 @@ final class TableFlowTests: XCTestCase {
         app.launch()
         settings()
 
-        choose("自动", using: "board-style-picker")
+        try swipeToMaterial("自动", using: "board-style-picker", options: boards)
         XCTAssertEqual(element("tile-style-picker", in: app).value as? String, "白釉瓷")
-        choose("自动", using: "tile-style-picker")
+        try swipeToMaterial("自动", using: "tile-style-picker", options: tiles)
         captureTable("appearance-dark-table")
+    }
+
+    func testOneFlingCanSkipSeveralMaterials() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["home-more"].tap()
+        app.buttons["设置"].tap()
+
+        let boardPicker = element("board-style-picker", in: app)
+        let tilePicker = element("tile-style-picker", in: app)
+        XCTAssertTrue(boardPicker.waitForExistence(timeout: 5))
+        XCTAssertTrue(tilePicker.waitForExistence(timeout: 5))
+        let tileBefore = tilePicker.value as? String
+
+        func fling(_ picker: XCUIElement, options: [String], forward: Bool? = nil) throws -> Bool {
+            let current = try XCTUnwrap(picker.value as? String)
+            let start = try XCTUnwrap(options.firstIndex(of: current))
+            let advances = forward ?? (start < options.count / 2)
+            let destinations = options.indices.filter { advances ? $0 >= start + 2 : $0 <= start - 2 }
+            let destinationNames = destinations.map { options[$0] }
+            swipeMaterial(picker, forward: advances, span: 0.66, velocity: .fast)
+            let skipped = expectation(for: NSPredicate(format: "value IN %@", destinationNames), evaluatedWith: picker)
+            let result = XCTWaiter.wait(for: [skipped], timeout: 5)
+            if result != .completed { capture("appearance-materials-after-failed-fling") }
+            XCTAssertEqual(result, .completed,
+                           "Expected a fling from \(current) to travel at least two materials, landed on \(picker.value ?? "none").")
+            return advances
+        }
+
+        let boards = ["自动", "碧玉胡桃木", "雪白 · 白瓷", "墨蓝 · 枪灰金属", "紫檀 · 烟灰绒", "古铜 · 马鞍革"]
+        let tiles = ["自动", "经典", "白釉瓷", "现代", "牙白 · 紫檀拼", "青白玉", "奶油电木"]
+        let boardDirection = try fling(boardPicker, options: boards)
+        XCTAssertEqual(tilePicker.value as? String, tileBefore)
+        let boardAfter = boardPicker.value as? String
+        let tileDirection = try fling(tilePicker, options: tiles)
+        XCTAssertEqual(boardPicker.value as? String, boardAfter)
+        capture("appearance-materials-after-fling")
+        _ = try fling(boardPicker, options: boards, forward: !boardDirection)
+        _ = try fling(tilePicker, options: tiles, forward: !tileDirection)
+    }
+
+    private func swipeMaterial(_ picker: XCUIElement, forward: Bool, span: CGFloat, velocity: XCUIGestureVelocity) {
+        let left = picker.coordinate(withNormalizedOffset: CGVector(dx: (1 - span) / 2, dy: 0.73))
+        let right = picker.coordinate(withNormalizedOffset: CGVector(dx: (1 + span) / 2, dy: 0.73))
+        let (start, end) = forward ? (right, left) : (left, right)
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: velocity, thenHoldForDuration: 0)
     }
 
     func testCustomRulesPreviewUpdatesForDraftChoices() {
