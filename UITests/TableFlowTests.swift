@@ -149,6 +149,46 @@ final class TableFlowTests: XCTestCase {
         captureTable("appearance-dark-table")
     }
 
+    func testMaterialPickersWrapWithSwipesAndArrows() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["home-more"].tap()
+        app.buttons["设置"].tap()
+
+        let selectors = [
+            (id: "board-style-picker", last: "古铜 · 马鞍革", count: 6),
+            (id: "tile-style-picker", last: "奶油电木", count: 7),
+        ]
+        for selector in selectors {
+            let picker = element(selector.id, in: app)
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            for _ in 0..<3 where !picker.isHittable { app.swipeUp() }
+            XCTAssertTrue(picker.isHittable)
+
+            func assertSelected(_ material: String) {
+                let selected = expectation(for: NSPredicate(format: "value == %@", material), evaluatedWith: picker)
+                XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed,
+                               "Expected \(selector.id) to select \(material).")
+            }
+
+            for _ in 0..<selector.count where picker.value as? String != "自动" {
+                swipeMaterial(picker, forward: false, span: 0.29, velocity: .slow)
+            }
+            assertSelected("自动")
+            swipeMaterial(picker, forward: false, span: 0.29, velocity: .slow)
+            assertSelected(selector.last)
+            swipeMaterial(picker, forward: true, span: 0.29, velocity: .slow)
+            assertSelected("自动")
+
+            picker.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.73)).tap()
+            assertSelected(selector.last)
+            picker.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.73)).tap()
+            assertSelected("自动")
+        }
+    }
+
     func testOneFlingCanSkipSeveralMaterials() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -167,8 +207,10 @@ final class TableFlowTests: XCTestCase {
             let current = try XCTUnwrap(picker.value as? String)
             let start = try XCTUnwrap(options.firstIndex(of: current))
             let advances = forward ?? (start < options.count / 2)
-            let destinations = options.indices.filter { advances ? $0 >= start + 2 : $0 <= start - 2 }
-            let destinationNames = destinations.map { options[$0] }
+            let destinationNames = (2..<options.count).map { distance in
+                let offset = advances ? distance : -distance
+                return options[(start + offset + options.count) % options.count]
+            }
             swipeMaterial(picker, forward: advances, span: 0.66, velocity: .fast)
             let skipped = expectation(for: NSPredicate(format: "value IN %@", destinationNames), evaluatedWith: picker)
             let result = XCTWaiter.wait(for: [skipped], timeout: 5)

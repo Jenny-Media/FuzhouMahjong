@@ -151,6 +151,7 @@ struct AppearanceSettings: View {
     @Binding var appearance: GameAppearance
     @Binding var boardStyle: BoardStyle
     @Binding var tileStyle: TileStyle
+    let hapticsEnabled: Binding<Bool>
 
     var body: some View {
         Section {
@@ -163,13 +164,13 @@ struct AppearanceSettings: View {
             .accessibilityValue(Text(appearance.title))
             .accessibilityIdentifier("appearance-picker")
             MaterialPicker("牌桌", id: "board-style-picker", options: BoardStyle.allCases,
-                           selection: $boardStyle, name: \.title) { style in
+                           selection: $boardStyle, hapticsEnabled: hapticsEnabled, name: \.title) { style in
                 Color.clear
                     .modifier(Felt(gameTable: true))
                     .environment(\.boardStyle, style.resolved(for: colorScheme))
             }
             MaterialPicker("牌面", id: "tile-style-picker", options: TileStyle.allCases,
-                           selection: $tileStyle, name: \.title) { style in
+                           selection: $tileStyle, hapticsEnabled: hapticsEnabled, name: \.title) { style in
                 HStack(spacing: 5) {
                     TileFace(kind: TileKind(.characters, 6)).frame(width: 28, height: 39)
                     TileFace(kind: TileKind(.circles, 5), gold: true).frame(width: 28, height: 39)
@@ -195,22 +196,30 @@ private struct MaterialPicker<Option: Hashable, Preview: View>: View {
     let id: String
     let options: [Option]
     @Binding var selection: Option
+    let hapticsEnabled: Binding<Bool>
     let name: KeyPath<Option, LocalizedStringKey>
     let preview: (Option) -> Preview
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @GestureState private var drag: CGFloat = 0
+    @State private var position = 0
+    @State private var selectionChangeID: UUID?
 
-    private var selectedIndex: Int { options.firstIndex(of: selection) ?? 0 }
+    private var selectedPosition: Int {
+        if !options.isEmpty, option(at: position) == selection { return position }
+        return options.firstIndex(of: selection) ?? 0
+    }
     private var readingDirection: CGFloat { layoutDirection == .leftToRight ? 1 : -1 }
     private var snapAnimation: Animation? { reduceMotion ? nil : .easeOut(duration: 0.24) }
 
     init(_ label: LocalizedStringKey, id: String, options: [Option], selection: Binding<Option>,
-         name: KeyPath<Option, LocalizedStringKey>, @ViewBuilder preview: @escaping (Option) -> Preview) {
+         hapticsEnabled: Binding<Bool>, name: KeyPath<Option, LocalizedStringKey>,
+         @ViewBuilder preview: @escaping (Option) -> Preview) {
         self.label = label
         self.id = id
         self.options = options
         _selection = selection
+        self.hapticsEnabled = hapticsEnabled
         self.name = name
         self.preview = preview
     }
@@ -247,50 +256,49 @@ private struct MaterialPicker<Option: Hashable, Preview: View>: View {
             }
         }
         .accessibilityIdentifier(id)
+        .onDisappear { selectionChangeID = nil }
     }
 
     private func materialStrip(width: CGFloat, viewport: CGFloat) -> some View {
-        let spacing: CGFloat = 8
-        let stride = width + spacing
-        let inset = (viewport - width) / 2
-        let first = CGFloat(selectedIndex) * stride
-        let last = CGFloat(options.count - 1 - selectedIndex) * stride
-        let translation = min(first, max(-last, drag * readingDirection))
-        let position = (inset - first + translation) * readingDirection
-        return HStack(spacing: spacing) {
-            ForEach(options, id: \.self) { option in
-                preview(option)
+        let stride = width + 8
+        let center = selectedPosition
+        let nearest = center - Int((drag * readingDirection / stride).rounded())
+        // Keep a full cycle on either side of the viewport so previews keep their identities during a snap.
+        let radius = options.count + Int(ceil(viewport / (2 * stride)))
+        let positions = options.count > 1 ? (nearest - radius)..<(nearest + radius + 1) : options.indices
+        return ZStack {
+            ForEach(positions, id: \.self) { index in
+                preview(option(at: index))
                     .frame(width: width, height: 62)
                     .clipShape(RoundedRectangle(cornerRadius: TeaTheme.tableRailCorner))
+                    .offset(x: CGFloat(index - center) * stride * readingDirection + drag)
+                    .transition(.identity)
             }
         }
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(width: viewport, height: 62, alignment: .leading)
-        .offset(x: position)
+        .frame(width: viewport, height: 62)
         .clipped()
         .contentShape(Rectangle())
         .animation(drag == 0 ? snapAnimation : nil, value: drag == 0)
         .simultaneousGesture(DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .updating($drag) { value, drag, _ in
+                guard options.count > 1 else { return }
                 let translation = value.translation
                 drag = abs(translation.width) > abs(translation.height) ? translation.width : 0
             }
             .onEnded { value in
                 let horizontal = value.translation.width
-                guard abs(horizontal) > abs(value.translation.height), abs(horizontal) >= 24 else { return }
+                guard options.count > 1, abs(horizontal) > abs(value.translation.height), abs(horizontal) >= 24 else { return }
                 let projected = value.predictedEndTranslation.width
                 let distance = horizontal * projected > 0 ? max(abs(horizontal), abs(projected)) : abs(horizontal)
-                // Let a full-width swipe travel farther while short swipes snap to the next card.
+                // A fling can skip materials, up to one fewer than a full lap.
                 let stepDistance = max(1, min(stride * 0.62, viewport * 0.42))
-                let steps = max(1, Int((distance / stepDistance).rounded()))
-                let advance = horizontal * readingDirection < 0 ? steps : -steps
-                let index = min(options.count - 1, max(0, selectedIndex + advance))
-                select(options[index])
+                let steps = Int(min(CGFloat(options.count - 1), max(1, (distance / stepDistance).rounded())))
+                move(by: horizontal * readingDirection < 0 ? steps : -steps)
             })
     }
 
     private func arrow(_ icon: String, by offset: Int) -> some View {
-        let enabled = option(by: offset) != nil
+        let enabled = options.count > 1
         return Button { move(by: offset) } label: {
             Image(systemName: icon)
                 .font(.subheadline.weight(.semibold))
@@ -302,16 +310,25 @@ private struct MaterialPicker<Option: Hashable, Preview: View>: View {
         .disabled(!enabled)
     }
 
-    private func option(by offset: Int) -> Option? {
-        let index = selectedIndex + offset
-        return options.indices.contains(index) ? options[index] : nil
+    private func option(at position: Int) -> Option {
+        let index = position % options.count
+        return options[index < 0 ? index + options.count : index]
     }
 
     private func move(by offset: Int) {
-        if let next = option(by: offset) { select(next) }
-    }
+        guard options.count > 1 else { return }
+        let destination = selectedPosition + offset
+        let material = option(at: destination)
+        guard material != selection else { return }
 
-    private func select(_ option: Option) {
-        withAnimation(snapAnimation) { selection = option }
+        let changeID = UUID()
+        selectionChangeID = changeID
+        withAnimation(snapAnimation) {
+            position = destination
+            selection = material
+        } completion: {
+            guard selectionChangeID == changeID, selection == material, hapticsEnabled.wrappedValue else { return }
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
     }
 }

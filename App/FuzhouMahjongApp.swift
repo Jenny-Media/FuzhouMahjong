@@ -419,7 +419,8 @@ private struct SettingsView: View {
                     .accessibilityIdentifier("access-entry")
                 }
                 .listRowBackground(TeaTheme.surface)
-                AppearanceSettings(appearance: $appearance, boardStyle: $boardStyle, tileStyle: $tileStyle)
+                AppearanceSettings(appearance: $appearance, boardStyle: $boardStyle, tileStyle: $tileStyle,
+                                   hapticsEnabled: $hapticsEnabled)
 
                 Section("操作反馈") {
                     Toggle("触感", isOn: $hapticsEnabled)
