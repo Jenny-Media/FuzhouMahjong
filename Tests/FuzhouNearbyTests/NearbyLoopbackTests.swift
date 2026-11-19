@@ -135,7 +135,7 @@ final class NearbyLoopbackTests: XCTestCase {
             host.leave()
         }
 
-        host.create(name: "阿榕")
+        host.create(name: "阿榕", ruleset: .oldThree)
         try await until("loopback listener ready") { host.loopbackRoom != nil }
         let room = try XCTUnwrap(host.loopbackRoom)
         for (index, guest) in guests.enumerated() {
@@ -148,6 +148,7 @@ final class NearbyLoopbackTests: XCTestCase {
 
         let clients = [host] + guests
         let states = try clients.map { try XCTUnwrap($0.table) }
+        XCTAssertTrue(states.allSatisfy { $0.ruleset == .oldThree && $0.houseRules == nil })
         XCTAssertTrue(clients.allSatisfy { $0.openingRound == 1 })
         guests[0].finishOpening(1)
         XCTAssertNil(guests[0].openingRound)

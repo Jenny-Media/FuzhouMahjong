@@ -330,6 +330,11 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["custom-rules-limit"].exists)
         app.buttons["完成"].tap()
         XCTAssertTrue(menu.label.contains(friends))
+        let bonus = app.switches["pure-suit-bonus"]
+        XCTAssertFalse(bonus.exists)
+        menu.tap()
+        app.buttons["use-standard-rules"].tap()
+        XCTAssertTrue(bonus.waitForExistence(timeout: 5))
 
         app.terminate()
         app.launchArguments = ["-play-access.archive.v1", ""]
@@ -353,15 +358,16 @@ final class TableFlowTests: XCTestCase {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = ["-play-access.archive.v1", ""]
+        app.launchArguments = ["-play-access.archive.v1", "", "-solo.customRulesetID", ""]
         app.launch()
 
         XCTAssertTrue(app.buttons["practice-entry"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["清一色加分"].exists)
+        let bonus = app.switches["pure-suit-bonus"]
+        XCTAssertFalse(bonus.exists)
         capture("home-new-player")
         app.buttons["practice-entry"].tap()
-        let oldThree = app.buttons["三样加分"]
-        XCTAssertTrue(oldThree.waitForExistence(timeout: 5))
+        XCTAssertTrue(bonus.waitForExistence(timeout: 5))
+        let bonusSwitch = bonus.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5))
         let start = app.buttons["start-solo-setup"]
         let rulesDetails = app.buttons["selected-ruleset-details"]
         let cancelSetup = app.buttons["cancel-solo-setup"]
@@ -369,12 +375,13 @@ final class TableFlowTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(start.frame.height, 50)
         XCTAssertLessThan(start.frame.minY - rulesDetails.frame.maxY, 36)
         XCTAssertGreaterThan(cancelSetup.frame.midY, app.frame.height * 0.35)
-        oldThree.tap()
+        if bonus.value as? String == "1" { bonusSwitch.tap() }
+        XCTAssertEqual(bonus.value as? String, "0")
         capture("compact-solo-setup")
         rulesDetails.tap()
         let title = app.staticTexts["ruleset-details-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        XCTAssertEqual(title.label, "三样加分")
+        XCTAssertEqual(title.label, "清一色不加分")
         let details = app.staticTexts["ruleset-pattern-detail"]
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(details.label.contains("清一色按普通胡牌计分"))
@@ -386,7 +393,7 @@ final class TableFlowTests: XCTestCase {
         app.buttons["table-rules"].tap()
         let activeRules = app.staticTexts["active-ruleset"]
         XCTAssertTrue(activeRules.waitForExistence(timeout: 5))
-        XCTAssertTrue(activeRules.label.contains("三样加分"))
+        XCTAssertTrue(activeRules.label.contains("清一色不加分"))
         app.buttons["完成"].tap()
         app.buttons["BackButton"].tap()
 
@@ -398,7 +405,10 @@ final class TableFlowTests: XCTestCase {
         }
         capture("home-saved-game")
         newGame.tap()
-        app.buttons["清一色加分"].tap()
+        XCTAssertTrue(bonus.waitForExistence(timeout: 5))
+        XCTAssertEqual(bonus.value as? String, "0")
+        bonusSwitch.tap()
+        XCTAssertEqual(bonus.value as? String, "1")
         app.buttons["selected-ruleset-details"].tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertEqual(title.label, "清一色加分")
@@ -407,15 +417,15 @@ final class TableFlowTests: XCTestCase {
         app.buttons["完成"].tap()
         cancelSetup.tap()
         XCTAssertTrue(cancelSetup.waitForNonExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["practice-entry"].label.contains("三样加分"))
+        XCTAssertTrue(app.buttons["practice-entry"].label.contains("清一色不加分"))
         app.buttons["practice-entry"].tap()
         app.buttons["table-rules"].tap()
         XCTAssertTrue(activeRules.waitForExistence(timeout: 5))
-        XCTAssertTrue(activeRules.label.contains("三样加分"))
+        XCTAssertTrue(activeRules.label.contains("清一色不加分"))
         app.buttons["rule-contents"].tap()
         app.buttons["tutorial-ruleset-details"].tap()
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        XCTAssertEqual(title.label, "三样加分")
+        XCTAssertEqual(title.label, "清一色不加分")
     }
 
     func testLegacySaveIsClearedAndNewTableRulesAreAvailable() throws {
@@ -423,7 +433,7 @@ final class TableFlowTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchArguments = try savedMatchArguments(FuzhouMatch(ruleset: .legacy)) +
-            ["-solo.ruleset", "pureSuit", "-solo.customRulesetID", ""]
+            ["-solo.ruleset", "legacy", "-solo.customRulesetID", ""]
         app.launch()
 
         let notice = app.alerts["旧版单机牌局已清除"]
@@ -434,6 +444,9 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(practice.label.contains("开始新牌局"))
         XCTAssertFalse(app.buttons["saved-solo-rules"].exists)
         practice.tap()
+        let bonus = app.switches["pure-suit-bonus"]
+        XCTAssertTrue(bonus.waitForExistence(timeout: 5))
+        XCTAssertEqual(bonus.value as? String, "1")
         let newDetails = app.buttons["selected-ruleset-details"]
         newDetails.tap()
         let title = app.staticTexts["ruleset-details-title"]
@@ -454,7 +467,7 @@ final class TableFlowTests: XCTestCase {
         let keepFirst = app.buttons["keep-first-solo"]
         let keepSecond = app.buttons["keep-second-solo"]
         XCTAssertTrue(keepFirst.waitForExistence(timeout: 5))
-        XCTAssertTrue(keepFirst.label.contains("三样加分"))
+        XCTAssertTrue(keepFirst.label.contains("清一色不加分"))
         XCTAssertTrue(keepSecond.label.contains("Family"))
         XCTAssertFalse(app.buttons["practice-entry"].exists)
         keepFirst.tap()
