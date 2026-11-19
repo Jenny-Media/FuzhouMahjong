@@ -25,20 +25,32 @@ public final class NearbySession: MatchSession {
     private let inviteTimeout: Duration
     private let moveReplyTimeout: Duration
 
+    private struct GuestSeat: Codable, Equatable {
+        let roomID: UUID
+        let hostKey: Data
+        let hostName: String
+        let seatKey: UUID
+        let guestName: String
+    }
+
+    private let seatFile: URL?
+    private var savedSeat: GuestSeat?
+    public var lastRoomName: String? { savedSeat?.hostName }
+
     @ObservationIgnored private let hostingAllowed: @MainActor () -> Bool
 
-    public init(hostingAllowed: @escaping @MainActor () -> Bool) {
-        self.hostingAllowed = hostingAllowed
-        advertises = true
-        recoveryTimeout = .seconds(15)
-        inviteTimeout = .seconds(15)
-        moveReplyTimeout = .seconds(4)
+    public convenience init(hostingAllowed: @escaping @MainActor () -> Bool) {
+        let file = URL.applicationSupportDirectory.appending(path: "FuzhouMahjong/Nearby/guest-seat.json")
+        self.init(loopback: false, seatFile: file, hostingAllowed: hostingAllowed)
     }
 
     init(loopback: Bool, recoveryTimeout: Duration = .seconds(15), inviteTimeout: Duration = .seconds(15),
-         moveReplyTimeout: Duration = .seconds(4),
+         moveReplyTimeout: Duration = .seconds(4), seatFile: URL? = nil,
          hostingAllowed: @escaping @MainActor () -> Bool = { true }) {
         self.hostingAllowed = hostingAllowed
+        self.seatFile = seatFile
+        savedSeat = seatFile.flatMap { try? Data(contentsOf: $0) }
+            .flatMap { try? JSONDecoder().decode(GuestSeat.self, from: $0) }
         advertises = !loopback
         self.recoveryTimeout = recoveryTimeout
         self.inviteTimeout = inviteTimeout
@@ -202,12 +214,59 @@ public final class NearbySession: MatchSession {
     public func join(_ room: DiscoveredRoom, name: String) {
         guard !isInRoom else { return }
         cancelInviteSearch()
+        let previous = savedSeat.flatMap { $0.roomID == room.id ? $0 : nil }
+        guard previous == nil || previous?.hostKey == room.publicKey else {
+            notice = "无法确认原来的房主，请向房主确认牌桌。"
+            return
+        }
         target = room
-        guestName = NearbyMatch.normalizedName(name)
-        seatKey = UUID()
+        guestName = previous?.guestName ?? NearbyMatch.normalizedName(name)
+        seatKey = previous?.seatKey ?? UUID()
         didConnect = false
         notice = "正在加入牌桌…"
         connect(room)
+    }
+
+    public func resumeLastRoom() {
+        guard let savedSeat else { return }
+        joinInvite(savedSeat.roomID, name: savedSeat.guestName)
+    }
+
+    public func forgetLastRoom() {
+        guard !isInRoom else { return }
+        if pendingInvite == savedSeat?.roomID { cancelInviteSearch() }
+        clearSavedSeat()
+    }
+
+    private func rememberSeat(in room: DiscoveredRoom) {
+        guard let seatFile else { return }
+        let seat = GuestSeat(roomID: room.id, hostKey: room.publicKey, hostName: room.name,
+                             seatKey: seatKey, guestName: guestName)
+        guard seat != savedSeat else { return }
+        do {
+            var directory = seatFile.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            var attributes = URLResourceValues()
+            attributes.isExcludedFromBackup = true
+            try directory.setResourceValues(attributes)
+            let data = try JSONEncoder().encode(seat)
+            #if os(iOS)
+            try data.write(to: seatFile, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            #else
+            try data.write(to: seatFile, options: .atomic)
+            #endif
+            savedSeat = seat
+        } catch {
+            notice = "座位未能保存，退出应用后可能无法返回本桌。"
+        }
+    }
+
+    private func clearSavedSeat() {
+        if let seatFile, FileManager.default.fileExists(atPath: seatFile.path) {
+            do { try FileManager.default.removeItem(at: seatFile) }
+            catch { notice = "未能清除上次的座位，请重试。"; return }
+        }
+        savedSeat = nil
     }
 
     public func joinInvite(_ id: UUID, name: String) {
@@ -367,6 +426,7 @@ public final class NearbySession: MatchSession {
     }
 
     public func leave() {
+        if let target, savedSeat?.roomID == target.id { clearSavedSeat() }
         if host != nil {
             let closing = Array(links.values)
             for link in closing where link.seat != nil { sendToGuest(.closed, wire: link.wire) }
@@ -433,6 +493,10 @@ public final class NearbySession: MatchSession {
             available[id] = DiscoveredRoom(id: id, name: NearbyMatch.normalizedName(name),
                                             endpoint: result.endpoint, publicKey: key)
         }
+        discoveredRoomsChanged(available)
+    }
+
+    func discoveredRoomsChanged(_ available: [UUID: DiscoveredRoom]) {
         rooms = available.values.sorted { ($0.name, $0.code) < ($1.name, $1.code) }
         if let pendingInvite, inviteSearch == .searching, let room = available[pendingInvite], !isInRoom {
             join(room, name: guestName)
@@ -608,24 +672,29 @@ public final class NearbySession: MatchSession {
     }
 
     private func guestReceived(_ data: Data, from wire: NearbyWire) {
-        guard var link = guest, link.wire.id == wire.id else { return }
+        guard var link = guest, link.wire.id == wire.id, let target else { return }
         do {
             guard let clear = try link.cipher?.open(data) else { wire.close(); return }
             guest = link
             switch try JSONDecoder().decode(HostMessage.self, from: clear) {
             case .update(let update):
-                let resuming = didConnect && !connected
+                guard !leaving else { return }
+                let resuming = !connected && (didConnect || savedSeat?.roomID == target.id)
                 connected = true
                 didConnect = true
                 clearRecovery()
                 notice = nil
+                rememberSeat(in: target)
                 wire.accepted()
                 publish(update, resuming: resuming)
             case .rejected:
+                let returning = savedSeat?.roomID == target.id
+                if returning { clearSavedSeat() }
                 resetRoom()
-                notice = "牌桌已满或对局已开始。"
+                notice = returning ? "原来的座位已释放。请让房主新建牌桌后再邀请你。" : "牌桌已满或对局已开始。"
             case .closed:
                 let hostEndedRoom = !leaving
+                if savedSeat?.roomID == target.id { clearSavedSeat() }
                 resetRoom()
                 if hostEndedRoom { notice = "房主已结束牌桌。" }
             }

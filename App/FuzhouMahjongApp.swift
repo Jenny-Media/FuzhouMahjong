@@ -192,9 +192,12 @@ private struct HomeView: View {
                 soloSaveChoices
             }
 
-            Button { path.append(.nearby) } label: {
-                modeRow(nearby.isInRoom ? "返回附近牌桌" : "附近联机",
-                        detail: "与身边的牌友同桌", icon: "person.2.fill")
+            Button {
+                path.append(.nearby)
+                if !nearby.isInRoom { nearby.resumeLastRoom() }
+            } label: {
+                modeRow(nearby.isInRoom ? "返回附近牌桌" : nearby.lastRoomName == nil ? "附近联机" : "返回上次牌桌",
+                        detail: (nearby.roomName ?? nearby.lastRoomName).map { "\($0)的牌桌" } ?? "与身边的牌友同桌", icon: "person.2.fill")
             }
             .buttonStyle(TeaButtonStyle(prominent: false, verticalPadding: 13))
             .accessibilityIdentifier("nearby-entry")

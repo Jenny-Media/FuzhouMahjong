@@ -16,6 +16,7 @@ struct NearbyView: View {
     @AppStorage("nearby.ruleset") private var ruleset = FuzhouRuleset.pureSuit
     @AppStorage("nearby.customRulesetID") private var customRulesetID = ""
     @Environment(\.openURL) private var openURL
+    @State private var showsHostSetup = false
     @State private var showsInvite = false
     @State private var showsScanner = false
     @State private var confirmsLeave = false
@@ -54,6 +55,30 @@ struct NearbyView: View {
             if !session.isInRoom { session.stopBrowsing() }
         }
         .sheet(item: $purchaseReason) { PurchaseSheet(reason: $0) }
+        .sheet(isPresented: $showsHostSetup) {
+            NavigationStack {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        RulesetPicker(title: "新牌桌的玩法", selection: $ruleset, selectedCustomID: $customRulesetID)
+                        Button {
+                            session.create(name: nickname, ruleset: ruleset,
+                                           houseRules: rulesetLibrary.preset(for: customRulesetID))
+                            showsHostSetup = false
+                        } label: { Text("确认创建").frame(maxWidth: .infinity) }
+                        .buttonStyle(TeaButtonStyle())
+                        .accessibilityIdentifier("confirm-host-create")
+                    }
+                    .padding(TeaTheme.gutter)
+                    .frame(maxWidth: TeaTheme.contentWidth)
+                    .frame(maxWidth: .infinity)
+                }
+                .modifier(HingeSafeContent())
+                .teaBackdrop()
+                .navigationTitle("创建牌桌")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { showsHostSetup = false } } }
+            }
+        }
         .sheet(isPresented: $showsInvite) {
             if let id = session.roomID { InviteView(id: id) }
         }
@@ -150,34 +175,27 @@ struct NearbyView: View {
 
     private var discovery: some View {
         Group {
-            TextField("牌桌昵称（可选）", text: $nickname)
-                .padding(12)
-                .frame(minHeight: TeaTheme.hitTarget)
-                .teaPanel(corner: TeaTheme.controlCorner)
-
-            RulesetPicker(title: "新牌桌的玩法", selection: $ruleset, selectedCustomID: $customRulesetID)
-
-            Button {
-                if access.authorizeHosting() {
-                    session.create(name: nickname, ruleset: ruleset, houseRules: rulesetLibrary.preset(for: customRulesetID))
-                } else { purchaseReason = .hosting }
-            } label: {
-                Text("创建牌桌").frame(maxWidth: .infinity)
+            if let previous = session.lastRoomName {
+                HStack {
+                    Button("返回上次牌桌 · \(previous)") { session.resumeLastRoom() }
+                        .buttonStyle(TeaButtonStyle(prominent: false))
+                        .disabled(session.inviteSearch == .searching)
+                    Menu {
+                        Button("忘记上次牌桌", role: .destructive) { session.forgetLastRoom() }
+                    } label: { Label("上次牌桌选项", systemImage: "ellipsis.circle").labelStyle(.iconOnly) }
+                }
             }
-            .buttonStyle(TeaButtonStyle())
-            .accessibilityIdentifier("host-create")
-
             VStack(alignment: .leading, spacing: 12) {
                 Text("加入附近牌桌")
                     .font(.headline).foregroundStyle(TeaTheme.brass)
                     .accessibilityAddTraits(.isHeader)
                 Text("加入牌友的牌桌始终免费。").font(.footnote).foregroundStyle(TeaTheme.muted)
-                if session.rooms.isEmpty {
-                    Label("正在查找附近牌桌…", systemImage: "wifi")
-                        .font(.subheadline).foregroundStyle(TeaTheme.muted)
-                    Button("重新查找") { session.stopBrowsing(); session.browse() }
-                        .buttonStyle(TeaButtonStyle(prominent: false))
+                Button { showsScanner = true } label: {
+                    Label("扫码加入", systemImage: "qrcode.viewfinder")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(TeaButtonStyle())
+                .accessibilityIdentifier("scan-invite")
                 ForEach(session.rooms) { room in
                     Button {
                         session.join(room, name: nickname)
@@ -193,10 +211,8 @@ struct NearbyView: View {
                     }
                     .buttonStyle(TeaButtonStyle(prominent: false))
                 }
-
-                Divider()
                 HStack {
-                    TextField("邀请码", text: $inviteCode)
+                    TextField("4 位邀请码", text: $inviteCode)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .padding(.horizontal, 10)
@@ -208,17 +224,38 @@ struct NearbyView: View {
                     .buttonStyle(TeaButtonStyle(prominent: false))
                     .disabled(inviteRoom == nil)
                 }
-                Button { showsScanner = true } label: {
-                    Label("扫描邀请二维码", systemImage: "qrcode.viewfinder")
-                        .frame(maxWidth: .infinity)
+
+                if !inviteCode.isEmpty, inviteCode.count == 4, inviteRoom == nil {
+                    Text("还未找到唯一匹配的牌桌。请核对邀请码，或扫描房主的二维码。")
+                        .font(.footnote).foregroundStyle(TeaTheme.muted)
                 }
-                .buttonStyle(TeaButtonStyle(prominent: false))
+                if session.rooms.isEmpty {
+                    HStack {
+                        Label("正在查找附近牌桌…", systemImage: "wifi")
+                            .font(.footnote).foregroundStyle(TeaTheme.muted)
+                        Spacer()
+                        Button("重新查找") { session.stopBrowsing(); session.browse() }
+                            .disabled(session.inviteSearch == .searching)
+                    }
+                }
                 Text("请靠近房主，并打开 Wi-Fi。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
             .teaPanel()
+
+            Button {
+                if access.authorizeHosting() { showsHostSetup = true }
+                else { purchaseReason = .hosting }
+            } label: { Label("创建牌桌", systemImage: "plus").frame(maxWidth: .infinity) }
+            .buttonStyle(TeaButtonStyle(prominent: false))
+            .accessibilityIdentifier("host-create")
+
+            TextField("牌桌昵称（可选）", text: $nickname)
+                .padding(12)
+                .frame(minHeight: TeaTheme.hitTarget)
+                .teaPanel(corner: TeaTheme.controlCorner)
         }
     }
 

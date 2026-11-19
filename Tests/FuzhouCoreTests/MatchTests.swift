@@ -499,6 +499,34 @@ final class MatchTests: XCTestCase {
         XCTAssertTrue(match.apply(move, by: .south))
     }
 
+    func testComputerPassesPungsThatBreakReadyHandsFromSeeds50And53() throws {
+        let cases: [(hand: [TileKind], opened: TileKind, offered: TileKind, gold: TileKind)] = [
+            ([4, 4].map { TileKind(.characters, $0) } + [1, 2, 3, 3, 4, 5].map { TileKind(.circles, $0) }
+                + [5, 6, 7, 7, 7].map { TileKind(.bamboo, $0) },
+             TileKind(.characters, 2), TileKind(.circles, 3), TileKind(.bamboo, 9)),
+            ([4, 4, 5, 5, 7, 8, 9].map { TileKind(.characters, $0) } + [5, 6, 7, 7, 8, 9].map { TileKind(.circles, $0) },
+             TileKind(.bamboo, 9), TileKind(.circles, 7), TileKind(.circles, 1))
+        ]
+        let filler = TileKind(.bamboo, 1)
+        for example in cases {
+            let rack = example.hand + [example.opened, example.opened, filler]
+            var match = try fixture(hands: [.west: rack], gold: example.gold,
+                                    draws: [example.opened, example.offered], ruleset: .pureSuit)
+            resolveOpening(&match)
+            XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .east))
+            passEveryoneElse(&match, except: .west)
+            let pung = try XCTUnwrap(match.legalMoves(for: .west).first { if case .meld(.pung, _) = $0 { true } else { false } })
+            XCTAssertTrue(match.apply(pung, by: .west))
+            let spare = try XCTUnwrap(match.table(for: .west).hand.first { $0.kind == filler })
+            XCTAssertTrue(match.apply(.discard(spare.id), by: .west))
+            passEveryoneElse(&match, except: .west)
+            XCTAssertEqual(match.drawn?.kind, example.offered)
+            XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .north))
+            XCTAssertTrue(match.legalMoves(for: .west).contains { if case .meld(.pung, _) = $0 { true } else { false } })
+            XCTAssertEqual(match.nextComputerMove(excluding: [.east, .south, .north])?.1, .pass)
+        }
+    }
+
     func testGoldDiscardRestrictionIsVisibleToTheDiscarder() throws {
         let gold = TileKind(.bamboo, 9)
         var match = try fixture(hands: [:], gold: gold, draws: [gold])

@@ -64,6 +64,76 @@ final class NearbyLoopbackTests: XCTestCase {
     }
 
     @MainActor
+    func testFreshGuestReturnsToTheSameSeatAndForgetsItOnDeparture() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let file = directory.appending(path: "seat.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = NearbySession(loopback: true)
+        defer { host.leave() }
+        host.create(name: "房主")
+        try await until("host is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+
+        var original: NearbySession? = NearbySession(loopback: true, seatFile: file, hostingAllowed: { false })
+        original?.join(room, name: "小林")
+        try await until("seat saved") { original?.lastRoomName == "房主" }
+        host.startMatch()
+        try await until("initial hand received") { original?.table != nil }
+        let hand = try XCTUnwrap(original?.table)
+        original?.setBackgrounded(true)
+        try await until("host pauses for the absent guest") { host.paused }
+        original = nil
+
+        let guest = NearbySession(loopback: true, seatFile: file, hostingAllowed: { false })
+        XCTAssertEqual(guest.lastRoomName, "房主")
+        guest.resumeLastRoom()
+        XCTAssertEqual(guest.inviteSearch, .searching)
+        let otherKey = DiscoveredRoom(id: room.id, name: room.name, endpoint: room.endpoint,
+                                      publicKey: Data(repeating: 1, count: 32))
+        guest.discoveredRoomsChanged([room.id: otherKey])
+        XCTAssertFalse(guest.isInRoom)
+        XCTAssertEqual(guest.lastRoomName, "房主")
+        guest.discoveredRoomsChanged([:])
+        guest.resumeLastRoom()
+        guest.discoveredRoomsChanged([room.id: room])
+        try await until("original seat resumes without purchase") { guest.connected && !host.paused }
+        XCTAssertEqual(guest.table, hand)
+        XCTAssertNil(guest.openingRound)
+        XCTAssertEqual(host.players.count, 2)
+        guest.leave()
+        try await until("explicit exit releases the seat") { !guest.isInRoom && host.players.count == 1 }
+        XCTAssertNil(NearbySession(loopback: true, seatFile: file).lastRoomName)
+    }
+
+    @MainActor
+    func testReturningGuestIsToldWhenTheHostHasReplacedTheirSeat() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let file = directory.appending(path: "seat.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = NearbySession(loopback: true)
+        defer { host.leave() }
+        host.create(name: "房主")
+        try await until("host is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        let original = NearbySession(loopback: true, seatFile: file)
+        original.join(room, name: "牌友")
+        try await until("guest is seated") { original.connected }
+        host.startMatch()
+        try await until("guest receives a seat") { original.table != nil }
+        let seat = try XCTUnwrap(original.table?.viewer)
+        original.setBackgrounded(true)
+        try await until("host can substitute") { host.paused }
+        host.substitute(seat)
+        let guest = NearbySession(loopback: true, seatFile: file)
+        guest.discoveredRoomsChanged([room.id: room])
+        guest.resumeLastRoom()
+        try await until("the original host rejected the released seat") { guest.lastRoomName == nil }
+        XCTAssertFalse(guest.isInRoom)
+        XCTAssertTrue(guest.notice?.contains("座位已释放") == true)
+        XCTAssertNil(NearbySession(loopback: true, seatFile: file).lastRoomName)
+    }
+
+    @MainActor
     func testMissingInviteTimesOutAndCanRetryOrCancel() async throws {
         let session = NearbySession(loopback: true, inviteTimeout: .milliseconds(160))
         defer { session.stopBrowsing() }

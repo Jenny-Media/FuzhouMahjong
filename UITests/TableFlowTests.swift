@@ -671,6 +671,36 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(element("table-meld-\(meld.id)", in: app).exists)
     }
 
+    func testOpponentMeldsAndRemainingRackCanBeInspectedInBothOrientations() throws {
+        continueAfterFailure = false
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let fixture = try match(seed: 35, after: 41)
+        let table = fixture.table(for: .south)
+        let player = try XCTUnwrap(table.players.first { $0.seat != .south && !$0.melds.isEmpty && $0.rackCount > 0 })
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            let app = try launchSavedMatch(fixture)
+            let rack = element("table-rack", in: app)
+            let original = rack.frame
+            let backs = element("concealed-rack-\(player.seat.id)", in: app)
+            XCTAssertEqual(backs.label, "手牌 \(player.rackCount) 张")
+            let seat = element("seat-score-\(player.seat.id)", in: app)
+            XCTAssertTrue(seat.isHittable)
+            capture("live-melds-\(orientation.rawValue)")
+            seat.tap()
+            for meld in player.melds {
+                let shown = element("inspected-meld-\(meld.id)", in: app)
+                XCTAssertTrue(shown.waitForExistence(timeout: 5))
+                XCTAssertGreaterThanOrEqual(shown.frame.width, CGFloat(meld.tiles.count * 40))
+            }
+            capture("seat-inspector-\(orientation.rawValue)")
+            app.buttons["完成"].tap()
+            assertFrames([rack.frame], match: [original], labels: ["rack"])
+            XCTAssertTrue(app.buttons["declare-win"].isHittable)
+            app.terminate()
+        }
+    }
+
     func testClaimThenDiscardInBothOrientations() throws {
         continueAfterFailure = false
         defer { XCUIDevice.shared.orientation = .portrait }
