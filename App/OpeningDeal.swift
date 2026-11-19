@@ -17,19 +17,24 @@ struct OpeningDeal: View {
     nonisolated static let tileInterval = 0.040
     nonisolated static let flightDuration = 0.26
     static let stackingDuration = 0.46
-    static let tileCount = FuzhouMatch.rackSize * Seat.allCases.count
+    nonisolated static let tileCount = FuzhouMatch.rackSize * Seat.allCases.count
+    nonisolated static let dealerArrival = Double(tileCount) * tileInterval + flightDuration
 
     enum Stage: Equatable {
         case shuffle(Date?)
         case stacking(Date)
         case deal(Date)
         case settled
+        case flowers
+        case revealGold
 
         var title: String {
             switch self {
             case .shuffle: "正在洗牌"
             case .stacking: "正在摆牌"
             case .deal, .settled: "正在发牌"
+            case .flowers: "正在补花"
+            case .revealGold: "开金"
             }
         }
 
@@ -40,14 +45,14 @@ struct OpeningDeal: View {
 
         var showsWall: Bool {
             switch self {
-            case .deal, .settled: true
+            case .deal, .settled, .flowers, .revealGold: true
             default: false
             }
         }
 
         func landed(for seat: Seat, dealer: Seat, at time: Date) -> Int {
             switch self {
-            case .settled: return FuzhouMatch.rackSize
+            case .settled, .flowers, .revealGold: return FuzhouMatch.rackSize
             case .deal(let start):
                 let age = time.timeIntervalSince(start) - Self.arrivalOffset(for: seat, dealer: dealer)
                 guard age >= 0 else { return 0 }
@@ -55,6 +60,11 @@ struct OpeningDeal: View {
                 return min(FuzhouMatch.rackSize, Int(age / circuit) + 1)
             default: return 0
             }
+        }
+
+        func dealerTileLanded(at time: Date) -> Bool {
+            if case .deal(let start) = self { return time.timeIntervalSince(start) >= OpeningDeal.dealerArrival }
+            return showsWall
         }
 
         private static func arrivalOffset(for seat: Seat, dealer: Seat) -> TimeInterval {
@@ -65,11 +75,13 @@ struct OpeningDeal: View {
 
     let viewer: Seat
     let dealer: Seat
+    let dealsDealerTile: Bool
     let stage: Stage
     let anchors: [TableAnchors.Marker: CGRect]
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: stage == .shuffle(nil) || stage == .settled)) { time in
+        TimelineView(.animation(minimumInterval: 1 / 30,
+                                paused: stage == .shuffle(nil) || (stage.showsWall && !stage.isDealing))) { time in
             Canvas { context, _ in
                 let back = context.resolve(Image("JadeTileBack"))
                 switch stage {
@@ -81,7 +93,7 @@ struct OpeningDeal: View {
                              stacking: progress(time.date.timeIntervalSince(start) / Self.stackingDuration))
                 case .deal(let start):
                     drawFlights(in: context, back: back, elapsed: time.date.timeIntervalSince(start))
-                case .settled: break
+                case .settled, .flowers, .revealGold: break
                 }
             }
         }
@@ -113,14 +125,21 @@ struct OpeningDeal: View {
     private func drawFlights(in context: GraphicsContext, back: GraphicsContext.ResolvedImage,
                              elapsed: TimeInterval) {
         guard let source = anchors[.wall] else { return }
-        for index in 0..<Self.tileCount {
+        for index in 0..<(Self.tileCount + (dealsDealerTile ? 1 : 0)) {
             let age = elapsed - Double(index) * Self.tileInterval
             if age < 0 { break }
             guard age < Self.flightDuration else { continue }
             let seat = dealer.advanced(index % Seat.allCases.count)
             let slot = index / Seat.allCases.count
             let destination: CGRect
-            if seat == viewer {
+            if index == Self.tileCount {
+                guard let target = anchors[dealer == viewer ? .drawn : .player(dealer)] else { continue }
+                if dealer == viewer {
+                    destination = target
+                } else {
+                    destination = Self.opponentDealerSlot(in: target)
+                }
+            } else if seat == viewer {
                 guard let cell = anchors[.rack(slot)] else { continue }
                 destination = cell
             } else {
@@ -145,6 +164,11 @@ struct OpeningDeal: View {
         return CGRect(x: rack.midX + (CGFloat(column) - CGFloat(columns) / 2) * (width + 0.35),
                       y: rack.midY + (CGFloat(row) - 1) * (height + 0.6),
                       width: width, height: height)
+    }
+
+    static func opponentDealerSlot(in rack: CGRect) -> CGRect {
+        let last = opponentSlot(FuzhouMatch.rackSize - 1, in: rack)
+        return last.offsetBy(dx: last.width * 0.65, dy: -last.height * 0.60)
     }
 
     static func drawBack(_ back: GraphicsContext.ResolvedImage, in context: GraphicsContext,

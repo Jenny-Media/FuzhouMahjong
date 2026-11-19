@@ -158,6 +158,8 @@ public struct TableDraw: Equatable, Codable, Sendable {
     public var seat: Seat
     public var fromReserve: Bool
     public var flowersReplaced: Int
+    /// True for the dealer's extra tile dealt before the gold reveal.
+    public var isOpeningDeal: Bool? = nil
 }
 
 public struct TableState: Equatable, Codable, Sendable {
@@ -193,8 +195,16 @@ public struct TableState: Equatable, Codable, Sendable {
     public var lastDraw: TableDraw? = nil
     var matchRuleset: FuzhouRuleset? = nil
     public var houseRules: FuzhouHouseRules? = nil
+    /// The dealer may trade one of these tiles for the flipped indicator when declaring 抢金.
+    public var robGoldDiscardIDs: [Tile.ID]? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? .legacy }
+
+    public func canSubmit(_ move: Move) -> Bool {
+        if moves.contains(move) { return true }
+        guard step == .opening, viewer == dealer, moves.contains(.win), case .discard(let id) = move else { return false }
+        return robGoldDiscardIDs?.contains(id) == true
+    }
 
     public var canDeclareThreeGold: Bool {
         guard ruleset != .legacy, step == .turn, let drawn, let gold else { return false }

@@ -25,6 +25,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private var drew = Set<Seat>()
     private var firstDraw = false
     private var responses: [Response] = []
+    private var openingDealerGoldDiscards: [Tile.ID]?
     private var step = TableState.Step.turn
     private var offeredTile: Tile?
     private var matchRuleset: FuzhouRuleset?
@@ -63,16 +64,18 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     }
 
     public func table(for viewer: Seat) -> TableState {
-        TableState(viewer: viewer, hand: hands[viewer.id], drawn: current == viewer ? drawn : nil,
+        let moves = legalMoves(for: viewer)
+        let openingDiscards = step == .opening && viewer == dealer && moves.contains(.win) ? openingDealerGoldDiscards : nil
+        return TableState(viewer: viewer, hand: hands[viewer.id], drawn: current == viewer ? drawn : nil,
                    gold: gold, remaining: wall.count, dealer: dealer, continuation: continuation,
                    roundNumber: roundNumber, wind: Seat.allCases[dealerTurns / 4],
                    handNumber: dealerTurns % 4 + 1, matchFinished: matchFinished, current: current,
-                   step: step, offeredTile: offeredTile, moves: legalMoves(for: viewer),
+                   step: step, offeredTile: offeredTile, moves: openingDiscards == nil ? moves : [.win, .pass],
                    players: Seat.allCases.map {
                        .init(seat: $0, rackCount: hands[$0.id].count, flowerCount: flowers[$0.id].count,
                              discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id])
                    }, result: result, discardTimeline: discardTimeline, lastDraw: lastDraw,
-                   matchRuleset: matchRuleset, houseRules: houseRules)
+                   matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards)
     }
 
     public func legalMoves(for seat: Seat) -> [Move] {
@@ -81,7 +84,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             return []
         case .opening:
             guard responses.contains(.pending(seat)) else { return [] }
-            return [.win, .pass]
+            return [.win, .pass] + (seat == dealer ? (openingDealerGoldDiscards ?? []).map(Move.discard) : [])
         case .claim:
             guard responses.contains(.pending(seat)), let offeredTile else { return [] }
             return discardClaims(for: seat, tile: offeredTile) + [.pass]
@@ -289,29 +292,73 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                 hands[seat.id].append(tile)
             }
         }
+        let hasDealerExtra = ruleset != .legacy
+        if hasDealerExtra {
+            guard let extra = wall.popLast() else { settle(.draw); return }
+            hands[dealer.id].append(extra)
+        }
         // Reveal before replacing flowers when honors can be gold, so dealt copies of the
         // indicator stay in players' racks instead of being counted as flowers.
         if goldIndicators != .suitedOnly {
             guard let indicator = revealGold() else { settle(.draw); return }
             gold = indicator
         }
-        guard replaceOpeningFlowers(), let indicator = gold ?? revealGold() else { settle(.draw); return }
+        guard let extraFlowers = replaceOpeningFlowers(),
+              let indicator = gold ?? revealGold() else { settle(.draw); return }
         gold = indicator
+        if hasDealerExtra {
+            let ready = hands[dealer.id].removeLast()
+            drawn = ready
+            drew.insert(dealer)
+            firstDraw = true
+            lastDraw = TableDraw(sequence: 1, seat: dealer, fromReserve: extraFlowers > 0,
+                                 flowersReplaced: extraFlowers, isOpeningDeal: true)
+        }
+        for seat in Seat.allCases { sortHand(seat) }
+        if let drawn {
+            let discards = dealerGoldDiscards(drawn: drawn, indicator: indicator)
+            openingDealerGoldDiscards = discards.isEmpty ? nil : discards
+        }
         // The reveal must complete the original hand as a tile, before gold begins acting as a joker.
         responses = (0..<4).map { dealer.advanced($0) }.filter { seat in
-            WinningHand.isComplete((hands[seat.id] + [indicator]).map(\.kind), gold: nil)
+            if seat == dealer, drawn != nil { return openingDealerGoldDiscards != nil }
+            return WinningHand.isComplete((hands[seat.id] + [indicator]).map(\.kind), gold: nil)
         }.map(Response.pending)
-        if responses.isEmpty { drawTurn() }
+        if responses.isEmpty { beginFirstTurn() }
     }
 
-    private mutating func replaceOpeningFlowers() -> Bool {
+    private func dealerGoldDiscards(drawn: Tile, indicator: Tile) -> [Tile.ID] {
+        guard !indicator.kind.isFlower else { return [] }
+        let rack = hands[dealer.id] + [drawn]
+        let choices: [(tile: Tile, points: Int)] = rack.compactMap { tile in
+            let hand = rack.filter { $0.id != tile.id } + [indicator]
+            guard WinningHand.isComplete(hand.map(\.kind), gold: nil) else { return nil }
+            let score = FuzhouScoring.modern(hand: hand, melds: [], flowers: flowers[dealer.id],
+                                             gold: indicator, dealer: true, continuation: continuation,
+                                             kind: .robGold, ruleset: ruleset, houseRules: houseRules)
+            return (tile, score.lines.reduce(0) { $0 + $1.points })
+        }
+        // A plain win request from AI or an older client picks the highest-scoring swap.
+        return choices.sorted {
+            ($0.points, $0.tile == drawn ? 1 : 0, -$0.tile.id) > ($1.points, $1.tile == drawn ? 1 : 0, -$1.tile.id)
+        }.map(\.tile.id)
+    }
+
+    private mutating func beginFirstTurn() {
+        // Older saves awaiting an opening response still need to draw the dealer's extra tile.
+        if drawn == nil { drawTurn() }
+        else { step = .turn }
+    }
+
+    private mutating func replaceOpeningFlowers() -> Int? {
         let seats = (0..<4).map { dealer.advanced($0) }
+        var dealerExtraFlowers = 0
         if ruleset == .legacy {
             for seat in seats {
                 let dealt = hands[seat.id]
                 hands[seat.id] = []
                 for tile in dealt {
-                    guard let ready = replaceFlowers(tile, for: seat) else { return false }
+                    guard let ready = replaceFlowers(tile, for: seat) else { return nil }
                     hands[seat.id].append(ready)
                 }
             }
@@ -319,21 +366,16 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             // Flowers drawn as replacements wait until the player's next pass around the table.
             while hands.contains(where: { $0.contains(where: needsFlowerReplacement) }) {
                 for seat in seats {
-                    let (kept, exposed) = hands[seat.id].reduce(into: ([Tile](), [Tile]())) { groups, tile in
-                        if needsFlowerReplacement(tile) { groups.1.append(tile) }
-                        else { groups.0.append(tile) }
-                    }
-                    hands[seat.id] = kept
-                    flowers[seat.id] += exposed
-                    for _ in exposed {
-                        guard let tile = replacement() else { return false }
-                        hands[seat.id].append(tile)
+                    for index in hands[seat.id].indices where needsFlowerReplacement(hands[seat.id][index]) {
+                        guard let tile = replacement() else { return nil }
+                        flowers[seat.id].append(hands[seat.id][index])
+                        hands[seat.id][index] = tile
+                        if seat == dealer, index == Self.rackSize { dealerExtraFlowers += 1 }
                     }
                 }
             }
         }
-        for seat in seats { sortHand(seat) }
-        return true
+        return dealerExtraFlowers
     }
 
     private mutating func revealGold() -> Tile? {
@@ -357,6 +399,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         drew = []
         firstDraw = false
         responses = []
+        openingDealerGoldDiscards = nil
         offeredTile = nil
     }
 
@@ -408,13 +451,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     }
 
     private mutating func discard(_ id: Int, by seat: Seat) {
-        gatherDrawn(for: seat)
-        let tile = removeTiles([id], from: seat)[0]
-        sortHand(seat)
-        if isGold(tile) { selfDrawOnly.insert(seat) }
-        ponds[seat.id].append(tile)
-        if discardTimeline == nil { discardTimeline = [] }
-        discardTimeline?.append(TableDiscard(seat: seat, tile: tile))
+        let tile = recordDiscard(id, by: seat)
         firstDraw = false
         offeredTile = tile
         step = .claim
@@ -424,6 +461,18 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         if responses.isEmpty { resolveResponses() }
     }
 
+    @discardableResult
+    private mutating func recordDiscard(_ id: Tile.ID, by seat: Seat) -> Tile {
+        gatherDrawn(for: seat)
+        let tile = removeTiles([id], from: seat)[0]
+        sortHand(seat)
+        if isGold(tile) { selfDrawOnly.insert(seat) }
+        ponds[seat.id].append(tile)
+        if discardTimeline == nil { discardTimeline = [] }
+        discardTimeline?.append(TableDiscard(seat: seat, tile: tile))
+        return tile
+    }
+
     private mutating func resolveResponses() {
         let choices: [(Seat, Move)] = responses.compactMap {
             guard case let .chose(seat, move) = $0, move != .pass else { return nil }
@@ -431,10 +480,16 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         }
         responses = []
         if step == .opening {
-            if let (winner, _) = choices.first, let gold {
+            let defaultDiscard = openingDealerGoldDiscards?.first
+            openingDealerGoldDiscards = nil
+            if let (winner, move) = choices.first, let gold {
+                if winner == dealer {
+                    if case .discard(let id) = move { recordDiscard(id, by: dealer) }
+                    else if let defaultDiscard { recordDiscard(defaultDiscard, by: dealer) }
+                }
                 finishWin(winner, kind: .robGold, tile: gold, source: nil)
             } else {
-                drawTurn()
+                beginFirstTurn()
             }
             return
         }
@@ -560,7 +615,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
 
     private mutating func settle(_ outcome: RoundResult) {
         result = outcome
-        drawn = nil
+        if step != .opening || outcome.kind != .robGold || outcome.winner == dealer { drawn = nil }
         offeredTile = nil
         responses = []
         step = .finished

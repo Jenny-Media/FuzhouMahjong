@@ -127,13 +127,14 @@ private struct RuleReference: View {
             Text("起手牌型概率")
                 .font(.headline).foregroundStyle(TeaTheme.brass)
                 .accessibilityAddTraits(.isHeader)
-            Text("按一位玩家起手拿到的牌计算。抢金看补花后的 16 张加翻出的牌，其余牌型按补花后的 17 张随机牌计算。")
+            Text("闲家抢金按补花后的 16 张加上翻出的牌计算。其余牌型按补花后的 17 张随机牌计算。")
                 .font(.footnote).foregroundStyle(TeaTheme.muted)
                 .accessibilityIdentifier("rule-odds-method")
             ForEach([WinPattern.robGold, .threeGold, .goldenPair, .pureSuit]) { pattern in
                 if let chance = odds.probability(of: pattern) {
                     Divider()
-                    rateRow(pattern.title, detail: patternDetail(pattern), value: RuleOdds.rate(chance), bonus: pattern.bonus)
+                    rateRow(pattern == .robGold ? "闲家抢金" : pattern.title, detail: patternDetail(pattern),
+                            value: RuleOdds.rate(chance), bonus: pattern.bonus)
                         .accessibilityIdentifier("rule-odds-\(pattern.rawValue)")
                 }
             }

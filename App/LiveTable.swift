@@ -171,6 +171,11 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     let slot = OpeningDeal.opponentSlot(index, in: CGRect(origin: .zero, size: size))
                     OpeningDeal.drawBack(back, in: context, at: slot.center, width: slot.width)
                 }
+                if player.seat == table.dealer, table.isOpeningLayout, table.lastDraw?.isOpeningDeal == true,
+                   opening?.dealerTileLanded(at: time.date) ?? true {
+                    let extra = OpeningDeal.opponentDealerSlot(in: CGRect(origin: .zero, size: size))
+                    OpeningDeal.drawBack(back, in: context, at: extra.center, width: extra.width)
+                }
             }
         }
         .allowsHitTesting(false)

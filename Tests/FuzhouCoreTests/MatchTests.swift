@@ -39,6 +39,94 @@ final class MatchTests: XCTestCase {
         XCTAssertTrue(reveal.flatMap(\.members).allSatisfy { $0.represents == nil })
     }
 
+    func testDealerCanRobGoldBySwappingADealtTileAndCanPassWithoutDrawingAgain() throws {
+        let indicator = TileKind(.bamboo, 5)
+        let extra = TileKind(.bamboo, 4)
+        let spare = TileKind(.bamboo, 9)
+        let hand = completed.filter { $0 != indicator && $0 != extra } + [spare]
+        let opening = try fixture(hands: [.east: hand], gold: indicator, draws: [extra, .init(.bamboo, 8)], ruleset: .pureSuit)
+        let table = opening.table(for: .east)
+        let drawn = try XCTUnwrap(table.drawn)
+        let discard = try XCTUnwrap(table.hand.first { $0.kind == spare })
+        XCTAssertEqual(table.step, .opening)
+        XCTAssertEqual(table.hand.count, 16)
+        XCTAssertEqual(drawn.kind, extra)
+        XCTAssertEqual(table.lastDraw?.isOpeningDeal, true)
+        XCTAssertTrue(table.moves.contains(.win))
+        XCTAssertTrue(table.canSubmit(.discard(discard.id)))
+        XCTAssertFalse(table.canSubmit(.discard(drawn.id)))
+        XCTAssertNil(opening.table(for: .south).robGoldDiscardIDs)
+        XCTAssertNil(opening.table(for: .south).drawn)
+
+        var passing = try JSONDecoder().decode(FuzhouMatch.self, from: JSONEncoder().encode(opening))
+        resolveOpening(&passing)
+        XCTAssertEqual(passing.drawn, drawn)
+        XCTAssertEqual(passing.table(for: .east).remaining, table.remaining)
+        XCTAssertEqual(passing.table(for: .east).lastDraw, table.lastDraw)
+
+        var winning = opening
+        XCTAssertFalse(winning.apply(.discard(drawn.id), by: .east))
+        XCTAssertTrue(winning.apply(.discard(discard.id), by: .east))
+        passEveryoneElse(&winning, except: .east)
+        let result = try XCTUnwrap(winning.result)
+        XCTAssertEqual(result.kind, .robGold)
+        XCTAssertEqual(result.winningHand.count, 17)
+        XCTAssertTrue(result.winningHand.contains(drawn))
+        XCTAssertFalse(result.winningHand.contains(discard))
+        XCTAssertEqual(result.winningTile, opening.gold)
+        XCTAssertEqual(winning.table(for: .east).latestDiscard, TableDiscard(seat: .east, tile: discard))
+        XCTAssertNotNil(WinningHand.groups(for: result, melds: [], gold: indicator))
+
+        var automatic = opening
+        XCTAssertTrue(automatic.apply(.win, by: .east))
+        passEveryoneElse(&automatic, except: .east)
+        XCTAssertEqual(automatic.result, result)
+    }
+
+    func testDealerReplacesAFlowerInTheSeventeenthSlotBeforeFlippingGold() throws {
+        let indicator = TileKind(.bamboo, 9)
+        let replacement = TileKind(.circles, 9)
+        var match = try fixture(hands: [:], gold: indicator, draws: [.init(.season, 1)], ruleset: .pureSuit,
+                                openingTail: [.init(.flower, 1), replacement])
+        resolveOpening(&match)
+        let table = match.table(for: .east)
+        XCTAssertEqual(table.gold?.kind, indicator)
+        XCTAssertEqual(table.drawn?.kind, replacement)
+        XCTAssertEqual(table.players.first?.flowerCount, 2)
+        XCTAssertEqual(table.lastDraw?.flowersReplaced, 2)
+        XCTAssertEqual(table.lastDraw?.fromReserve, true)
+    }
+
+    func testGuestRobGoldKeepsDealerExtraAndOldOpeningSavesCanFinish() throws {
+        let indicator = TileKind(.bamboo, 5)
+        let waiting = Array(completed.dropLast())
+        let opening = try fixture(hands: [.south: waiting], gold: indicator,
+                                  draws: [.init(.bamboo, 9)], ruleset: .pureSuit)
+        let dealerDraw = try XCTUnwrap(opening.drawn)
+        XCTAssertEqual(opening.table(for: .south).step, .opening)
+
+        var winning = opening
+        XCTAssertTrue(winning.apply(.win, by: .south))
+        passEveryoneElse(&winning, except: .south)
+        XCTAssertEqual(winning.result?.winner, .south)
+        XCTAssertEqual(winning.table(for: .east).drawn, dealerDraw)
+        XCTAssertNil(winning.table(for: .south).drawn)
+
+        let data = try JSONEncoder().encode(opening)
+        var oldFields = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let extra = try XCTUnwrap(oldFields.removeValue(forKey: "drawn"))
+        oldFields["wall"] = try XCTUnwrap(oldFields["wall"] as? [Any]) + [extra]
+        oldFields.removeValue(forKey: "lastDraw")
+        oldFields.removeValue(forKey: "openingDealerGoldDiscards")
+        oldFields["drew"] = [] as [Int]
+        oldFields["firstDraw"] = false
+        var resumed = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: oldFields))
+        XCTAssertNil(resumed.drawn)
+        resolveOpening(&resumed)
+        XCTAssertEqual(resumed.drawn, dealerDraw)
+        XCTAssertNil(resumed.table(for: .east).lastDraw?.isOpeningDeal)
+    }
+
     func testBuiltInOpeningCreditsFlippedHonorsAndFlowersToDealer() throws {
         let gold = TileKind(.bamboo, 9)
         let bonusFlips = [TileKind(.wind, 4), .init(.dragon, 2), .init(.season, 1)]

@@ -225,7 +225,7 @@ public final class NearbySession: MatchSession {
     }
 
     public func submit(_ move: Move) -> Bool {
-        guard !paused, let update, table?.moves.contains(move) == true else { return false }
+        guard !paused, let update, table?.canSubmit(move) == true else { return false }
         if host != nil {
             guard host?.match.submit(move, seat: .east, basedOn: update.revision) == true else { return false }
             broadcast()

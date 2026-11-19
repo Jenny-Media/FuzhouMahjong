@@ -312,11 +312,15 @@ final class TableFlowTests: XCTestCase {
             XCTAssertFalse(actions.frame.intersects(discard.frame))
             capture(landscape ? "multiple-claims-landscape" : "multiple-claims-portrait")
         }
-        for (label, kind, count) in [("碰", MeldKind.pung, 2), ("杠", .openKong, 3)] {
-            let ids = try XCTUnwrap(state.moves.compactMap { move -> [Tile.ID]? in
+        func rackIDs(for kind: MeldKind) throws -> [Tile.ID] {
+            try XCTUnwrap(state.moves.compactMap { move -> [Tile.ID]? in
                 if case .meld(let candidate, let ids) = move, candidate == kind { return ids }
                 return nil
             }.first)
+        }
+        let pungIDs = try rackIDs(for: .pung)
+        let kongIDs = try rackIDs(for: .openKong)
+        for (label, ids, count) in [("碰", pungIDs, 2), ("杠", kongIDs, 3)] {
             XCTAssertEqual(ids.count, count)
             app.buttons["table-move-\(label)"].tap()
             let confirm = app.buttons["confirm-meld"]
@@ -326,6 +330,17 @@ final class TableFlowTests: XCTestCase {
             assertHighlighted(Set(ids), in: state.hand, app: app)
             app.buttons["cancel-meld-preview"].tap()
         }
+
+        let third = try XCTUnwrap(kongIDs.first { !pungIDs.contains($0) })
+        let duplicate = app.buttons["tile-\(third)"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        duplicate.press(forDuration: 0.08, thenDragTo: duplicate.withOffset(CGVector(dx: 0, dy: -80)))
+        let choices = app.buttons["meld-options"]
+        XCTAssertTrue(choices.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["confirm-meld"].exists)
+        choices.tap()
+        let labels = ["meld-option-0", "meld-option-1"].map { app.buttons[$0].firstMatch.label }
+        XCTAssertTrue(labels.contains { $0.hasPrefix("碰") })
+        XCTAssertTrue(labels.contains { $0.hasPrefix("明杠") })
     }
 
     func testChoosingAnotherChowHighlightsExactlyItsTwoTiles() throws {
@@ -355,6 +370,53 @@ final class TableFlowTests: XCTestCase {
         app.buttons["confirm-meld"].tap()
         XCTAssertTrue(app.buttons["discard-action"].waitForExistence(timeout: 5))
         for id in options[2] { XCTAssertFalse(app.buttons["tile-\(id)"].exists) }
+    }
+
+    func testMarkedTilesPreviewAndSwipeToClaimAChow() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 56, after: 47)
+        let state = fixture.table(for: .south)
+        let groups = state.moves.compactMap { move -> [Tile.ID]? in
+            if case .meld(_, let ids) = move { return ids }
+            return nil
+        }
+        let chows = state.moves.compactMap { move -> [Tile.ID]? in
+            if case .meld(.chow, let ids) = move { return ids }
+            return nil
+        }
+        XCTAssertEqual(chows.count, 3)
+        let target = chows[2]
+        let shared = try XCTUnwrap(target.first { chows[1].contains($0) })
+        let unique = try XCTUnwrap(target.first { id in groups.filter { $0.contains(id) }.count == 1 })
+        let related = groups.filter { $0.contains(shared) }
+        XCTAssertGreaterThan(related.count, 1)
+
+        for startsWithSharedTile in [true, false] {
+            let app = try launchSavedMatch(fixture)
+            let confirm = app.buttons["confirm-meld"]
+            let sharedTile = app.buttons["tile-\(shared)"]
+            let uniqueTile = app.buttons["tile-\(unique)"]
+            let swipe = CGVector(dx: 0, dy: -92)
+            let center = CGVector(dx: 0.5, dy: 0.5)
+            let start = (startsWithSharedTile ? sharedTile : uniqueTile).coordinate(withNormalizedOffset: center)
+            start.press(forDuration: 0.08, thenDragTo: start.withOffset(swipe))
+
+            if startsWithSharedTile {
+                XCTAssertTrue(app.buttons["meld-options"].waitForExistence(timeout: 5))
+                XCTAssertFalse(confirm.exists)
+                assertHighlighted(Set(related.flatMap { $0 }), in: state.hand, app: app)
+                uniqueTile.tap()
+                XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+                assertHighlighted(Set(target), in: state.hand, app: app)
+                let selected = sharedTile.coordinate(withNormalizedOffset: center)
+                selected.press(forDuration: 0.08, thenDragTo: selected.withOffset(swipe))
+            }
+
+            XCTAssertTrue(app.buttons["discard-action"].waitForExistence(timeout: 5))
+            for id in target { XCTAssertFalse(app.buttons["tile-\(id)"].exists) }
+            app.terminate()
+        }
     }
 
     func testOpeningAndSkippingKeepTheBoardAndRackInPlace() throws {
@@ -401,8 +463,10 @@ final class TableFlowTests: XCTestCase {
         let status = app.staticTexts["table-status"]
         let dealing = NSPredicate(format: "label == %@", "正在发牌")
         XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: dealing, evaluatedWith: status)], timeout: 6), .completed)
+        XCTAssertFalse(app.buttons["gold-rules"].exists)
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(skip.waitForNonExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["gold-rules"].waitForExistence(timeout: 3))
         let board = element("table-surface", in: app)
         XCTAssertGreaterThan(board.frame.width, board.frame.height)
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
@@ -416,7 +480,7 @@ final class TableFlowTests: XCTestCase {
         let cases: [(seed: UInt64, moves: Int, kind: WinKind?, winner: Seat?, label: String)] = [
             (35, 41, .discard, .south, "胡"),     // Player claims a discard after two melds.
             (14, 29, .selfDraw, .west, "自摸"),   // AI wins from its draw after two melds.
-            (31213, 0, .robGold, .south, "抢金"),
+            (53518, 0, .robGold, .south, "抢金"),
             (0, 36, nil, nil, "流局"),
         ]
 

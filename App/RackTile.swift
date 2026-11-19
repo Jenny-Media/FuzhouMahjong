@@ -6,13 +6,14 @@ struct RackTile: View {
     let isGold: Bool
     let isSelected: Bool
     var isDrawn = false
-    var isMeldCandidate = false
+    var drawLabel = "刚摸到"
     let canSelect: Bool
     let canDiscard: Bool
     var rackCellWidth: CGFloat? = nil
     let select: () -> Void
     let discard: () -> Void
     var throwDiscard: ((CGRect, CGRect) -> Void)? = nil
+    var meldAction: (label: String, perform: () -> Void)? = nil
     var reposition: ((CGPoint) -> Void)? = nil
     var moveEarlier: (() -> Void)? = nil
     var moveLater: (() -> Void)? = nil
@@ -32,20 +33,22 @@ struct RackTile: View {
         let cellWidth = rackCellWidth ?? TeaTheme.hitTarget
         let face = Self.faceSize(for: rackCellWidth)
         let tileLabel = isGold ? "\(tile.kind.spokenName)，金牌" : tile.kind.spokenName
-        let showsPreview = throwDiscard != nil && canDiscard && !reduceMotion && offset != .zero
+        let isMeldCandidate = meldAction != nil
+        let showsPreview = (isMeldCandidate || (throwDiscard != nil && canDiscard)) && !reduceMotion && offset != .zero
 
         return Button(action: select) {
             TileFace(kind: tile.kind, gold: isGold, selected: isSelected || offset != .zero)
                 .frame(width: face.width, height: face.height)
                 .overlay {
                     if isMeldCandidate {
-                        RoundedRectangle(cornerRadius: face.width * 0.13)
-                            .strokeBorder(TeaTheme.feltDark, style: StrokeStyle(lineWidth: 2.5, dash: [5, 2]))
+                        let shape = RoundedRectangle(cornerRadius: face.width * 0.13)
+                        shape.fill(TeaTheme.gain.opacity(0.46)).blendMode(.multiply)
+                            .overlay { shape.strokeBorder(TeaTheme.feltDark.opacity(0.68), lineWidth: 1.5) }
                             .allowsHitTesting(false)
                     }
                 }
                 .offset(x: reduceMotion || showsPreview ? 0 : offset.width,
-                        y: reduceMotion ? 0 : (showsPreview ? 0 : offset.height) - (isSelected ? 3 : 0))
+                        y: reduceMotion ? 0 : (showsPreview ? 0 : offset.height) - (isSelected || isMeldCandidate ? 3 : 0))
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                     if throwDiscard != nil { faceFrame = frame }
                 }
@@ -58,14 +61,16 @@ struct RackTile: View {
         }
         .buttonStyle(PressStyle())
         .disabled(!canSelect)
-        .highPriorityGesture(placement, including: canDiscard || reposition != nil ? .all : .none)
+        .highPriorityGesture(placement, including: canDiscard || meldAction != nil || reposition != nil ? .all : .none)
         .zIndex(offset != .zero ? 1 : 0)
-        .accessibilityLabel(isDrawn ? "刚摸到，\(tileLabel)" : tileLabel)
+        .accessibilityLabel(isDrawn ? "\(drawLabel)，\(tileLabel)" : tileLabel)
         .accessibilityValue(isMeldCandidate ? "牌组候选" : "")
+        .accessibilityHint(isMeldCandidate ? "轻点查看牌组" : "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("tile-\(tile.id)")
         .accessibilityActions {
             if canDiscard { Button("出牌", action: discard) }
+            if let meldAction { Button(meldAction.label, action: meldAction.perform) }
             if let moveEarlier { Button("前移", action: moveEarlier) }
             if let moveLater { Button("后移", action: moveLater) }
         }
@@ -74,7 +79,7 @@ struct RackTile: View {
     private var placement: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .updating($offset) { drag, offset, _ in
-                offset = reposition != nil || isDiscardDirection(drag.translation) ? drag.translation : .zero
+                offset = reposition != nil || isUpwardSwipe(drag.translation) ? drag.translation : .zero
             }
             .onEnded { drag in
                 if let reposition {
@@ -83,9 +88,11 @@ struct RackTile: View {
                 }
                 let up = -drag.translation.height
                 let projectedUp = -drag.predictedEndTranslation.height
-                guard canDiscard, up >= 22, isDiscardDirection(drag.translation) else { return }
+                guard canDiscard || meldAction != nil, up >= 22, isUpwardSwipe(drag.translation) else { return }
                 guard up >= 48 || projectedUp >= 77 else { return }
-                if !reduceMotion, let frame = faceFrame, let throwDiscard {
+                if let meldAction {
+                    meldAction.perform()
+                } else if !reduceMotion, let frame = faceFrame, let throwDiscard {
                     throwDiscard(frame, frame.offsetBy(dx: drag.translation.width, dy: drag.translation.height))
                 } else {
                     discard()
@@ -93,7 +100,7 @@ struct RackTile: View {
             }
     }
 
-    private func isDiscardDirection(_ translation: CGSize) -> Bool {
+    private func isUpwardSwipe(_ translation: CGSize) -> Bool {
         let inward = layoutDirection == .leftToRight ? translation.width < 0 : translation.width > 0
         // The draw slot sits beside the rack, so a flick toward the felt can be more diagonal.
         let minimumRise: CGFloat = isDrawn && inward ? 0.55 : 1.2
