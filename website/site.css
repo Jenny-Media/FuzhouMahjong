@@ -87,7 +87,8 @@ nav a:hover, nav a[aria-current] { color: var(--brass); }
   margin-inline: .14rem .7rem;
 }
 .hero-intro { max-width: 22rem; font-size: clamp(1rem, 2vw, 1.21rem); color: var(--muted); line-height: 1.8; }
-.hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .85rem 1.55rem; margin-top: 2rem; }
+.app-store-badge { display: inline-block; margin-top: 2rem; }
+.app-store-badge img { width: auto; height: max(44px, 3rem); }
 .button, .text-link {
   display: inline-flex;
   align-items: center;
@@ -203,7 +204,6 @@ nav a:hover, nav a[aria-current] { color: var(--brass); }
   box-shadow: 0 .5rem .9rem #08140ea9;
 }
 .lesson-copy p, .fold-copy p { margin-top: 1rem; max-width: 27rem; line-height: 1.8; }
-.lesson-copy .text-link { margin-top: .8rem; }
 .fold-section { grid-template-columns: .8fr 1.2fr; }
 .fold-screen {
   padding: .45rem;
