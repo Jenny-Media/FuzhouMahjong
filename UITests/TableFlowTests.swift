@@ -256,11 +256,16 @@ final class TableFlowTests: XCTestCase {
         let frames = [table.frame, rack.frame]
         XCTAssertTrue(table.frame.contains(actions.frame))
         XCTAssertTrue(table.frame.contains(dock.frame))
+        XCTAssertGreaterThan(dock.frame.midX, table.frame.midX)
+        XCTAssertLessThan(dock.frame.maxY, rack.frame.minY)
         capture("turn-actions-and-drawn-dock")
 
         let drawnTile = app.buttons["tile-\(drawn.id)"]
         let drawnCenter = drawnTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(CGVector(dx: 0, dy: -16)))
+        XCTAssertTrue(drawnTile.exists)
+        let horizontalSwipe = CGVector(dx: -100, dy: -10)
+        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(horizontalSwipe))
         XCTAssertTrue(drawnTile.exists)
         XCTAssertTrue(discard.isHittable)
 
@@ -272,7 +277,9 @@ final class TableFlowTests: XCTestCase {
         app.alerts.buttons["取消"].tap()
         XCTAssertTrue(goldTile.exists)
 
-        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(CGVector(dx: 18, dy: -142)),
+        let inward = table.frame.midX - drawnTile.frame.midX
+        let towardFelt = CGVector(dx: inward, dy: -abs(inward) * 0.62)
+        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(towardFelt),
                           withVelocity: .slow, thenHoldForDuration: 0.15)
         XCTAssertTrue(drawnTile.waitForNonExistence(timeout: 3))
         XCTAssertTrue(element("latest-discard", in: app).label.contains("你打出"))

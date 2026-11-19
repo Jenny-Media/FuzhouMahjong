@@ -262,7 +262,7 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
         let indicators = houseRules?.goldIndicators ?? .suitedOnly
         return switch self {
         case .turn:
-            "点一张手牌，再点「出牌」。也可以直接把那张牌向上滑出去。" + (houseRules.map { "\n\n\($0.summary)。" } ?? "")
+            "点一张牌，再点「出牌」，也可以直接向上滑出。刚摸到的牌还可以斜向桌面中央滑出。" + (houseRules.map { "\n\n\($0.summary)。" } ?? "")
         case .flowers:
             if ruleset == .legacy {
                 "摸到也算金牌的花牌时，可以留作金牌，也可以选择补花。"

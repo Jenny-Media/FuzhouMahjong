@@ -65,9 +65,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 let dockWidth = TeaTheme.hitTarget
                 let seatWidth = max(0, min(endWidth, width - 2 * (dockWidth + gap)))
                 HStack(spacing: gap) {
-                    drawDock().frame(width: dockWidth, height: playerEndHeight)
-                    seatCard(table.viewer, width: seatWidth, height: endHeight)
                     Color.clear.frame(width: dockWidth, height: 1).accessibilityHidden(true)
+                    seatCard(table.viewer, width: seatWidth, height: endHeight)
+                    drawDock().frame(width: dockWidth, height: playerEndHeight)
                 }
                 .frame(height: playerEndHeight)
             } else {

@@ -18,6 +18,7 @@ struct RackTile: View {
     var moveLater: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
     @GestureState private var offset: CGSize = .zero
     @State private var faceFrame: CGRect?
 
@@ -73,12 +74,7 @@ struct RackTile: View {
     private var placement: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .updating($offset) { drag, offset, _ in
-                if reposition != nil {
-                    offset = drag.translation
-                } else {
-                    let up = -drag.translation.height
-                    offset = up > abs(drag.translation.width) ? drag.translation : .zero
-                }
+                offset = reposition != nil || isDiscardDirection(drag.translation) ? drag.translation : .zero
             }
             .onEnded { drag in
                 if let reposition {
@@ -87,7 +83,7 @@ struct RackTile: View {
                 }
                 let up = -drag.translation.height
                 let projectedUp = -drag.predictedEndTranslation.height
-                guard canDiscard, up >= 22, up > abs(drag.translation.width) * 1.2 else { return }
+                guard canDiscard, up >= 22, isDiscardDirection(drag.translation) else { return }
                 guard up >= 48 || projectedUp >= 77 else { return }
                 if !reduceMotion, let frame = faceFrame, let throwDiscard {
                     throwDiscard(frame, frame.offsetBy(dx: drag.translation.width, dy: drag.translation.height))
@@ -95,6 +91,13 @@ struct RackTile: View {
                     discard()
                 }
             }
+    }
+
+    private func isDiscardDirection(_ translation: CGSize) -> Bool {
+        let inward = layoutDirection == .leftToRight ? translation.width < 0 : translation.width > 0
+        // The draw slot sits beside the rack, so a flick toward the felt can be more diagonal.
+        let minimumRise: CGFloat = isDrawn && inward ? 0.55 : 1.2
+        return -translation.height > abs(translation.width) * minimumRise
     }
 
     private struct PressStyle: ButtonStyle {

@@ -431,7 +431,10 @@ struct MatchView<Session: MatchSession>: View {
                         GeometryReader { panel in
                             let singleRow = panel.size.width >= 600
                             VStack(alignment: .leading, spacing: 6) {
-                                if !singleRow { drawSlot(table.drawn, table: table) }
+                                if !singleRow {
+                                    drawSlot(table.drawn, table: table)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
                                 rack(table, availableWidth: panel.size.width, landscape: singleRow)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
