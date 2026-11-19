@@ -286,6 +286,48 @@ final class TableFlowTests: XCTestCase {
         assertFrames([table.frame, rack.frame], match: frames, labels: ["board", "rack"])
     }
 
+    func testKongPreviewLocksOrdinaryDiscardAndKeepsMeldSwipe() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 233662, after: 4)
+        let table = fixture.table(for: .south)
+        let drawn = try XCTUnwrap(table.drawn)
+        let kongs = table.moves.compactMap { move -> [Tile.ID]? in
+            if case .meld(.concealedKong, let ids) = move { return ids }
+            return nil
+        }
+        XCTAssertEqual(kongs.count, 2)
+        XCTAssertFalse(kongs.joined().contains(drawn.id))
+
+        let app = try launchSavedMatch(fixture)
+        let discard = app.buttons["discard-action"]
+        let kong = app.buttons["table-move-杠"]
+        let drawnTile = app.buttons["tile-\(drawn.id)"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        XCTAssertTrue(discard.isEnabled)
+        kong.tap()
+        XCTAssertFalse(discard.isEnabled)
+        app.buttons["meld-option-1"].tap()
+        XCTAssertFalse(discard.isEnabled)
+        XCTAssertFalse(drawnTile.isEnabled)
+        assertHighlighted(Set(kongs[1]), in: table.hand, app: app)
+
+        let drawnCenter = drawnTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        drawnCenter.press(forDuration: 0.08, thenDragTo: drawnCenter.withOffset(CGVector(dx: 0, dy: -90)))
+        XCTAssertTrue(drawnTile.exists)
+        XCTAssertTrue(app.buttons["confirm-meld"].isEnabled)
+        app.buttons["cancel-meld-preview"].tap()
+        XCTAssertTrue(discard.isEnabled)
+
+        kong.tap()
+        app.buttons["meld-option-1"].tap()
+        let tile = app.buttons["tile-\(try XCTUnwrap(kongs[1].first))"]
+        let tileCenter = tile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        tileCenter.press(forDuration: 0.08, thenDragTo: tileCenter.withOffset(CGVector(dx: 0, dy: -90)))
+        let meldID = try XCTUnwrap(kongs[1].min())
+        XCTAssertTrue(element("table-meld-\(meldID)", in: app).waitForExistence(timeout: 5))
+    }
+
     func testMultipleClaimActionsLeaveTheDiscardVisibleInBothOrientations() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -320,6 +362,7 @@ final class TableFlowTests: XCTestCase {
         }
         let pungIDs = try rackIDs(for: .pung)
         let kongIDs = try rackIDs(for: .openKong)
+        let passFrame = pass.frame
         for (label, ids, count) in [("碰", pungIDs, 2), ("杠", kongIDs, 3)] {
             XCTAssertEqual(ids.count, count)
             app.buttons["table-move-\(label)"].tap()
@@ -327,6 +370,7 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(confirm.waitForExistence(timeout: 5))
             XCTAssertTrue(table.frame.contains(actions.frame))
             XCTAssertFalse(actions.frame.intersects(discard.frame))
+            assertFrames([pass.frame], match: [passFrame], labels: ["pass control"])
             assertHighlighted(Set(ids), in: state.hand, app: app)
             app.buttons["cancel-meld-preview"].tap()
         }
@@ -334,13 +378,11 @@ final class TableFlowTests: XCTestCase {
         let third = try XCTUnwrap(kongIDs.first { !pungIDs.contains($0) })
         let duplicate = app.buttons["tile-\(third)"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         duplicate.press(forDuration: 0.08, thenDragTo: duplicate.withOffset(CGVector(dx: 0, dy: -80)))
-        let choices = app.buttons["meld-options"]
-        XCTAssertTrue(choices.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["confirm-meld"].exists)
-        choices.tap()
+        XCTAssertTrue(app.buttons["meld-option-0"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["confirm-meld"].isEnabled)
         let labels = ["meld-option-0", "meld-option-1"].map { app.buttons[$0].firstMatch.label }
-        XCTAssertTrue(labels.contains { $0.hasPrefix("碰") })
-        XCTAssertTrue(labels.contains { $0.hasPrefix("明杠") })
+        XCTAssertTrue(labels.contains { $0.hasPrefix("碰") }, "Options: \(labels)")
+        XCTAssertTrue(labels.contains { $0.hasPrefix("明杠") }, "Options: \(labels)")
     }
 
     func testChoosingAnotherChowHighlightsExactlyItsTwoTiles() throws {
@@ -359,17 +401,50 @@ final class TableFlowTests: XCTestCase {
         }
         let app = try launchSavedMatch(fixture)
         assertHighlighted(Set(eligible), in: state.hand, app: app)
+        let pass = app.buttons["table-move-过"]
+        let passFrame = pass.frame
         app.buttons["table-move-吃"].tap()
-        let choices = app.buttons["meld-options"]
-        XCTAssertTrue(choices.waitForExistence(timeout: 5))
-        assertHighlighted(Set(options[0]), in: state.hand, app: app)
-        choices.tap()
+        XCTAssertTrue(app.buttons["meld-option-0"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["meld-option-1"].isHittable)
+        XCTAssertTrue(app.buttons["meld-option-2"].isHittable)
+        XCTAssertFalse(app.buttons["confirm-meld"].isEnabled)
+        assertFrames([pass.frame], match: [passFrame], labels: ["pass control"])
+        assertHighlighted(Set(options.flatMap { $0 }), in: state.hand, app: app)
         app.buttons["meld-option-2"].firstMatch.tap()
         assertHighlighted(Set(options[2]), in: state.hand, app: app)
         capture("selected-chow-tiles")
         app.buttons["confirm-meld"].tap()
         XCTAssertTrue(app.buttons["discard-action"].waitForExistence(timeout: 5))
         for id in options[2] { XCTAssertFalse(app.buttons["tile-\(id)"].exists) }
+        var claimed = fixture
+        XCTAssertTrue(claimed.apply(.meld(.chow, options[2]), by: .south))
+        let meld = try XCTUnwrap(claimed.table(for: .south).players[Seat.south.id].melds.last)
+        XCTAssertTrue(element("table-meld-\(meld.id)", in: app).exists)
+    }
+
+    func testClaimThenDiscardInBothOrientations() throws {
+        continueAfterFailure = false
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let fixture = try match(seed: 56, after: 47)
+        let chows = fixture.legalMoves(for: .south).filter { if case .meld(.chow, _) = $0 { true } else { false } }
+        var claimed = fixture
+        XCTAssertTrue(claimed.apply(try XCTUnwrap(chows.last), by: .south))
+        let table = claimed.table(for: .south)
+        let meld = try XCTUnwrap(table.players[Seat.south.id].melds.last)
+        let expectedDiscard = try XCTUnwrap(table.moves.compactMap { if case .discard(let id) = $0 { id } else { nil } }.first)
+        XCTAssertFalse(table.hand.contains { $0.id == expectedDiscard && table.isGold($0) })
+
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            let app = try launchSavedMatch(fixture)
+            app.buttons["table-move-吃"].tap()
+            app.buttons["meld-option-\(chows.count - 1)"].tap()
+            app.buttons["confirm-meld"].tap()
+            app.buttons["discard-action"].tap()
+            XCTAssertTrue(app.buttons["tile-\(expectedDiscard)"].waitForNonExistence(timeout: 5))
+            XCTAssertTrue(element("table-meld-\(meld.id)", in: app).exists)
+            app.terminate()
+        }
     }
 
     func testMarkedTilesPreviewAndSwipeToClaimAChow() throws {
@@ -403,8 +478,8 @@ final class TableFlowTests: XCTestCase {
             start.press(forDuration: 0.08, thenDragTo: start.withOffset(swipe))
 
             if startsWithSharedTile {
-                XCTAssertTrue(app.buttons["meld-options"].waitForExistence(timeout: 5))
-                XCTAssertFalse(confirm.exists)
+                XCTAssertTrue(app.buttons["meld-option-0"].waitForExistence(timeout: 5))
+                XCTAssertFalse(confirm.isEnabled)
                 assertHighlighted(Set(related.flatMap { $0 }), in: state.hand, app: app)
                 uniqueTile.tap()
                 XCTAssertTrue(confirm.waitForExistence(timeout: 5))
@@ -521,6 +596,9 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(element(outcome, in: app).exists)
             XCTAssertTrue(element(outcome, in: app).label.contains(fixture.label))
             XCTAssertFalse(app.buttons["next-hand"].exists)
+            let tableNext = app.buttons["table-next-hand"]
+            XCTAssertTrue(tableNext.isHittable)
+            XCTAssertTrue(element("table-score-delta", in: app).label.contains("\(result.delta(for: .south))"))
             if let winner = result.winner {
                 XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "revealed-winning-tile").count, 1)
                 XCTAssertTrue(element("winning-pair", in: app).exists)
@@ -551,9 +629,13 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(element(outcome, in: app).waitForExistence(timeout: 5))
             assertFrames([board.frame], match: [settledFrame])
 
-            if index == cases.count - 1 {
-                scorecard.tap()
-                app.buttons["next-hand"].tap()
+            if index == 0 || index == cases.count - 1 {
+                if index == 0 {
+                    scorecard.tap()
+                    app.buttons["next-hand"].tap()
+                } else {
+                    tableNext.tap()
+                }
                 let skip = app.buttons["skip-opening"]
                 XCTAssertTrue(skip.waitForExistence(timeout: 5))
                 XCTAssertFalse(returnButton.exists)

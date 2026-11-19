@@ -1,5 +1,6 @@
 import XCTest
 import FuzhouCore
+import Network
 @testable import FuzhouNearby
 
 final class NearbyLoopbackTests: XCTestCase {
@@ -198,13 +199,27 @@ final class NearbyLoopbackTests: XCTestCase {
             let actor = try XCTUnwrap(clients.first { $0.table?.moves.isEmpty == false })
             let moves = try XCTUnwrap(actor.table?.moves)
             let move = moves.contains(.win) ? Move.win : moves.contains(.pass) ? .pass : try XCTUnwrap(moves.last)
+            let waitsForAnotherPlayer = moves.contains(.pass) && clients.contains {
+                $0 !== actor && $0.table?.moves.contains(.pass) == true
+            }
             XCTAssertTrue(actor.submit(move))
+            if actor !== host { XCTAssertEqual(actor.moveStatus, .sending) }
+            XCTAssertFalse(actor.submit(move))
             try await until("host accepts a legal move") { host.update?.revision != revision }
+            if waitsForAnotherPlayer {
+                try await until("receipt arrives while other players can still respond") {
+                    actor.moveStatus == .waitingForResolution
+                }
+                XCTAssertFalse(actor.submit(move))
+            } else {
+                try await until("completed move unlocks the controls") { actor.moveStatus == nil }
+            }
         }
         let result = try XCTUnwrap(host.table?.result)
         try await until("the same final settlement reaches all four clients") {
             clients.allSatisfy { $0.table?.result == result }
         }
+        XCTAssertTrue(clients.allSatisfy { $0.moveStatus == nil })
         XCTAssertEqual(Seat.allCases.map(result.delta).reduce(0, +), 0)
         guests[0].nextHand()
         XCTAssertEqual(host.table?.result, result)
@@ -223,6 +238,73 @@ final class NearbyLoopbackTests: XCTestCase {
         try await until("the host ending the table dismisses the other guests") {
             guests.allSatisfy { !$0.isInRoom }
         }
+    }
+
+    @MainActor
+    func testTimedOutGuestWaitsForFreshTableBeforeSubmittingAgain() async throws {
+        let host = NearbySession(loopback: true)
+        let guest = NearbySession(loopback: true, moveReplyTimeout: .milliseconds(400))
+        let others = (0..<2).map { _ in NearbySession(loopback: true) }
+        let clients = [host, guest] + others
+        host.create(name: "Host")
+        try await until("host listens") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        let proxy = try MoveTimeoutProxy(target: room)
+        defer {
+            for guest in clients.dropFirst() { guest.setBackgrounded(true); guest.leave() }
+            host.leave()
+            proxy.stop()
+        }
+
+        try await until("proxy listens") { proxy.room != nil }
+        guest.join(try XCTUnwrap(proxy.room), name: "Guest")
+        try await until("proxied guest joins") { guest.connected }
+        for other in others {
+            other.join(room, name: "Other")
+            try await until("other guest joins") { other.connected }
+        }
+        host.startMatch()
+        try await until("all seats have a table") { clients.allSatisfy { $0.table != nil } }
+        clients.forEach { $0.finishOpening(1) }
+
+        // Pass opening and discard claims until the first guest draws.
+        for _ in 0..<10 {
+            let revision = try XCTUnwrap(host.update?.revision)
+            try await until("all seats see the latest revision") { clients.allSatisfy { $0.update?.revision == revision } }
+            if guest.table?.step == .turn, guest.table?.current == guest.table?.viewer { break }
+            let actor = try XCTUnwrap(clients.first { $0.table?.moves.isEmpty == false })
+            let moves = try XCTUnwrap(actor.table?.moves)
+            let move = moves.contains(.pass) ? Move.pass : try XCTUnwrap(moves.first { if case .discard = $0 { true } else { false } })
+            XCTAssertTrue(actor.submit(move))
+            try await until("host applies the move") { host.update?.revision != revision }
+        }
+        let turn = try XCTUnwrap(guest.table)
+        XCTAssertEqual(turn.step, .turn)
+        XCTAssertEqual(turn.current, turn.viewer)
+        let discards = turn.moves.compactMap { if case .discard(let id) = $0 { id } else { nil } }
+        let first = Move.discard(try XCTUnwrap(discards.first))
+        let alternative = Move.discard(try XCTUnwrap(discards.dropFirst().first))
+
+        proxy.block(.guestToHost)
+        XCTAssertTrue(guest.submit(first))
+        try await until("missing request triggers reconnect") { guest.recovery == .reconnecting }
+        XCTAssertEqual(guest.moveStatus, .sending)
+        XCTAssertFalse(guest.submit(alternative))
+        try await until("fresh table restores the same move") { guest.connected && guest.moveStatus == nil }
+        XCTAssertEqual(guest.table, turn)
+
+        proxy.block(.hostToGuest)
+        XCTAssertTrue(guest.submit(first))
+        try await until("host records the discard before the guest receives a reply") {
+            host.table?.latestDiscard?.id == discards.first
+        }
+        XCTAssertFalse(guest.submit(alternative))
+        try await until("missing receipt triggers reconnect") { guest.recovery == .reconnecting }
+        XCTAssertEqual(guest.moveStatus, .sending)
+        XCTAssertFalse(guest.submit(alternative))
+        try await until("fresh table shows the committed move") { guest.connected && guest.moveStatus == nil }
+        XCTAssertEqual(guest.table?.latestDiscard, host.table?.latestDiscard)
+        XCTAssertFalse(guest.submit(alternative))
     }
 
     @MainActor
@@ -264,4 +346,67 @@ final class NearbyLoopbackTests: XCTestCase {
     }
 
     private enum Failure: Error { case timeout(String) }
+}
+
+/// Drops one direction on the current link while allowing the replacement link to resync normally.
+@MainActor
+private final class MoveTimeoutProxy {
+    enum Direction { case guestToHost, hostToGuest }
+
+    private let listener: NWListener
+    private let target: DiscoveredRoom
+    private var links: [UUID: (guest: NearbyWire, host: NearbyWire)] = [:]
+    private var currentLink: UUID?
+    private var blocked: (id: UUID, direction: Direction)?
+
+    init(target: DiscoveredRoom) throws {
+        self.target = target
+        listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { [weak self] connection in
+            Task { @MainActor in self?.forward(connection) }
+        }
+        listener.start(queue: .main)
+    }
+
+    var room: DiscoveredRoom? {
+        guard let port = listener.port, port != .any else { return nil }
+        return DiscoveredRoom(id: target.id, name: target.name, endpoint: .hostPort(host: "127.0.0.1", port: port),
+                              publicKey: target.publicKey)
+    }
+
+    func block(_ direction: Direction) {
+        blocked = currentLink.map { ($0, direction) }
+    }
+
+    private func forward(_ connection: NWConnection) {
+        let guest = NearbyWire(connection)
+        let host = NearbyWire(NWConnection(to: target.endpoint, using: .tcp))
+        let id = guest.id
+        currentLink = id
+        links[id] = (guest, host)
+        guest.opened = { $0.accepted() }
+        host.opened = { $0.accepted() }
+        guest.received = { [weak self, weak host] _, frame in
+            if self?.isBlocked(id, direction: .guestToHost) == false { host?.send(frame) }
+        }
+        host.received = { [weak self, weak guest] _, frame in
+            if self?.isBlocked(id, direction: .hostToGuest) == false { guest?.send(frame) }
+        }
+        guest.ended = { [weak self, weak host] _ in
+            self?.links[id] = nil
+            host?.close()
+        }
+        host.ended = { [weak guest] _ in guest?.close() }
+        host.start()
+        guest.start()
+    }
+
+    private func isBlocked(_ id: UUID, direction: Direction) -> Bool {
+        blocked?.id == id && blocked?.direction == direction
+    }
+
+    func stop() {
+        listener.cancel()
+        for link in Array(links.values) { link.guest.close() }
+    }
 }

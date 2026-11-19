@@ -11,6 +11,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     let size: CGSize
     let showsDrawDock: Bool
     let flyingDiscard: Tile.ID?
+    let flyingClaim: Tile.ID?
+    let onOfferedTileFrame: (Tile.ID, CGRect) -> Void
     @ViewBuilder let controls: () -> Controls
     @ViewBuilder let drawDock: () -> DrawDock
 
@@ -79,26 +81,28 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private func wideTable(width: CGFloat, height: CGFloat) -> some View {
         let playersWidth = min(width * 0.56, width - gap - 272)
         let seatWidth = (playersWidth - gap) / 2
-        let seatHeight = max(0, (height - gap) / 2)
+        let seatHeight = max(0, (height - stripHeight - gap * 2) / 2)
         let centerWidth = max(0, width - playersWidth - gap)
 
         return HStack(spacing: gap) {
-            Grid(horizontalSpacing: gap, verticalSpacing: gap) {
-                GridRow {
-                    seatCard(table.viewer.advanced(1), width: seatWidth, height: seatHeight)
-                    seatCard(table.viewer.advanced(2), width: seatWidth, height: seatHeight)
+            VStack(spacing: gap) {
+                Grid(horizontalSpacing: gap, verticalSpacing: gap) {
+                    GridRow {
+                        seatCard(table.viewer.advanced(1), width: seatWidth, height: seatHeight)
+                        seatCard(table.viewer.advanced(2), width: seatWidth, height: seatHeight)
+                    }
+                    GridRow {
+                        seatCard(table.viewer, width: seatWidth, height: seatHeight)
+                        seatCard(table.viewer.advanced(3), width: seatWidth, height: seatHeight)
+                    }
                 }
-                GridRow {
-                    seatCard(table.viewer, width: seatWidth, height: seatHeight)
-                    seatCard(table.viewer.advanced(3), width: seatWidth, height: seatHeight)
-                }
+                tableStrip(width: playersWidth)
             }
             VStack(spacing: 0) {
                 GeometryReader { focus in
                     discardFocus(width: centerWidth, height: focus.size.height, stacked: false)
                 }
                 controls()
-                tableStrip(width: centerWidth).padding(.top, gap)
             }
             .frame(width: centerWidth, height: height)
         }
@@ -148,7 +152,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                             opponentRack(player)
                         }
                     }
-                    .anchorPreference(key: TableAnchors.self, value: .bounds) { [.player(seat): $0] }
+                    .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { $0[.player(seat)] = $1 }
             }
             .frame(width: width, height: height)
             .dynamicTypeSize(...DynamicTypeSize.xLarge)
@@ -193,11 +197,15 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 ForEach(melds) { meld in
                     HStack(spacing: 1) {
                         ForEach(meld.tiles) { tile in
-                            TileFace(kind: tile.kind).frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
+                            TileFace(kind: tile.kind)
+                                .frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
+                                .opacity(tile.id == flyingClaim ? 0 : 1)
+                                .anchorPreference(key: TableAnchors.self, value: .bounds) { [.meldTile(tile.id): $0] }
                         }
                     }
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(meld.kind.label)，\(meld.tiles.map { $0.kind.spokenName }.joined(separator: "、"))")
+                    .accessibilityIdentifier("table-meld-\(meld.id)")
                 }
             }
         }
@@ -271,7 +279,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     }
 
     private func discardFocus(width: CGFloat, height: CGFloat, stacked: Bool) -> some View {
-        let tileWidth = min(53, width * 0.35, height * (stacked ? 0.34 : 0.50))
+        let tileWidth = min(53, width * 0.35, height * (stacked ? 0.34 : 0.64))
         let labelWidth = stacked ? width - 8 : width * 0.55
         let layout = stacked ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
         return ZStack {
@@ -289,17 +297,25 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 let tileName = latest.tile.kind.spokenName
                 let detail = claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" } ?? (isGold ? "金牌" : nil)
                 let compact = !stacked && height < 54
+                let singleLine = !stacked && height < 38
                 let visibleTitle = if compact, let detail { "\(tileName) · \(detail)" } else { tileName }
                 layout {
                     TileFace(kind: latest.tile.kind, gold: isGold)
                         .frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
+                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                            if table.step == .claim, table.offeredTile?.id == latest.id {
+                                onOfferedTileFrame(latest.id, frame)
+                            }
+                        }
                         .anchorPreference(key: TableAnchors.self, value: .bounds) { [.latestDiscard: $0] }
                         .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
-                        .opacity(latest.tile.id == flyingDiscard ? 0 : 1)
+                        .opacity(latest.id == flyingDiscard || latest.id == flyingClaim ? 0 : claim == nil ? 1 : 0.55)
                         .accessibilityHidden(true)
                     VStack(alignment: stacked ? .center : .leading, spacing: compact ? 1 : 2) {
-                        Text(owner).font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass)
-                        Text(visibleTitle)
+                        if !singleLine {
+                            Text(owner).font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass)
+                        }
+                        Text(singleLine ? "\(owner) · \(visibleTitle)" : visibleTitle)
                             .font(.system(compact ? .caption : .subheadline, design: .serif, weight: .bold))
                         if !compact, let detail { Text(detail).font(.caption2).foregroundStyle(TeaTheme.muted) }
                     }

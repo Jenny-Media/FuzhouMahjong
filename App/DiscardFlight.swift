@@ -26,7 +26,9 @@ struct DiscardFlight: View {
         let id = UUID()
     }
 
-    let motion: Motion
+    let tile: Tile
+    let isGold: Bool
+    let id: UUID
     let source: CGRect
     let destination: CGRect
     let finished: () -> Void
@@ -40,14 +42,14 @@ struct DiscardFlight: View {
             let lift = sin(fraction * .pi)
             let width = source.width + (destination.width - source.width) * travel
             let height = source.height + (destination.height - source.height) * travel
-            TileFace(kind: motion.tile.kind, gold: motion.isGold)
+            TileFace(kind: tile.kind, gold: isGold)
                 .frame(width: width, height: height)
                 .rotationEffect(.degrees(lift * 9))
                 .shadow(color: .black.opacity(lift * 0.5), radius: lift * 6, y: lift * 4)
                 .position(x: source.midX + (destination.midX - source.midX) * travel,
                           y: source.midY + (destination.midY - source.midY) * travel - lift * 12)
         }
-        .task(id: motion.id) {
+        .task(id: id) {
             started = .now
             do { try await Task.sleep(for: .seconds(Self.duration)) }
             catch { return }

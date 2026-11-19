@@ -1,5 +1,9 @@
 import Observation
 
+public enum TableMoveStatus: Sendable {
+    case sending, waitingForResolution
+}
+
 @MainActor
 public protocol MatchSession: AnyObject, Observable {
     var table: TableState? { get }
@@ -10,6 +14,7 @@ public protocol MatchSession: AnyObject, Observable {
     var computerHasMove: Bool { get }
     var managesComputerTurns: Bool { get }
     var openingRound: Int? { get }
+    var moveStatus: TableMoveStatus? { get }
     var rackOrder: [Tile.ID]? { get set }
     func finishOpening(_ round: Int)
     func submit(_ move: Move) -> Bool
@@ -19,4 +24,5 @@ public protocol MatchSession: AnyObject, Observable {
 
 public extension MatchSession {
     var managesComputerTurns: Bool { false }
+    var moveStatus: TableMoveStatus? { nil }
 }

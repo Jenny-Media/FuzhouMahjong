@@ -8,6 +8,16 @@ public struct RoomPlayer: Equatable, Codable, Identifiable, Sendable {
 }
 
 public struct RoomUpdate: Equatable, Codable, Sendable {
+    public struct MoveReceipt: Equatable, Codable, Sendable {
+        public let id: UUID
+        public let accepted: Bool
+
+        public init(id: UUID, accepted: Bool) {
+            self.id = id
+            self.accepted = accepted
+        }
+    }
+
     public var viewer: Seat
     public var players: [RoomPlayer]
     public var revision: Int
@@ -15,6 +25,7 @@ public struct RoomUpdate: Equatable, Codable, Sendable {
     public var paused: Bool
     var matchRuleset: FuzhouRuleset? = nil
     public var houseRules: FuzhouHouseRules? = nil
+    public var moveReceipt: MoveReceipt? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? table?.ruleset ?? .legacy }
 }

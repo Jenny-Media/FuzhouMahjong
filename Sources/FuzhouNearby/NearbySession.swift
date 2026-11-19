@@ -23,6 +23,7 @@ public final class NearbySession: MatchSession {
     private let advertises: Bool
     private let recoveryTimeout: Duration
     private let inviteTimeout: Duration
+    private let moveReplyTimeout: Duration
 
     @ObservationIgnored private let hostingAllowed: @MainActor () -> Bool
 
@@ -31,14 +32,17 @@ public final class NearbySession: MatchSession {
         advertises = true
         recoveryTimeout = .seconds(15)
         inviteTimeout = .seconds(15)
+        moveReplyTimeout = .seconds(4)
     }
 
     init(loopback: Bool, recoveryTimeout: Duration = .seconds(15), inviteTimeout: Duration = .seconds(15),
+         moveReplyTimeout: Duration = .seconds(4),
          hostingAllowed: @escaping @MainActor () -> Bool = { true }) {
         self.hostingAllowed = hostingAllowed
         advertises = !loopback
         self.recoveryTimeout = recoveryTimeout
         self.inviteTimeout = inviteTimeout
+        self.moveReplyTimeout = moveReplyTimeout
     }
 
     var loopbackRoom: DiscoveredRoom? {
@@ -49,7 +53,7 @@ public final class NearbySession: MatchSession {
 
     private enum GuestMessage: Codable {
         case join(UUID, String)
-        case move(Move, Int)
+        case move(Move, Int, id: UUID?)
         case leave
     }
 
@@ -72,6 +76,29 @@ public final class NearbySession: MatchSession {
         var match: NearbyMatch
     }
 
+    private struct ResponseWindow: Equatable {
+        let round: Int
+        let step: TableState.Step
+        let current: Seat
+        let tile: Tile?
+
+        init?(_ table: TableState?) {
+            guard let table, table.step == .claim || table.step == .opening else { return nil }
+            round = table.roundNumber
+            step = table.step
+            current = table.current
+            tile = table.offeredTile
+        }
+    }
+
+    private struct Submission {
+        let id = UUID()
+        let move: Move
+        let revision: Int
+        let window: ResponseWindow?
+        var acknowledged = false
+    }
+
     private var browser: NWBrowser?
     private var listener: NWListener?
     private var host: HostedRoom?
@@ -89,6 +116,8 @@ public final class NearbySession: MatchSession {
     private var suspended = false
     private var didConnect = false
     private var leaving = false
+    private var submission: Submission?
+    private var submissionTimeout: Task<Void, Never>?
 
     public private(set) var rooms: [DiscoveredRoom] = []
     public private(set) var update: RoomUpdate?
@@ -101,6 +130,9 @@ public final class NearbySession: MatchSession {
     public var rackOrder: [Tile.ID]?
 
     public var table: TableState? { update?.table }
+    public var moveStatus: TableMoveStatus? {
+        submission.map { $0.acknowledged ? .waitingForResolution : .sending }
+    }
     public var players: [RoomPlayer] { update?.players ?? [] }
     public var paused: Bool { suspended || (host == nil && !connected) || update?.paused == true }
     public var canAdvance: Bool { host != nil }
@@ -225,13 +257,54 @@ public final class NearbySession: MatchSession {
     }
 
     public func submit(_ move: Move) -> Bool {
-        guard !paused, let update, table?.canSubmit(move) == true else { return false }
+        guard !paused, submission == nil, let update, update.table?.canSubmit(move) == true else { return false }
+        var submitted = Submission(move: move, revision: update.revision, window: ResponseWindow(update.table))
         if host != nil {
             guard host?.match.submit(move, seat: .east, basedOn: update.revision) == true else { return false }
+            if submitted.window != nil {
+                submitted.acknowledged = true
+                submission = submitted
+            }
             broadcast()
             return true
         }
-        return sendToHost(.move(move, update.revision))
+        guard let wireID = guest?.wire.id, sendToHost(.move(move, update.revision, id: submitted.id)) else { return false }
+        submission = submitted
+        let id = submitted.id
+        submissionTimeout = Task { [weak self, moveReplyTimeout] in
+            do { try await Task.sleep(for: moveReplyTimeout) } catch { return }
+            guard let self, submission?.id == id, submission?.acknowledged == false,
+                  connected, let wire = guest?.wire, wire.id == wireID else { return }
+            // Rejoining replaces the old link on the host before it sends a fresh table.
+            // Keep the submission so that snapshot can tell us whether the host recorded it.
+            wire.close()
+        }
+        return true
+    }
+
+    private func clearSubmission() {
+        submissionTimeout?.cancel()
+        submissionTimeout = nil
+        submission = nil
+    }
+
+    private func reconcileSubmission(with update: RoomUpdate) {
+        guard var submission else { return }
+        let receipt = update.moveReceipt.flatMap { $0.id == submission.id ? $0 : nil }
+        if receipt?.accepted == false { clearSubmission(); return }
+        if let window = submission.window {
+            guard ResponseWindow(update.table) == window else { clearSubmission(); return }
+            // Older hosts omit receipts. Their projection removes your move once it is recorded.
+            let recorded = update.revision > submission.revision && update.table?.canSubmit(submission.move) == false
+            if !submission.acknowledged, receipt?.accepted == true || recorded {
+                submission.acknowledged = true
+                self.submission = submission
+                submissionTimeout?.cancel()
+                submissionTimeout = nil
+            }
+        } else if receipt != nil || (update.revision > submission.revision && update.table?.canSubmit(submission.move) != true) {
+            clearSubmission()
+        }
     }
 
     public func advanceComputer() {
@@ -315,6 +388,7 @@ public final class NearbySession: MatchSession {
         host = nil
         target = nil
         update = nil
+        clearSubmission()
         openingRound = nil
         rackOrder = nil
         cancelInviteSearch()
@@ -447,11 +521,12 @@ public final class NearbySession: MatchSession {
                 links[wire.id]?.seat = seat
                 wire.accepted()
                 broadcast()
-            case let .move(move, basedOn):
+            case let .move(move, basedOn, id):
                 guard let seat = link.seat else { wire.close(); return }
                 if self.host?.match.submit(move, seat: seat, basedOn: basedOn) == true {
-                    broadcast()
-                } else if let update = self.host?.match.update(for: seat) {
+                    broadcast(receipt: id.map { RoomUpdate.MoveReceipt(id: $0, accepted: true) }, to: seat)
+                } else if var update = self.host?.match.update(for: seat) {
+                    update.moveReceipt = id.map { RoomUpdate.MoveReceipt(id: $0, accepted: false) }
                     sendToGuest(.update(update), wire: wire)
                 }
             case .leave:
@@ -473,12 +548,14 @@ public final class NearbySession: MatchSession {
         }
     }
 
-    private func broadcast() {
+    private func broadcast(receipt: RoomUpdate.MoveReceipt? = nil, to recipient: Seat? = nil) {
         guard let host else { return }
         publish(host.match.update(for: .east))
         for link in Array(links.values) {
             if let seat = link.seat {
-                sendToGuest(.update(host.match.update(for: seat)), wire: link.wire)
+                var update = host.match.update(for: seat)
+                if seat == recipient { update.moveReceipt = receipt }
+                sendToGuest(.update(update), wire: link.wire)
             }
         }
         scheduleComputerTurn()
@@ -621,6 +698,9 @@ public final class NearbySession: MatchSession {
     }
 
     private func publish(_ update: RoomUpdate, resuming: Bool = false) {
+        reconcileSubmission(with: update)
+        // Any unrecorded request from the replaced link can no longer reach the host.
+        if resuming, submission?.acknowledged == false { clearSubmission() }
         let previous = self.update?.table
         let startsHand = previous?.roundNumber != update.table?.roundNumber ||
             (previous?.result != nil && update.table?.result == nil)

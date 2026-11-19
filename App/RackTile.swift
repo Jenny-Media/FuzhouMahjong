@@ -14,6 +14,7 @@ struct RackTile: View {
     let discard: () -> Void
     var throwDiscard: ((CGRect, CGRect) -> Void)? = nil
     var meldAction: (label: String, perform: () -> Void)? = nil
+    var isRobGoldCandidate = false
     var swipeReady: (() -> Void)? = nil
     var reposition: ((CGPoint) -> Void)? = nil
     var moveEarlier: (() -> Void)? = nil
@@ -40,6 +41,7 @@ struct RackTile: View {
         let face = Self.faceSize(for: rackCellWidth)
         let tileLabel = isGold ? "\(tile.kind.spokenName)，金牌" : tile.kind.spokenName
         let isMeldCandidate = meldAction != nil
+        let isCandidate = isMeldCandidate || isRobGoldCandidate
         let offset = drag.offset
         let showsPreview = (isMeldCandidate || (throwDiscard != nil && canDiscard)) && !reduceMotion && offset != .zero
 
@@ -47,15 +49,15 @@ struct RackTile: View {
             TileFace(kind: tile.kind, gold: isGold, selected: isSelected || offset != .zero)
                 .frame(width: face.width, height: face.height)
                 .overlay {
-                    if isMeldCandidate {
+                    if isCandidate {
                         let shape = RoundedRectangle(cornerRadius: face.width * 0.13)
-                        shape.fill(TeaTheme.gain.opacity(0.46)).blendMode(.multiply)
-                            .overlay { shape.strokeBorder(TeaTheme.feltDark.opacity(0.68), lineWidth: 1.5) }
+                        shape.fill(TeaTheme.gain.opacity(isSelected ? 0 : 0.18)).blendMode(.multiply)
+                            .overlay { shape.strokeBorder(isSelected ? TeaTheme.brass : TeaTheme.gain, lineWidth: 2) }
                             .allowsHitTesting(false)
                     }
                 }
                 .offset(x: reduceMotion || showsPreview ? 0 : offset.width,
-                        y: reduceMotion ? 0 : (showsPreview ? 0 : offset.height) - (isSelected || isMeldCandidate ? 3 : 0))
+                        y: reduceMotion ? 0 : (showsPreview ? 0 : offset.height) - (isSelected || isCandidate ? 3 : 0))
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                     if throwDiscard != nil { faceFrame = frame }
                 }
@@ -74,8 +76,8 @@ struct RackTile: View {
         }
         .zIndex(offset != .zero ? 1 : 0)
         .accessibilityLabel(isDrawn ? "\(drawLabel)，\(tileLabel)" : tileLabel)
-        .accessibilityValue(isMeldCandidate ? "牌组候选" : "")
-        .accessibilityHint(isMeldCandidate ? "轻点查看牌组" : "")
+        .accessibilityValue(isRobGoldCandidate ? "可用于抢金" : isMeldCandidate ? "牌组候选" : "")
+        .accessibilityHint(isRobGoldCandidate ? "轻点选择要换出的牌" : isMeldCandidate ? "轻点查看牌组" : "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("tile-\(tile.id)")
         .accessibilityActions {
