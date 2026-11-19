@@ -110,31 +110,27 @@ struct RulesetPicker: View {
     @Environment(RulesetLibrary.self) private var library
     @State private var showsLibrary = false
 
+    private var pureSuitBonus: Binding<Bool> {
+        Binding(get: { selection == .pureSuit }, set: { selection = $0 ? .pureSuit : .oldThree })
+    }
+
     var body: some View {
         let custom = library.preset(for: selectedCustomID)
-        let choices = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.footnote.weight(.semibold)).foregroundStyle(TeaTheme.muted)
                 .accessibilityHidden(true)
-            choices {
-                ForEach(FuzhouRuleset.builtIn, id: \.self) { ruleset in
-                    let selected = custom == nil && selection == ruleset
-                    Button {
-                        selection = ruleset
-                        selectedCustomID = ""
-                    } label: {
-                        Text(ruleset.title).frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(TeaButtonStyle(prominent: selected, verticalPadding: 13))
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                }
+            if custom == nil {
+                Toggle("清一色加分", isOn: pureSuitBonus)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(minHeight: TeaTheme.hitTarget)
+                    .accessibilityIdentifier("pure-suit-bonus")
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(title)
-            .accessibilityIdentifier("ruleset-picker")
 
             Menu {
+                if custom != nil {
+                    Button("使用标准规则") { selectedCustomID = "" }
+                        .accessibilityIdentifier("use-standard-rules")
+                }
                 ForEach(library.presets) { preset in
                     Button {
                         selectedCustomID = preset.id.uuidString
@@ -286,12 +282,7 @@ private struct CustomRulesEditor: View {
                 TextField("规则名称", text: $rules.name)
                     .accessibilityIdentifier("custom-rules-name")
                 if !rules.name.isEmpty, let nameError { Text(nameError).font(.footnote).foregroundStyle(TeaTheme.loss) }
-                Menu("从内置玩法复制设置", systemImage: "square.on.square") {
-                    ForEach(FuzhouRuleset.builtIn, id: \.self) { preset in
-                        Button(preset.title) { applyTemplate(preset) }
-                    }
-                }
-                .accessibilityIdentifier("custom-rules-template")
+                Button("恢复默认规则设置", systemImage: "arrow.counterclockwise", action: restoreDefaults)
             }
             .listRowBackground(TeaTheme.surface)
 
@@ -393,8 +384,8 @@ private struct CustomRulesEditor: View {
         }
     }
 
-    private func applyTemplate(_ preset: FuzhouRuleset) {
-        let template = FuzhouHouseRules(name: "", flush: preset.defaultFlush)
+    private func restoreDefaults() {
+        let template = FuzhouHouseRules(name: "")
         rules.keepDealerOnDraw = template.keepDealerOnDraw
         rules.discardPayment = template.discardPayment
         rules.flush = template.flush

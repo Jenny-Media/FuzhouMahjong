@@ -5,7 +5,7 @@ extension FuzhouRuleset {
     var title: String {
         switch self {
         case .pureSuit: "清一色加分"
-        case .oldThree: "三样加分"
+        case .oldThree: "清一色不加分"
         case .legacy: "旧版存档规则"
         }
     }
