@@ -11,12 +11,14 @@ struct RackTile: View {
     var rackCellWidth: CGFloat? = nil
     let select: () -> Void
     let discard: () -> Void
+    var throwDiscard: ((CGRect, CGRect) -> Void)? = nil
     var reposition: ((CGPoint) -> Void)? = nil
     var moveEarlier: (() -> Void)? = nil
     var moveLater: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @GestureState private var offset: CGSize = .zero
+    @State private var faceFrame: CGRect?
 
     static func faceSize(for rackCellWidth: CGFloat?) -> CGSize {
         let faceWidth = max(0, (rackCellWidth ?? TeaTheme.hitTarget) - (rackCellWidth == nil ? 4 : 1.5))
@@ -28,12 +30,20 @@ struct RackTile: View {
         let cellWidth = rackCellWidth ?? TeaTheme.hitTarget
         let face = Self.faceSize(for: rackCellWidth)
         let tileLabel = isGold ? "\(tile.kind.spokenName)，金牌" : tile.kind.spokenName
+        let showsPreview = throwDiscard != nil && canDiscard && !reduceMotion && offset != .zero
 
         return Button(action: select) {
             TileFace(kind: tile.kind, gold: isGold, selected: isSelected || offset != .zero)
                 .frame(width: face.width, height: face.height)
-                .offset(x: reduceMotion ? 0 : offset.width,
-                        y: reduceMotion ? 0 : offset.height - (isSelected ? 3 : 0))
+                .offset(x: reduceMotion || showsPreview ? 0 : offset.width,
+                        y: reduceMotion ? 0 : (showsPreview ? 0 : offset.height) - (isSelected ? 3 : 0))
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                    if throwDiscard != nil { faceFrame = frame }
+                }
+                .anchorPreference(key: DiscardDragPreview.Key.self, value: .bounds) { anchor in
+                    showsPreview ? DiscardDragPreview(tile: tile, isGold: isGold, source: anchor, translation: offset) : nil
+                }
+                .opacity(showsPreview ? 0 : 1)
                 .frame(width: cellWidth, height: max(TeaTheme.hitTarget, face.height))
                 .contentShape(Rectangle())
         }
@@ -58,7 +68,7 @@ struct RackTile: View {
                     offset = drag.translation
                 } else {
                     let up = -drag.translation.height
-                    offset = up > abs(drag.translation.width) ? CGSize(width: 0, height: -min(65, up)) : .zero
+                    offset = up > abs(drag.translation.width) ? drag.translation : .zero
                 }
             }
             .onEnded { drag in
@@ -69,7 +79,12 @@ struct RackTile: View {
                 let up = -drag.translation.height
                 let projectedUp = -drag.predictedEndTranslation.height
                 guard canDiscard, up >= 22, up > abs(drag.translation.width) * 1.2 else { return }
-                if up >= 48 || projectedUp >= 77 { discard() }
+                guard up >= 48 || projectedUp >= 77 else { return }
+                if !reduceMotion, let frame = faceFrame, let throwDiscard {
+                    throwDiscard(frame, frame.offsetBy(dx: drag.translation.width, dy: drag.translation.height))
+                } else {
+                    discard()
+                }
             }
     }
 

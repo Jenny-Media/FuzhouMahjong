@@ -161,6 +161,9 @@ struct RulesetPicker: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .teaPanel(corner: TeaTheme.controlCorner)
+        .onAppear {
+            if selection == .legacy { selection = .pureSuit }
+        }
         .sheet(isPresented: $showsLibrary) {
             CustomRulesLibrary(template: selection) { selectedCustomID = $0.uuidString }
         }
@@ -170,17 +173,21 @@ struct RulesetPicker: View {
 struct RulesetDetailsButton: View {
     let ruleset: FuzhouRuleset
     let houseRules: FuzhouHouseRules?
+    var title = "规则详情"
+    var subtitle: String? = nil
+    var identifier = "selected-ruleset-details"
     @State private var showsDetails = false
 
     var body: some View {
+        let summary = subtitle ?? houseRules?.summary ?? ruleset.summary
         Button { showsDetails = true } label: {
             HStack(spacing: 8) {
-                Text(houseRules?.summary ?? ruleset.summary)
+                Text(summary)
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
                     .multilineTextAlignment(.leading)
                     .accessibilityIdentifier("ruleset-summary")
                 Spacer(minLength: 2)
-                Text("规则详情").font(.subheadline.weight(.semibold))
+                Text(title).font(.subheadline.weight(.semibold))
                     .foregroundStyle(TeaTheme.brass)
                     .fixedSize(horizontal: true, vertical: false)
                 Image(systemName: "chevron.right")
@@ -191,12 +198,12 @@ struct RulesetDetailsButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("规则详情，\(houseRules?.name ?? ruleset.title)")
-        .accessibilityHint(houseRules?.summary ?? ruleset.summary)
-        .accessibilityIdentifier("selected-ruleset-details")
+        .accessibilityLabel("\(title)，\(ruleset.displayTitle(houseRules: houseRules))")
+        .accessibilityHint(summary)
+        .accessibilityIdentifier(identifier)
         .sheet(isPresented: $showsDetails) {
             NavigationStack {
-                RuleGuide(startingAt: .scoring, showsCloseButton: true, ruleset: ruleset, houseRules: houseRules)
+                RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules, showsCloseButton: true)
             }
         }
     }
@@ -334,9 +341,9 @@ private struct CustomRulesEditor: View {
 
             Section {
                 NavigationLink {
-                    RuleGuide(startingAt: .scoring, houseRules: rules)
+                    RulesetDetailsPage(ruleset: .pureSuit, houseRules: rules)
                 } label: {
-                    Label("计分与概率", systemImage: "chart.bar.xaxis")
+                    Label("预览规则与概率", systemImage: "chart.bar.xaxis")
                 }
                 .accessibilityIdentifier("custom-rules-reference")
             }

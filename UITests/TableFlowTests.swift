@@ -48,9 +48,9 @@ final class TableFlowTests: XCTestCase {
         let reference = app.buttons["custom-rules-reference"]
         for _ in 0..<3 where !reference.isHittable { app.swipeUp() }
         reference.tap()
-        let title = app.staticTexts["rule-lesson-title"]
+        let title = app.staticTexts["ruleset-details-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        XCTAssertEqual(title.label, "计分与概率")
+        XCTAssertEqual(title.label, "自定义规则预览")
         let method = app.staticTexts["rule-odds-method"]
         for _ in 0..<3 where !method.isHittable { app.swipeUp() }
         XCTAssertTrue(method.label.contains("17 张随机牌"))
@@ -122,6 +122,9 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(oldThree.waitForExistence(timeout: 5))
         oldThree.tap()
         app.buttons["selected-ruleset-details"].tap()
+        let title = app.staticTexts["ruleset-details-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "三样加分")
         let details = app.staticTexts["ruleset-pattern-detail"]
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(details.label.contains("清一色按普通胡牌计分"))
@@ -139,6 +142,8 @@ final class TableFlowTests: XCTestCase {
 
         app.buttons["清一色加分"].tap()
         app.buttons["selected-ruleset-details"].tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "清一色加分")
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(details.label.contains("清一色有特殊加分"))
         app.buttons["完成"].tap()
@@ -147,6 +152,132 @@ final class TableFlowTests: XCTestCase {
         app.buttons["table-rules"].tap()
         XCTAssertTrue(activeRules.waitForExistence(timeout: 5))
         XCTAssertTrue(activeRules.label.contains("三样加分"))
+        app.buttons["rule-contents"].tap()
+        app.buttons["tutorial-ruleset-details"].tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "三样加分")
+    }
+
+    func testLegacySaveIsClearedAndNewTableRulesAreAvailable() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = try savedMatchArguments(FuzhouMatch(ruleset: .legacy)) +
+            ["-solo.ruleset", "pureSuit", "-solo.customRulesetID", ""]
+        app.launch()
+
+        let notice = app.alerts["旧版单机牌局已清除"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        notice.buttons["好"].tap()
+        let practice = app.buttons["practice-entry"]
+        XCTAssertTrue(practice.waitForExistence(timeout: 5))
+        XCTAssertTrue(practice.label.contains("开始新牌局"))
+        XCTAssertFalse(app.buttons["saved-solo-rules"].exists)
+        let newDetails = app.buttons["selected-ruleset-details"]
+        newDetails.tap()
+        let title = app.staticTexts["ruleset-details-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "清一色加分")
+    }
+
+    func testTwoSavedTablesRemainUntilThePlayerConfirmsWhichToKeep() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        let first = FuzhouMatch(ruleset: .oldThree)
+        let second = FuzhouMatch(houseRules: .init(name: "Family", goldIndicators: .includeWinds))
+        let secondSave = try JSONEncoder().encode(second).map { String(format: "%02x", $0) }.joined()
+        app.launchArguments = try savedMatchArguments(first) + ["-solo-match.second.v1", "<\(secondSave)>"]
+        app.launch()
+
+        let keepFirst = app.buttons["keep-first-solo"]
+        let keepSecond = app.buttons["keep-second-solo"]
+        XCTAssertTrue(keepFirst.waitForExistence(timeout: 5))
+        XCTAssertTrue(keepFirst.label.contains("三样加分"))
+        XCTAssertTrue(keepSecond.label.contains("Family"))
+        XCTAssertFalse(app.buttons["practice-entry"].exists)
+        keepFirst.tap()
+        let prompt = app.alerts["保留这张牌桌？"]
+        let confirm = prompt.buttons["confirm-save-choice"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        prompt.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(prompt.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(keepFirst.exists && keepSecond.exists)
+        keepSecond.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+
+        let resume = app.buttons["practice-entry"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        XCTAssertTrue(resume.label.contains("Family"))
+        XCTAssertTrue(app.buttons["new-solo-game"].exists)
+        XCTAssertFalse(keepFirst.exists || keepSecond.exists)
+    }
+
+    func testThrowKeepsRackInPlaceAndConfirmsGoldBeforeDiscarding() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 1, after: 1)
+        let state = fixture.table(for: .south)
+        let drawn = try XCTUnwrap(state.drawn)
+        let heldGold = try XCTUnwrap(state.hand.dropFirst(8).first(where: state.isGold))
+        let app = try launchSavedMatch(fixture)
+        let table = element("table-surface", in: app)
+        let rack = element("table-rack", in: app)
+        let actions = element("table-actions", in: app)
+        let dock = element("drawn-tile-dock", in: app)
+        let discard = app.buttons["discard-action"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        let frames = [table.frame, rack.frame]
+        XCTAssertTrue(table.frame.contains(actions.frame))
+        XCTAssertTrue(table.frame.contains(dock.frame))
+        capture("turn-actions-and-drawn-dock")
+
+        let drawnTile = app.buttons["tile-\(drawn.id)"]
+        let drawnCenter = drawnTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(CGVector(dx: 0, dy: -16)))
+        XCTAssertTrue(drawnTile.exists)
+        XCTAssertTrue(discard.isHittable)
+
+        let goldTile = app.buttons["tile-\(heldGold.id)"]
+        let goldCenter = goldTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        goldCenter.press(forDuration: 0.1, thenDragTo: goldCenter.withOffset(CGVector(dx: 0, dy: -142)))
+        let confirm = app.alerts.buttons["confirm-gold-discard"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(goldTile.exists)
+
+        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(CGVector(dx: 18, dy: -142)),
+                          withVelocity: .slow, thenHoldForDuration: 0.15)
+        XCTAssertTrue(drawnTile.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(element("latest-discard", in: app).label.contains("你打出"))
+        assertFrames([table.frame, rack.frame], match: frames, labels: ["board", "rack"])
+    }
+
+    func testMultipleClaimActionsLeaveTheDiscardVisibleInBothOrientations() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = try launchSavedMatch(match(seed: 193, after: 1))
+        let table = element("table-surface", in: app)
+        let actions = element("table-actions", in: app)
+        let discard = element("latest-discard", in: app)
+        let pass = app.buttons["table-move-过"]
+        XCTAssertTrue(pass.waitForExistence(timeout: 5))
+
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            let landscape = orientation == .landscapeLeft
+            let resized = NSPredicate { _, _ in (app.frame.width > app.frame.height) == landscape }
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: resized, evaluatedWith: app)], timeout: 5), .completed)
+            for label in ["吃", "碰", "杠", "过"] {
+                XCTAssertTrue(app.buttons["table-move-\(label)"].isHittable, label)
+            }
+            XCTAssertTrue(table.frame.contains(actions.frame))
+            XCTAssertTrue(discard.exists)
+            XCTAssertFalse(actions.frame.intersects(discard.frame))
+            capture(landscape ? "multiple-claims-landscape" : "multiple-claims-portrait")
+        }
     }
 
     func testOpeningAndSkippingKeepTheBoardAndRackInPlace() throws {
@@ -165,7 +296,7 @@ final class TableFlowTests: XCTestCase {
             let rack = element("table-rack", in: app)
             let actions = element("table-actions", in: app)
             let openingFrames = [table.frame, rack.frame]
-            let openingActions = actions.frame
+            XCTAssertFalse(actions.exists)
             XCTAssertTrue(openingFrames.allSatisfy { $0.width > 0 && $0.height > 0 })
             capture("opening-\(orientation.rawValue)")
 
@@ -173,10 +304,7 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(skip.waitForNonExistence(timeout: 3))
             capture("settled-\(orientation.rawValue)")
             assertFrames([table.frame, rack.frame], match: openingFrames, labels: ["board", "rack"])
-            // Claim controls can add buttons to the left of the primary action.
-            XCTAssertEqual(actions.frame.maxX, openingActions.maxX, accuracy: 1)
-            XCTAssertEqual(actions.frame.minY, openingActions.minY, accuracy: 1)
-            XCTAssertEqual(actions.frame.height, openingActions.height, accuracy: 1)
+            if actions.exists { XCTAssertTrue(table.frame.contains(actions.frame)) }
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
                 .firstMatch.waitForExistence(timeout: 3))
             app.terminate()
@@ -206,10 +334,10 @@ final class TableFlowTests: XCTestCase {
         continueAfterFailure = false
         defer { XCUIDevice.shared.orientation = .portrait }
         let cases: [(seed: UInt64, moves: Int, kind: WinKind?, winner: Seat?, label: String)] = [
-            (8, 26, .discard, .south, "胡"),     // Player claims a discard after two melds.
-            (5, 49, .selfDraw, .west, "自摸"),  // AI wins from its draw after two melds.
-            (90013, 0, .robGold, .south, "抢金"),
-            (0, 40, nil, nil, "流局"),
+            (35, 41, .discard, .south, "胡"),     // Player claims a discard after two melds.
+            (14, 29, .selfDraw, .west, "自摸"),   // AI wins from its draw after two melds.
+            (31213, 0, .robGold, .south, "抢金"),
+            (0, 36, nil, nil, "流局"),
         ]
 
         for (index, fixture) in cases.enumerated() {
@@ -224,6 +352,15 @@ final class TableFlowTests: XCTestCase {
             XCTAssertFalse(app.buttons["skip-opening"].exists)
 
             if before.result == nil, fixture.winner == .south {
+                let board = element("table-surface", in: app)
+                let actions = element("table-actions", in: app)
+                XCTAssertTrue(actions.waitForExistence(timeout: 5))
+                XCTAssertTrue(board.frame.contains(actions.frame))
+                if fixture.kind == .discard {
+                    XCTAssertTrue(element("latest-discard", in: app).exists)
+                    XCTAssertFalse(actions.frame.intersects(element("latest-discard", in: app).frame))
+                    capture("claim-actions")
+                }
                 app.buttons["declare-win"].tap()
             }
 
@@ -304,11 +441,15 @@ final class TableFlowTests: XCTestCase {
         add(attachment)
     }
 
-    private func launchSavedMatch(_ match: FuzhouMatch) throws -> XCUIApplication {
+    private func savedMatchArguments(_ match: FuzhouMatch) throws -> [String] {
         let save = try JSONEncoder().encode(match).map { String(format: "%02x", $0) }.joined()
-        let app = XCUIApplication()
         // Foundation reads OpenStep data literals in the launch argument domain.
-        app.launchArguments = ["-play-access.archive.v1", "", "-solo-match.v2", "<\(save)>"]
+        return ["-play-access.archive.v1", "", "-solo-match.v2", "<\(save)>"]
+    }
+
+    private func launchSavedMatch(_ match: FuzhouMatch) throws -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = try savedMatchArguments(match)
         app.launch()
         let practice = app.buttons["practice-entry"]
         XCTAssertTrue(practice.waitForExistence(timeout: 5))
@@ -319,7 +460,7 @@ final class TableFlowTests: XCTestCase {
 
     private func match(seed: UInt64, after moves: Int) throws -> FuzhouMatch {
         var random = FixtureRandom(seed: seed)
-        var match = FuzhouMatch(using: &random, ruleset: .legacy)
+        var match = FuzhouMatch(using: &random, ruleset: .pureSuit)
         for _ in 0..<moves { try playFixtureMove(in: &match) }
         return match
     }

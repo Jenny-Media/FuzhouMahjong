@@ -20,6 +20,11 @@ public struct LicenseState: Codable, Equatable, Sendable {
     }
 }
 
+public enum SoloSaveSlot: String, CaseIterable, Sendable {
+    case first = "solo-match.v2"
+    case second = "solo-match.second.v1"
+}
+
 public struct SoloSave: Codable, Equatable, Sendable {
     public var match: Data
     public var rackOrder: [Int]?

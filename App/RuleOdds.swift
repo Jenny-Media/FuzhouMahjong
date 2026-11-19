@@ -27,7 +27,38 @@ extension FuzhouHouseRules.Flush {
     }
 }
 
-struct RuleReference: View {
+struct RulesetDetailsPage: View {
+    let ruleset: FuzhouRuleset
+    let houseRules: FuzhouHouseRules?
+    var showsCloseButton = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(ruleset.displayTitle(houseRules: houseRules))
+                    .font(TeaTheme.display)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("ruleset-details-title")
+                RuleReference(ruleset: ruleset, houseRules: houseRules)
+            }
+            .padding(TeaTheme.gutter)
+            .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .teaBackdrop()
+        .navigationTitle("规则详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if showsCloseButton {
+                ToolbarItem(placement: .topBarLeading) { Button("完成") { dismiss() } }
+            }
+        }
+        .modifier(HingeSafeContent())
+    }
+}
+
+private struct RuleReference: View {
     let ruleset: FuzhouRuleset
     let houseRules: FuzhouHouseRules?
 
@@ -37,8 +68,7 @@ struct RuleReference: View {
 
     var body: some View {
         if ruleset == .legacy {
-            Text("原版规则的每项得分会列在「本局结算」里。")
-                .padding(16).teaPanel()
+            legacyCard
         } else {
             VStack(alignment: .leading, spacing: 14) {
                 overviewCard
@@ -49,16 +79,41 @@ struct RuleReference: View {
         }
     }
 
+    private var legacyCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("这张牌桌沿用开局时的规则。")
+            Divider()
+            Text("金牌").font(.headline).foregroundStyle(TeaTheme.brass)
+                .accessibilityAddTraits(.isHeader)
+            Text("万、筒、条和东南西北、中发白都能翻成金。翻到梅兰竹菊或春夏秋冬中的一张时，这八张花牌都算金。")
+                .accessibilityIdentifier("ruleset-gold-detail")
+            Text("摸到作金的字牌或花牌，可以留作金，也可以补花。")
+            Divider()
+            Text("胡牌与计分").font(.headline).foregroundStyle(TeaTheme.brass)
+                .accessibilityAddTraits(.isHeader)
+            Text("金对用两张金作将，金龙用三张金作刻子。三金倒仍须凑齐胡牌牌型。清一色按普通胡牌计分。")
+                .accessibilityIdentifier("ruleset-pattern-detail")
+            Text("自摸或抢金由其余三家付分，接炮胡由放炮的人付分。每项得分可在「本局结算」查看。")
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .teaPanel()
+    }
+
     private var overviewCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("规则一览").font(.headline).foregroundStyle(TeaTheme.brass)
                 .accessibilityAddTraits(.isHeader)
-            Text(goldIndicators.explanation).accessibilityIdentifier("ruleset-gold-detail")
-            Text(houseRules?.keepDealerOnDraw == true ? "庄家胡牌或流局，下一局都由庄家继续坐庄。" : "庄家胡牌继续坐庄，流局时由庄家的下家坐庄。")
-            Text("接炮胡时\((houseRules?.discardPayment ?? .discarder).title)。")
             Text(flush == .disabled ? "抢金、三金倒和金雀有特殊加分。清一色按普通胡牌计分。"
                  : "抢金、三金倒、金雀和清一色有特殊加分。")
                 .accessibilityIdentifier("ruleset-pattern-detail")
+            if flush != .disabled {
+                Text(flush == .wildcard ? "算清一色时，金牌可以代牌。" : "算清一色时，金牌按牌面计算。")
+            }
+            Text(goldIndicators.explanation).accessibilityIdentifier("ruleset-gold-detail")
+            Text(houseRules?.keepDealerOnDraw == true ? "庄家胡牌或流局，下一局都由庄家继续坐庄。" : "庄家胡牌继续坐庄，流局时由庄家的下家坐庄。")
+            Text("接炮胡时\((houseRules?.discardPayment ?? .discarder).title)。")
             Text(houseRules?.stackBonuses == true ? "一手牌符合多项特殊加分时，各项相加。" : "一手牌符合多项特殊加分时，只取最高的一项。")
         }
         .font(.subheadline)
@@ -76,11 +131,11 @@ struct RuleReference: View {
                 .font(.footnote).foregroundStyle(TeaTheme.muted)
                 .accessibilityIdentifier("rule-odds-method")
             ForEach([WinPattern.robGold, .threeGold, .goldenPair, .pureSuit]) { pattern in
-                let chance = odds.probability(of: pattern)
-                Divider()
-                rateRow(pattern.title, detail: patternDetail(pattern), value: chance.map(RuleOdds.rate) ?? "不加分",
-                        bonus: chance.map { _ in pattern.bonus })
-                    .accessibilityIdentifier("rule-odds-\(pattern.rawValue)")
+                if let chance = odds.probability(of: pattern) {
+                    Divider()
+                    rateRow(pattern.title, detail: patternDetail(pattern), value: RuleOdds.rate(chance), bonus: pattern.bonus)
+                        .accessibilityIdentifier("rule-odds-\(pattern.rawValue)")
+                }
             }
             if flush != .disabled {
                 VStack(alignment: .leading, spacing: 4) {

@@ -81,10 +81,10 @@ final class MatchTests: XCTestCase {
             + [1, 2, 4, 5, 7].map { TileKind(.circles, $0) }
             + [1, 2, 4].map { TileKind(.bamboo, $0) }
         let east = TileKind(.wind, 1)
-        let green = TileKind(.dragon, 2)
+        let white = TileKind(.dragon, 3)
         let season = TileKind(.season, 3)
-        for (option, gold, other) in [(FuzhouHouseRules.GoldIndicators.includeWinds, east, green),
-                                       (.includeDragons, green, east), (.includeHonors, east, green)] {
+        for (option, gold, other) in [(FuzhouHouseRules.GoldIndicators.includeWinds, east, white),
+                                       (.includeDragons, white, east), (.includeHonors, east, white)] {
             let rules = FuzhouHouseRules(name: "家庭", goldIndicators: option)
             let tail = option == .includeHonors ? [season] : [other, season]
             var match = try fixture(hands: [.east: loose + [gold, gold, other]], gold: gold, draws: [gold],

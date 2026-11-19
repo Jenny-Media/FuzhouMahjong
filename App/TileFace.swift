@@ -119,6 +119,7 @@ extension TileKind {
         case .characters: rankText + "万"
         case .circles: rankText + "筒"
         case .bamboo: rankText + "条"
+        case .dragon where rank == 3: "白板"
         default: faceText
         }
     }

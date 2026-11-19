@@ -1,7 +1,7 @@
 import FuzhouCore
 import SwiftUI
 
-struct LiveTable: View {
+struct LiveTable<Controls: View, DrawDock: View>: View {
     let table: TableState
     let names: [Seat: String]
     let latest: TableDiscard?
@@ -9,6 +9,10 @@ struct LiveTable: View {
     let drawingFromReserve: Bool?
     let paused: Bool
     let size: CGSize
+    let showsDrawDock: Bool
+    let flyingDiscard: Tile.ID?
+    @ViewBuilder let controls: () -> Controls
+    @ViewBuilder let drawDock: () -> DrawDock
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -20,7 +24,7 @@ struct LiveTable: View {
         let width = max(0, size.width - inset * 2)
         let height = max(0, size.height - inset * 2)
         Group {
-            if width >= 455, width > height {
+            if !showsDrawDock, width >= 455, width > height {
                 wideTable(width: width, height: height)
             } else {
                 seatedTable(width: width, height: height)
@@ -28,7 +32,6 @@ struct LiveTable: View {
         }
         .frame(width: width, height: height)
         .frame(width: size.width, height: size.height)
-        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .foregroundStyle(TeaTheme.feltInk)
         .modifier(Felt(walnutRail: true))
         .accessibilityElement(children: .contain)
@@ -38,25 +41,43 @@ struct LiveTable: View {
     private func seatedTable(width: CGFloat, height: CGFloat) -> some View {
         let endWidth = min(280, width * 0.77)
         let endHeight = min(54, max(38, height * 0.16))
+        let playerEndHeight = showsDrawDock ? max(72, endHeight) : endHeight
         let sideWidth = min(108, width * 0.25)
         let middleWidth = max(0, width - 2 * (sideWidth + gap))
-        let middleHeight = max(0, height - endHeight * 2 - stripHeight - gap * 3)
-        let sideHeight = min(middleHeight, 118)
+        let middleHeight = max(0, height - endHeight - playerEndHeight - stripHeight - gap * 3)
 
         return VStack(spacing: gap) {
             seatCard(table.viewer.advanced(2), width: endWidth, height: endHeight)
-            HStack(spacing: gap) {
-                seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
-                discardFocus(width: middleWidth, height: middleHeight, stacked: true)
-                seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
+            VStack(spacing: 0) {
+                GeometryReader { focus in
+                    let sideHeight = min(focus.size.height, 118)
+                    HStack(spacing: gap) {
+                        seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
+                        discardFocus(width: middleWidth, height: focus.size.height, stacked: true)
+                        seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
+                    }
+                }
+                controls()
             }
+            .frame(width: width, height: middleHeight)
             tableStrip(width: width)
-            seatCard(table.viewer, width: endWidth, height: endHeight)
+            if showsDrawDock {
+                let dockWidth = TeaTheme.hitTarget
+                let seatWidth = max(0, min(endWidth, width - 2 * (dockWidth + gap)))
+                HStack(spacing: gap) {
+                    drawDock().frame(width: dockWidth, height: playerEndHeight)
+                    seatCard(table.viewer, width: seatWidth, height: endHeight)
+                    Color.clear.frame(width: dockWidth, height: 1).accessibilityHidden(true)
+                }
+                .frame(height: playerEndHeight)
+            } else {
+                seatCard(table.viewer, width: endWidth, height: endHeight)
+            }
         }
     }
 
     private func wideTable(width: CGFloat, height: CGFloat) -> some View {
-        let playersWidth = width * 0.56
+        let playersWidth = min(width * 0.56, width - gap - 250)
         let seatWidth = (playersWidth - gap) / 2
         let seatHeight = max(0, (height - gap) / 2)
         let centerWidth = max(0, width - playersWidth - gap)
@@ -72,10 +93,14 @@ struct LiveTable: View {
                     seatCard(table.viewer.advanced(3), width: seatWidth, height: seatHeight)
                 }
             }
-            VStack(spacing: gap) {
-                discardFocus(width: centerWidth, height: max(0, height - stripHeight - gap), stacked: false)
-                tableStrip(width: centerWidth)
+            VStack(spacing: 0) {
+                GeometryReader { focus in
+                    discardFocus(width: centerWidth, height: focus.size.height, stacked: false)
+                }
+                controls()
+                tableStrip(width: centerWidth).padding(.top, gap)
             }
+            .frame(width: centerWidth, height: height)
         }
     }
 
@@ -126,6 +151,7 @@ struct LiveTable: View {
                     .anchorPreference(key: TableAnchors.self, value: .bounds) { [.player(seat): $0] }
             }
             .frame(width: width, height: height)
+            .dynamicTypeSize(...DynamicTypeSize.xLarge)
             .background(TeaTheme.feltDark.opacity(highlighted ? 0.94 : 0.72), in: shape)
             .overlay {
                 shape.strokeBorder(highlighted ? TeaTheme.brass : TeaTheme.brassShade.opacity(0.35),
@@ -253,23 +279,31 @@ struct LiveTable: View {
                     .accessibilityIdentifier("drawn-hand")
             } else if let latest {
                 let claim = claimedBy(latest)
+                let isGold = table.isGold(latest.tile)
+                let owner = "\(name(of: latest.seat))打出"
+                let tileName = latest.tile.kind.spokenName
+                let detail = claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" } ?? (isGold ? "金牌" : nil)
+                let compact = !stacked && height < 54
+                let visibleTitle = if compact, let detail { "\(tileName) · \(detail)" } else { tileName }
                 layout {
-                    TileFace(kind: latest.tile.kind, gold: table.isGold(latest.tile))
+                    TileFace(kind: latest.tile.kind, gold: isGold)
                         .frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
+                        .anchorPreference(key: TableAnchors.self, value: .bounds) { [.latestDiscard: $0] }
                         .shadow(color: .black.opacity(0.42), radius: 4, y: 3)
+                        .opacity(latest.tile.id == flyingDiscard ? 0 : 1)
                         .accessibilityHidden(true)
-                    VStack(alignment: stacked ? .center : .leading, spacing: 2) {
-                        Text("\(name(of: latest.seat))打出").font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass)
-                        Text(latest.tile.kind.spokenName).font(.system(.subheadline, design: .serif, weight: .bold))
-                        Text(claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" } ?? (table.isGold(latest.tile) ? "金牌" : " "))
-                            .font(.caption2).foregroundStyle(TeaTheme.muted)
-                            .accessibilityHidden(claim == nil && !table.isGold(latest.tile))
+                    VStack(alignment: stacked ? .center : .leading, spacing: compact ? 1 : 2) {
+                        Text(owner).font(.caption2.weight(.semibold)).foregroundStyle(TeaTheme.brass)
+                        Text(visibleTitle)
+                            .font(.system(compact ? .caption : .subheadline, design: .serif, weight: .bold))
+                        if !compact, let detail { Text(detail).font(.caption2).foregroundStyle(TeaTheme.muted) }
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(width: max(0, labelWidth), alignment: stacked ? .center : .leading)
                 }
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel([owner, tileName, detail].compactMap { $0 }.joined(separator: "，"))
                 .accessibilityIdentifier("latest-discard")
                 .id(latest.id)
                 .transition(.opacity)
@@ -280,7 +314,8 @@ struct LiveTable: View {
         }
         .padding(.horizontal, 4)
         .frame(width: width, height: height)
-        .anchorPreference(key: TableAnchors.self, value: .bounds) { [.center: $0] }
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+        .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { $0[.center] = $1 }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: latest?.id)
     }
 

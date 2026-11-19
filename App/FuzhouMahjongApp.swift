@@ -11,7 +11,18 @@ struct FuzhouMahjongApp: App {
 }
 
 private struct HomeView: View {
-    private enum Route: Hashable { case solo, secondSolo, nearby, rules }
+    private enum Route: Hashable { case solo, nearby, rules }
+    private enum SoloPrompt {
+        case legacyRemoved, restart, retain(SoloSaveSlot)
+
+        var title: String {
+            switch self {
+            case .legacyRemoved: "旧版单机牌局已清除"
+            case .restart: "开始新的单机牌局？"
+            case .retain: "保留这张牌桌？"
+            }
+        }
+    }
 
     @Environment(\.scenePhase) private var phase
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -21,7 +32,6 @@ private struct HomeView: View {
     @AppStorage("solo.customRulesetID") private var customRulesetID = ""
     @State private var access: GameAccess
     @State private var session: SoloMatch
-    @State private var secondSession: SoloMatch
     @State private var nearby: NearbySession
     @State private var rulesetLibrary = RulesetLibrary()
     @State private var path: [Route] = []
@@ -30,13 +40,15 @@ private struct HomeView: View {
         var id: String { switch self { case .settings: "settings"; case .purchase(let reason): reason.id } }
     }
     @State private var sheet: HomeSheet?
-    @State private var confirmsRestart = false
+    @State private var soloPrompt: SoloPrompt?
+    @State private var saveChoiceFailed = false
 
     init() {
         let access = GameAccess()
+        let session = SoloMatch(access: access)
         _access = State(initialValue: access)
-        _session = State(initialValue: SoloMatch(access: access))
-        _secondSession = State(initialValue: SoloMatch(access: access, storageKey: "solo-match.second.v1"))
+        _session = State(initialValue: session)
+        _soloPrompt = State(initialValue: session.removedLegacySave ? .legacyRemoved : nil)
         _nearby = State(initialValue: NearbySession(hostingAllowed: { access.authorizeHosting() }))
     }
 
@@ -50,20 +62,7 @@ private struct HomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        if session.canResume {
-                            Button("另开一张单机牌桌", systemImage: "plus.circle") {
-                                access.refreshClock()
-                                if !access.canBeginSoloHand { sheet = .purchase(.solo) }
-                                else if secondSession.canResume { confirmsRestart = true }
-                                else { openNewSoloGame() }
-                            }
-                            .accessibilityIdentifier("new-solo-game")
-                        }
-                        if secondSession.canResume {
-                            Button("继续第二张单机牌桌", systemImage: "arrow.counterclockwise") { path.append(.secondSolo) }
-                                .accessibilityIdentifier("resume-second-solo-game")
-                        }
-                        Button("玩法", systemImage: "book") { path.append(.rules) }
+                        Button("玩法教程", systemImage: "book") { path.append(.rules) }
                             .accessibilityIdentifier("rules-entry")
                         Button("设置", systemImage: "gearshape") { sheet = .settings }
                     } label: {
@@ -78,16 +77,37 @@ private struct HomeView: View {
                 case .purchase(let reason): PurchaseSheet(reason: reason)
                 }
             }
-            .confirmationDialog("重开第二张单机牌桌？", isPresented: $confirmsRestart, titleVisibility: .visible) {
-                Button("重新开始", role: .destructive) { openNewSoloGame() }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("第二桌会从东一局重新开始。第一桌的进度会保留。")
+            .alert(soloPrompt?.title ?? "", isPresented: Binding(
+                get: { soloPrompt != nil }, set: { if !$0 { soloPrompt = nil } }
+            ), presenting: soloPrompt) { prompt in
+                switch prompt {
+                case .legacyRemoved:
+                    Button("好", role: .cancel) {}
+                case .restart:
+                    Button("重新开始", role: .destructive) { openNewSoloGame() }
+                        .accessibilityIdentifier("confirm-new-solo-game")
+                    Button("取消", role: .cancel) {}
+                case .retain(let slot):
+                    Button("保留这桌", role: .destructive) {
+                        saveChoiceFailed = !session.keepSavedTable(slot)
+                    }
+                    .accessibilityIdentifier("confirm-save-choice")
+                    Button("取消", role: .cancel) {}
+                }
+            } message: { prompt in
+                switch prompt {
+                case .legacyRemoved:
+                    Text(session.canResume || !session.savedTableChoices.isEmpty
+                         ? "使用当前规则的存档仍可继续。" : "请选择规则，开始新的单机牌局。")
+                case .restart:
+                    Text("新牌局采用「\(ruleset.displayTitle(houseRules: selectedHouseRules))」，从东一局开始。当前单机牌局的进度会被清除。")
+                case .retain:
+                    Text("确认后会清除另一张单机牌桌的进度。")
+                }
             }
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .solo: MatchView(session: session)
-                case .secondSolo: MatchView(session: secondSession)
                 case .nearby: NearbyView(session: nearby)
                 case .rules: RuleGuide(ruleset: ruleset, houseRules: selectedHouseRules)
                 }
@@ -117,7 +137,7 @@ private struct HomeView: View {
         .onOpenURL { url in
             guard let id = RoomInvite.id(from: url) else { return }
             sheet = nil
-            confirmsRestart = false
+            soloPrompt = nil
             path = [.nearby]
             nearby.joinInvite(id, name: nickname)
         }
@@ -145,19 +165,22 @@ private struct HomeView: View {
 
     private var playModes: some View {
         VStack(spacing: 10) {
-            Button {
-                if session.startIfNeeded(ruleset: ruleset, houseRules: selectedHouseRules) { path.append(.solo) }
-                else { sheet = .purchase(.solo) }
-            } label: {
-                modeRow(session.canResume ? "继续单机" : "单机对战",
-                        detail: session.table.map { "继续上次的牌局 · \($0.houseRules?.name ?? $0.ruleset.title)" }
-                            ?? "和三位电脑玩家一起打牌",
-                        icon: session.canResume ? "arrow.counterclockwise" : "person.fill")
+            if session.savedTableChoices.isEmpty {
+                if let table = session.table { savedSoloEntry(table) }
+                RulesetPicker(title: "新开单机采用的规则", selection: $ruleset, selectedCustomID: $customRulesetID)
+                Button(action: requestNewSoloGame) {
+                    if session.canResume {
+                        Label("开始新牌局", systemImage: "plus")
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        modeRow("开始新牌局", detail: "和三位电脑玩家一起打牌", icon: "person.fill")
+                    }
+                }
+                .buttonStyle(TeaButtonStyle(prominent: !session.canResume))
+                .accessibilityIdentifier(session.canResume ? "new-solo-game" : "practice-entry")
+            } else {
+                soloSaveChoices
             }
-            .buttonStyle(TeaButtonStyle())
-            .accessibilityIdentifier("practice-entry")
-
-            RulesetPicker(title: "新单机牌桌的玩法", selection: $ruleset, selectedCustomID: $customRulesetID)
 
             Button { path.append(.nearby) } label: {
                 modeRow(nearby.isInRoom ? "返回附近牌桌" : "附近联机",
@@ -181,8 +204,57 @@ private struct HomeView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private func savedSoloEntry(_ table: TableState) -> some View {
+        VStack(spacing: 0) {
+            Button { path.append(.solo) } label: {
+                modeRow("继续单机", detail: "本桌规则 · \(table.ruleset.displayTitle(houseRules: table.houseRules))",
+                        icon: "arrow.counterclockwise")
+            }
+            .buttonStyle(TeaButtonStyle())
+            .accessibilityIdentifier("practice-entry")
+            RulesetDetailsButton(ruleset: table.ruleset, houseRules: table.houseRules,
+                                 title: "本桌规则详情", subtitle: "\(table.wind.wind)\(table.handNumber)局",
+                                 identifier: "saved-solo-rules")
+                .padding(.horizontal, 14)
+        }
+        .teaPanel(corner: TeaTheme.controlCorner)
+    }
+
+    private var soloSaveChoices: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("选择保留的单机牌局")
+                .font(.headline).foregroundStyle(TeaTheme.brass)
+                .accessibilityAddTraits(.isHeader)
+            if saveChoiceFailed {
+                Text("暂时无法保留牌局，请重试。")
+                    .font(.footnote).foregroundStyle(TeaTheme.loss)
+            }
+            ForEach(session.savedTableChoices) { saved in
+                let table = saved.table
+                let title = table.ruleset.displayTitle(houseRules: table.houseRules)
+                let score = table.players.first { $0.seat == table.viewer }?.score ?? 0
+                Button { soloPrompt = .retain(saved.slot) } label: {
+                    modeRow(saved.slot == .first ? "保留第一桌" : "保留第二桌",
+                            detail: "\(title) · \(table.wind.wind)\(table.handNumber)局 · \(score)分",
+                            icon: "rectangle.on.rectangle")
+                }
+                .buttonStyle(TeaButtonStyle(prominent: false))
+                .accessibilityIdentifier(saved.slot == .first ? "keep-first-solo" : "keep-second-solo")
+            }
+        }
+        .padding(12)
+        .teaPanel(corner: TeaTheme.controlCorner)
+    }
+
+    private func requestNewSoloGame() {
+        access.refreshClock()
+        if !access.canBeginSoloHand { sheet = .purchase(.solo) }
+        else if session.table?.matchFinished == false { soloPrompt = .restart }
+        else { openNewSoloGame() }
+    }
+
     private func openNewSoloGame() {
-        if secondSession.startNew(ruleset: ruleset, houseRules: selectedHouseRules) { path.append(.secondSolo) }
+        if session.startNew(ruleset: ruleset, houseRules: selectedHouseRules) { path.append(.solo) }
         else { sheet = .purchase(.solo) }
     }
 

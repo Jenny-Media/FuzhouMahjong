@@ -44,7 +44,7 @@ public final class GameAccess {
         license = vault?.read() ?? LicenseState()
         var stored = defaults.data(forKey: Self.archiveKey)
             .flatMap { try? JSONDecoder().decode(PlayArchive.self, from: $0) } ?? PlayArchive()
-        for key in ["solo-match.v2", "solo-match.second.v1"] where stored.saves[key] == nil {
+        for key in SoloSaveSlot.allCases.map(\.rawValue) where stored.saves[key] == nil {
             if let match = defaults.data(forKey: key) {
                 stored.saves[key] = SoloSave(match: match, rackOrder: defaults.array(forKey: key + ".rack-order") as? [Int])
             }
@@ -84,6 +84,30 @@ public final class GameAccess {
         archive.saves[key] = save
         refreshClock()
     }
+
+    public func removeSoloSave(key: String) {
+        removeOldDefaults(for: key)
+        archive.saves.removeValue(forKey: key)
+        persist()
+    }
+
+    public func retainSoloSave(_ slot: SoloSaveSlot) -> Bool {
+        guard let saved = archive.saves[slot.rawValue] else { return false }
+        var updated = archive
+        updated.saves[SoloSaveSlot.first.rawValue] = saved
+        updated.saves.removeValue(forKey: SoloSaveSlot.second.rawValue)
+        guard let data = try? JSONEncoder().encode(updated) else { return false }
+        for oldSlot in SoloSaveSlot.allCases { removeOldDefaults(for: oldSlot.rawValue) }
+        defaults.set(data, forKey: Self.archiveKey)
+        archive = updated
+        return true
+    }
+
+    private func removeOldDefaults(for key: String) {
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: key + ".rack-order")
+    }
+
     private func persist() {
         if let data = try? JSONEncoder().encode(archive) { defaults.set(data, forKey: Self.archiveKey) }
     }

@@ -7,6 +7,83 @@ import XCTest
 @testable import FuzhouMahjong
 
 @MainActor
+final class SoloSaveMigrationTests: XCTestCase {
+    func testRetiringLegacySoloTablesPreservesCurrentSavesAndUsage() throws {
+        let encoder = JSONEncoder()
+        let legacy = try encoder.encode(FuzhouMatch(ruleset: .legacy))
+        let current = FuzhouMatch(houseRules: .init(name: "Family", goldIndicators: .includeDragons))
+        let currentSave = try encoder.encode(current)
+
+        for legacyInFirstSlot in [true, false] {
+            let suite = "SoloSaveMigrationTests." + UUID().uuidString
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+
+            let oldKey = legacyInFirstSlot ? "solo-match.v2" : "solo-match.second.v1"
+            let currentKey = legacyInFirstSlot ? "solo-match.second.v1" : "solo-match.v2"
+            defaults.set(legacy, forKey: oldKey)
+            defaults.set([1, 2], forKey: oldKey + ".rack-order")
+            let access = GameAccess(defaults: defaults, keychainService: nil)
+            XCTAssertTrue(access.beginSoloHand(key: currentKey, match: currentSave))
+            let savedOrder = current.table(for: .south).hand.reversed().map(\.id)
+            access.saveSolo(key: currentKey, match: currentSave, rackOrder: savedOrder)
+            let before = access.soloSave(key: currentKey)
+
+            let resumed = SoloMatch(access: access)
+            XCTAssertTrue(resumed.removedLegacySave)
+            XCTAssertEqual(resumed.table, current.table(for: .south))
+            XCTAssertEqual(resumed.rackOrder, savedOrder)
+            XCTAssertNil(defaults.data(forKey: oldKey))
+            XCTAssertNil(defaults.array(forKey: oldKey + ".rack-order"))
+            XCTAssertEqual(access.remainingSoloHands, 1)
+
+            let reopened = GameAccess(defaults: defaults, keychainService: nil)
+            XCTAssertNil(reopened.soloSave(key: SoloSaveSlot.second.rawValue))
+            XCTAssertEqual(reopened.soloSave(key: SoloSaveSlot.first.rawValue), before)
+            XCTAssertFalse(SoloMatch(access: reopened).removedLegacySave)
+        }
+    }
+
+    func testTwoCurrentSavesWaitForAChoiceAndKeepTheExactChosenSave() throws {
+        let encoder = JSONEncoder()
+        let first = FuzhouMatch(ruleset: .oldThree)
+        let second = FuzhouMatch(houseRules: .init(name: "Family", goldIndicators: .includeDragons))
+        for slotToKeep in SoloSaveSlot.allCases {
+            let suite = "SoloSaveMigrationTests." + UUID().uuidString
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let access = GameAccess(defaults: defaults, keychainService: nil)
+            for (slot, match) in [(SoloSaveSlot.first, first), (.second, second)] {
+                let data = try encoder.encode(match)
+                let key = slot.rawValue
+                defaults.set(data, forKey: key)
+                XCTAssertTrue(access.beginSoloHand(key: key, match: data))
+                access.saveSolo(key: key, match: data, rackOrder: match.table(for: .south).hand.reversed().map(\.id))
+            }
+            let original = access.archive.saves
+            let pending = SoloMatch(access: access)
+            XCTAssertNil(pending.table)
+            XCTAssertEqual(pending.savedTableChoices.map(\.slot), SoloSaveSlot.allCases)
+            XCTAssertFalse(pending.startNew())
+            XCTAssertEqual(access.archive.saves, original)
+
+            let reopened = GameAccess(defaults: defaults, keychainService: nil)
+            let choosing = SoloMatch(access: reopened)
+            XCTAssertEqual(choosing.savedTableChoices.count, 2)
+            XCTAssertTrue(choosing.keepSavedTable(slotToKeep))
+            XCTAssertTrue(choosing.savedTableChoices.isEmpty)
+            XCTAssertEqual(choosing.table, (slotToKeep == .first ? first : second).table(for: .south))
+            XCTAssertEqual(reopened.remainingSoloHands, 0)
+
+            let final = GameAccess(defaults: defaults, keychainService: nil)
+            XCTAssertEqual(final.soloSave(key: SoloSaveSlot.first.rawValue), original[slotToKeep.rawValue])
+            XCTAssertNil(final.soloSave(key: SoloSaveSlot.second.rawValue))
+            XCTAssertNil(defaults.data(forKey: SoloSaveSlot.second.rawValue))
+        }
+    }
+}
+
+@MainActor
 final class CustomRulesPersistenceTests: XCTestCase {
     func testFivePresetLimitAllowsEditsAndFreesASlotOnDelete() throws {
         let suite = "CustomRulesPersistenceTests." + UUID().uuidString
@@ -197,18 +274,18 @@ final class PurchaseTests: XCTestCase {
     }
     func testSoloResumeDoesNotSpendQuotaAndBlockedRestartPreservesTheSavedGame() throws {
         let access = manager()
-        let first = SoloMatch(access: access)
-        let second = SoloMatch(access: access, storageKey: "solo-match.second.v1")
-        XCTAssertTrue(first.startIfNeeded())
+        let solo = SoloMatch(access: access)
+        XCTAssertTrue(solo.startIfNeeded())
         XCTAssertEqual(access.remainingSoloHands, 1)
-        XCTAssertTrue(first.startIfNeeded())
+        XCTAssertTrue(solo.startIfNeeded())
         let reopened = SoloMatch(access: access)
-        XCTAssertEqual(first.table, reopened.table)
+        XCTAssertEqual(solo.table, reopened.table)
         XCTAssertEqual(access.remainingSoloHands, 1)
-        XCTAssertTrue(second.startNew())
-        let saved = second.table
-        XCTAssertFalse(second.startNew())
-        XCTAssertEqual(second.table, saved)
+        XCTAssertTrue(reopened.startNew(ruleset: .oldThree))
+        let saved = reopened.table
+        XCTAssertEqual(saved?.ruleset, .oldThree)
+        XCTAssertFalse(reopened.startNew(ruleset: .pureSuit))
+        XCTAssertEqual(reopened.table, saved)
         XCTAssertEqual(access.remainingSoloHands, 0)
     }
     func testTrialExpiryAllowsCurrentHandToFinishButBlocksNextHandAfterFreeAllowance() async throws {

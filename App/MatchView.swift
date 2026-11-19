@@ -24,6 +24,8 @@ struct MatchView<Session: MatchSession>: View {
     @State private var observedDiscard: TableDiscard?
     @State private var drawCue: DrawCue?
     @State private var drawFlight: DrawPickup.Flight?
+    @State private var pendingThrow: PendingThrow?
+    @State private var discardFlight: DiscardFlight.Motion?
     @State private var arranging = false
     @State private var arrangementSelection: Tile.ID?
     @State private var rackFrame = CGRect.zero
@@ -79,7 +81,9 @@ struct MatchView<Session: MatchSession>: View {
                presenting: goldDiscard) { confirmation in
             Button("取消", role: .cancel) { goldDiscard = nil }
             Button("打出金牌", role: .destructive) {
-                if session.revision == confirmation.revision { commit(.discard(confirmation.tile.id)) }
+                if session.revision == confirmation.revision {
+                    commit(.discard(confirmation.tile.id), throwFrom: confirmation.source)
+                }
             }
             .accessibilityIdentifier("confirm-gold-discard")
         } message: { confirmation in
@@ -104,6 +108,18 @@ struct MatchView<Session: MatchSession>: View {
             guard let drawCue else { return }
             await performDraw(drawCue)
         }
+        .task(id: pendingThrow) {
+            guard let pendingThrow else { return }
+            do { try await Task.sleep(for: .seconds(1.5)) }
+            catch { return }
+            if self.pendingThrow == pendingThrow { self.pendingThrow = nil }
+        }
+        .task(id: discardFlight) {
+            guard let discardFlight else { return }
+            do { try await Task.sleep(for: .seconds(0.7)) }
+            catch { return }
+            if self.discardFlight == discardFlight { self.discardFlight = nil }
+        }
         .onChange(of: session.table) { before, after in
             guard let before, let after else { return }
             readTableChange(from: before, to: after)
@@ -123,11 +139,13 @@ struct MatchView<Session: MatchSession>: View {
                 audio.stop()
                 drawCue = nil
                 goldDiscard = nil
+                resetDiscardMotion()
                 if let opening { finishOpening(opening) }
             }
         }
         .onDisappear {
             audio.stop()
+            resetDiscardMotion()
             if let opening { finishOpening(opening) }
         }
         .onChange(of: session.revision) { _, _ in
@@ -220,6 +238,12 @@ struct MatchView<Session: MatchSession>: View {
         let tile: Tile
         let revision: Int
         let alreadyRestricted: Bool
+        let source: CGRect?
+    }
+
+    private struct PendingThrow: Equatable {
+        let tileID: Tile.ID
+        let source: CGRect
     }
     private struct DrawCue {
         let id = UUID()
@@ -301,11 +325,22 @@ struct MatchView<Session: MatchSession>: View {
         guard active, opening == nil, before.roundNumber == after.roundNumber else {
             observedDiscard = nil
             drawCue = nil
+            resetDiscardMotion()
             return
         }
         let pairs = zip(before.players, after.players)
         let discard = changedDiscard(from: before, to: after)
-        if let discard { observedDiscard = discard }
+        if let discard {
+            observedDiscard = discard
+            if let pendingThrow, pendingThrow.tileID == discard.tile.id, discard.seat == after.viewer,
+               after.result == nil, !reduceMotion {
+                discardFlight = .init(tile: discard.tile, isGold: after.isGold(discard.tile),
+                                      globalSource: pendingThrow.source)
+            }
+            pendingThrow = nil
+        } else if let pendingThrow, !after.moves.contains(.discard(pendingThrow.tileID)) {
+            self.pendingThrow = nil
+        }
         let meldingPlayer = pairs.first { $1.melds != $0.melds }?.1
         let meld = meldingPlayer?.melds.last
         let replacedFlower = pairs.contains { $1.flowerCount > $0.flowerCount }
@@ -359,15 +394,19 @@ struct MatchView<Session: MatchSession>: View {
                     ArrangementView {
                         VStack(spacing: 6) {
                             header(table)
-                            tableSurface(table)
+                            tableSurface(table, drawsOnBoard: false)
                         }
                         .padding(TeaTheme.tableGutter)
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("table-region")
                     } secondary: {
                         GeometryReader { panel in
-                            handPanel(table, width: panel.size.width, singleRow: panel.size.width >= 600)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            let singleRow = panel.size.width >= 600
+                            VStack(alignment: .leading, spacing: 6) {
+                                if !singleRow { drawSlot(table.drawn, table: table) }
+                                rack(table, availableWidth: panel.size.width, landscape: singleRow)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         }
                         .padding(TeaTheme.tableGutter)
                     }
@@ -380,93 +419,115 @@ struct MatchView<Session: MatchSession>: View {
                 #endif
             }
             .overlayPreferenceValue(TableAnchors.self) { anchors in
-                if !reduceMotion, dealStage != nil || drawFlight != nil {
+                if !reduceMotion, dealStage != nil || drawFlight != nil || discardFlight != nil {
                     GeometryReader { overlay in
-                        tableMotion(table, anchors: anchors.mapValues { overlay[$0] })
-                            .mask {
-                                Path { path in
-                                    path.addRect(CGRect(origin: .zero, size: overlay.size))
-                                    path.addRects(divisions)
-                                }
-                                .fill(style: FillStyle(eoFill: true))
-                            }
+                        tableMotion(table, anchors: anchors.mapValues { overlay[$0] }, geometry: overlay)
+                            .mask { motionArea(overlay.size, excluding: divisions) }
                     }
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
             }
+            .overlayPreferenceValue(DiscardDragPreview.Key.self) { preview in
+                if !reduceMotion, active, let preview {
+                    GeometryReader { overlay in
+                        let origin = overlay[preview.source]
+                        let frame = DiscardFlight.inside(origin.offsetBy(dx: preview.translation.width,
+                                                                       dy: preview.translation.height),
+                                                        size: overlay.size)
+                        TileFace(kind: preview.tile.kind, gold: preview.isGold, selected: true)
+                            .frame(width: frame.width, height: frame.height)
+                            .shadow(color: .black.opacity(0.46), radius: 6, y: 4)
+                            .position(x: frame.midX, y: frame.midY)
+                            .mask { motionArea(overlay.size, excluding: divisions) }
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+            }
+            .onChange(of: geometry.size) { _, _ in
+                resetDiscardMotion()
+                if let goldDiscard {
+                    self.goldDiscard = GoldDiscard(tile: goldDiscard.tile, revision: goldDiscard.revision,
+                                                   alreadyRestricted: goldDiscard.alreadyRestricted, source: nil)
+                }
+            }
         }
     }
 
-    @ViewBuilder
-    private func tableMotion(_ table: TableState, anchors: [TableAnchors.Marker: CGRect]) -> some View {
-        if let dealStage {
-            OpeningDeal(viewer: table.viewer, dealer: table.dealer, stage: dealStage, anchors: anchors)
-        } else if let drawFlight, let seat = drawCue?.seat,
-                  let source = anchors[drawFlight.fromReserve ? .reserve : .wall],
-                  let destination = anchors[seat == table.viewer ? .drawn : .player(seat)] {
-            DrawPickup(flight: drawFlight, source: source, destination: destination, isLocal: seat == table.viewer)
+    private func motionArea(_ size: CGSize, excluding divisions: [CGRect]) -> some View {
+        Path { path in
+            path.addRect(CGRect(origin: .zero, size: size))
+            path.addRects(divisions)
         }
+        .fill(style: FillStyle(eoFill: true))
+    }
+
+    private func tableMotion(_ table: TableState, anchors: [TableAnchors.Marker: CGRect],
+                             geometry: GeometryProxy) -> some View {
+        ZStack(alignment: .topLeading) {
+            if let dealStage {
+                OpeningDeal(viewer: table.viewer, dealer: table.dealer, stage: dealStage, anchors: anchors)
+            } else if let drawFlight, let seat = drawCue?.seat,
+                      let source = anchors[drawFlight.fromReserve ? .reserve : .wall],
+                      let destination = anchors[seat == table.viewer ? .drawn : .player(seat)] {
+                DrawPickup(flight: drawFlight, source: source, destination: destination, isLocal: seat == table.viewer)
+            }
+            if let discardFlight, let destination = anchors[.latestDiscard],
+               (table.latestDiscard ?? observedDiscard)?.tile.id == discardFlight.tile.id {
+                let origin = geometry.frame(in: .global).origin
+                let source = discardFlight.globalSource.offsetBy(dx: -origin.x, dy: -origin.y)
+                DiscardFlight(motion: discardFlight, source: DiscardFlight.inside(source, size: geometry.size),
+                              destination: destination) {
+                    if self.discardFlight == discardFlight { self.discardFlight = nil }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func flatBoard(_ table: TableState, size: CGSize) -> some View {
         let landscape = size.width > size.height
         let singleRow = landscape || size.width >= 600
         return VStack(spacing: 6) {
-            if !landscape { header(table) }
-            tableSurface(table)
-            handPanel(table, width: max(0, size.width - TeaTheme.tableGutter * 2),
-                      singleRow: singleRow, includesHeader: landscape)
+            header(table)
+            tableSurface(table, drawsOnBoard: !singleRow)
+            rack(table, availableWidth: max(0, size.width - TeaTheme.tableGutter * 2),
+                 landscape: singleRow)
         }
         .padding(.horizontal, TeaTheme.tableGutter)
         .padding(.vertical, 4)
     }
 
-    private func tableSurface(_ table: TableState) -> some View {
+    private func tableSurface(_ table: TableState, drawsOnBoard: Bool) -> some View {
         GeometryReader { surface in
             LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve,
-                      paused: session.paused, size: surface.size)
-        }
-    }
-
-    private func handPanel(_ table: TableState, width: CGFloat, singleRow: Bool, includesHeader: Bool = false) -> some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 8) {
-                if includesHeader { header(table) }
-                HStack(spacing: 4) {
-                    if !singleRow { drawSlot(table.drawn, table: table) }
-                    Spacer(minLength: 0)
-                    primaryControls(table)
-                }
-                .frame(width: includesHeader ? 240 : nil)
-                .frame(minHeight: TeaTheme.hitTarget)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("table-actions")
+                      paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
+                      flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id) {
+                tableActions(table)
+            } drawDock: {
+                drawSlot(table.drawn, table: table)
             }
-            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-            rack(table, availableWidth: width, landscape: singleRow)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("hand-panel")
     }
 
     @ViewBuilder
-    private func primaryControls(_ table: TableState) -> some View {
-        if let opening {
-            Button { finishOpening(opening) } label: { tableControlLabel("跳过动画", primary: true) }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("skip-opening")
-        } else if table.result != nil {
-            Button { showsScorecard = true } label: {
-                tableControlLabel("查看结算", prominent: true, primary: true)
+    private func tableActions(_ table: TableState) -> some View {
+        if opening == nil, table.result == nil, active, arranging || !table.moves.isEmpty {
+            let responding = !arranging && (table.step == .claim || table.step == .opening)
+            Group {
+                if arranging { arrangementControls }
+                else { actions(table) }
             }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("view-scorecard")
-        } else if arranging {
-            arrangementControls
-        } else {
-            actions(table)
+            .padding(4)
+            .teaPanel(corner: 14, emphasized: responding)
+            .shadow(color: .black.opacity(0.3), radius: 5, y: 2)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("table-actions")
+            .frame(maxWidth: .infinity, alignment: responding ? .center : .trailing)
+            .padding(.top, 4)
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
     }
 
@@ -499,15 +560,25 @@ struct MatchView<Session: MatchSession>: View {
             }
             .lineLimit(1)
             Spacer(minLength: 0)
-            if let gold = table.gold {
-                let hidden = opening != nil || gold.id == table.result?.winningTile?.id
+            if let opening {
+                Button { finishOpening(opening) } label: { tableControlLabel("跳过动画", primary: true) }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("skip-opening")
+            } else if let gold = table.gold {
                 Button { guideLesson = .gold } label: { goldIndicator(gold.kind) }
                     .buttonStyle(.plain)
-                    .opacity(hidden ? 0 : 1)
-                    .allowsHitTesting(!hidden)
-                    .accessibilityHidden(hidden)
+                    .opacity(gold.id == table.result?.winningTile?.id ? 0 : 1)
+                    .allowsHitTesting(gold.id != table.result?.winningTile?.id)
+                    .accessibilityHidden(gold.id == table.result?.winningTile?.id)
                     .accessibilityHint("查看金牌玩法")
                     .accessibilityIdentifier("gold-rules")
+            }
+            if table.result != nil {
+                Button { showsScorecard = true } label: {
+                    tableControlLabel("查看结算", prominent: true, primary: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("view-scorecard")
             }
         }
         .frame(minHeight: TeaTheme.hitTarget)
@@ -519,7 +590,8 @@ struct MatchView<Session: MatchSession>: View {
         let name = kind.suit.isBonus ? "花牌、季节牌" : kind.spokenName
         return HStack(spacing: 5) {
             TileFace(kind: kind, gold: true).frame(width: 23, height: 30).accessibilityHidden(true)
-            Text("金牌").font(.caption.weight(.semibold)).foregroundStyle(TeaTheme.brass)
+            Text(kind.suit == .dragon && kind.rank == 3 ? "白板 · 金牌" : "金牌")
+                .font(.caption.weight(.semibold)).foregroundStyle(TeaTheme.brass)
         }
         .padding(.horizontal, 7)
         .frame(minHeight: TeaTheme.hitTarget)
@@ -618,6 +690,8 @@ struct MatchView<Session: MatchSession>: View {
             .anchorPreference(key: TableAnchors.self, value: .bounds) { [.drawn: $0] }
         }
         .frame(width: cellWidth)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("drawn-tile-dock")
     }
 
     private var arrangementControls: some View {
@@ -690,6 +764,8 @@ struct MatchView<Session: MatchSession>: View {
             if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
         }, discard: {
             send(.discard(tile.id))
+        }, throwDiscard: { origin, released in
+            send(.discard(tile.id), throwFrom: table.isGold(tile) ? origin : released)
         })
     }
 
@@ -727,7 +803,7 @@ struct MatchView<Session: MatchSession>: View {
                 .accessibilityIdentifier("discard-action")
             }
         }
-        .disabled(!active || localDrawInFlight(table))
+        .disabled(!active || pendingThrow != nil || localDrawInFlight(table))
     }
 
     private func status(_ table: TableState) -> String {
@@ -761,6 +837,7 @@ struct MatchView<Session: MatchSession>: View {
                 } label: {
                     tableControlLabel(label)
                 }
+                .accessibilityIdentifier("table-move-\(label)")
             }
         }
     }
@@ -804,29 +881,41 @@ struct MatchView<Session: MatchSession>: View {
         }
     }
 
-    private func send(_ move: Move) {
+    private func send(_ move: Move, throwFrom source: CGRect? = nil) {
         guard active, !arranging, opening == nil, let table = session.table,
-              !localDrawInFlight(table), table.moves.contains(move) else { return }
+              pendingThrow == nil, !localDrawInFlight(table), table.moves.contains(move) else { return }
         if case .discard(let id) = move,
            let tile = table.drawn?.id == id ? table.drawn : table.hand.first(where: { $0.id == id }),
            table.isGold(tile) {
-            goldDiscard = GoldDiscard(tile: tile, revision: session.revision, alreadyRestricted: table.viewerMustSelfDraw)
+            goldDiscard = GoldDiscard(tile: tile, revision: session.revision, alreadyRestricted: table.viewerMustSelfDraw,
+                                      source: source)
             return
         }
-        commit(move)
+        commit(move, throwFrom: source)
     }
 
     private func localDrawInFlight(_ table: TableState) -> Bool {
         !reduceMotion && table.drawn != nil && drawCue?.seat == table.viewer
     }
 
-    private func commit(_ move: Move) {
-        guard active, !arranging, opening == nil, session.table?.moves.contains(move) == true,
-              session.submit(move) else { return }
+    private func commit(_ move: Move, throwFrom source: CGRect? = nil) {
+        guard active, !arranging, opening == nil, session.table?.moves.contains(move) == true else { return }
+        if let source, !reduceMotion, case .discard(let id) = move {
+            pendingThrow = PendingThrow(tileID: id, source: source)
+        }
+        guard session.submit(move) else {
+            pendingThrow = nil
+            return
+        }
         selectedID = nil
         guard hapticsEnabled else { return }
         if move == .win { UINotificationFeedbackGenerator().notificationOccurred(.success) }
         else if case .discard = move { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+    }
+
+    private func resetDiscardMotion() {
+        pendingThrow = nil
+        discardFlight = nil
     }
 }
 

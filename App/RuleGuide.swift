@@ -6,15 +6,19 @@ extension FuzhouRuleset {
         switch self {
         case .pureSuit: "清一色加分"
         case .oldThree: "三样加分"
-        case .legacy: "原版规则"
+        case .legacy: "旧版存档规则"
         }
+    }
+
+    func displayTitle(houseRules: FuzhouHouseRules?) -> String {
+        houseRules.map { $0.name.isEmpty ? "自定义规则预览" : $0.name } ?? title
     }
 
     var summary: String {
         switch self {
         case .pureSuit: "抢金、三金倒、金雀、清一色加分"
         case .oldThree: "抢金、三金倒、金雀加分"
-        case .legacy: "早期存档使用的玩法"
+        case .legacy: "早期单机牌局沿用的玩法"
         }
     }
 }
@@ -31,6 +35,7 @@ struct RuleGuide: View {
     @State private var claim = Claim.chow
     @State private var phase = 0
     @State private var replay = 0
+    @State private var showsRulesetDetails = false
     @AccessibilityFocusState private var lessonFocused: Bool
 
     init(startingAt lesson: RuleLesson = .turn, showsCloseButton: Bool = false,
@@ -43,7 +48,7 @@ struct RuleGuide: View {
 
     var body: some View {
         let frames = lesson.frames(claim: claim)
-        let title = houseRules.map { $0.name.isEmpty ? "自定义预览" : $0.name } ?? ruleset.title
+        let title = ruleset.displayTitle(houseRules: houseRules)
         let wide = verticalSizeClass == .compact && !typeSize.isAccessibilitySize
         let layout = wide
             ? AnyLayout(HStackLayout(alignment: .top, spacing: 20))
@@ -51,16 +56,14 @@ struct RuleGuide: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("玩法 · \(title)")
+                Text("规则 · \(title)")
                     .font(.caption.weight(.semibold)).foregroundStyle(TeaTheme.brass)
                     .accessibilityIdentifier("active-ruleset")
                 Text(lesson.title).font(TeaTheme.display)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("rule-lesson-title")
                     .accessibilityFocused($lessonFocused)
-                if lesson == .scoring {
-                    RuleReference(ruleset: ruleset, houseRules: houseRules)
-                } else if !frames.isEmpty {
+                if !frames.isEmpty {
                     let frame = frames[reduceMotion ? frames.count - 1 : min(phase, frames.count - 1)]
                     layout {
                         VStack(alignment: .trailing, spacing: 6) {
@@ -99,7 +102,7 @@ struct RuleGuide: View {
         }
         .id(lesson)
         .teaBackdrop()
-        .navigationTitle("玩法")
+        .navigationTitle("玩法教程")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if showsCloseButton {
@@ -110,9 +113,14 @@ struct RuleGuide: View {
                     ForEach(RuleLesson.allCases, id: \.self) { page in
                         Button(page.title) { open(page) }
                     }
+                    Button("规则详情") { showsRulesetDetails = true }
+                        .accessibilityIdentifier("tutorial-ruleset-details")
                 }
                 .accessibilityIdentifier("rule-contents")
             }
+        }
+        .navigationDestination(isPresented: $showsRulesetDetails) {
+            RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { navigation }
         .modifier(HingeSafeContent())
@@ -141,12 +149,13 @@ struct RuleGuide: View {
             }
             Spacer(minLength: 0)
             if let next = RuleLesson(rawValue: lesson.rawValue + 1) {
-                Button(next == .scoring ? next.title : "下一步") { open(next) }
+                Button("下一步") { open(next) }
                     .buttonStyle(TeaButtonStyle())
                     .accessibilityIdentifier("rule-next")
-            } else if !showsCloseButton {
-                Button("完成") { dismiss() }
+            } else {
+                Button("规则详情") { showsRulesetDetails = true }
                     .buttonStyle(TeaButtonStyle())
+                    .accessibilityIdentifier("rule-next")
             }
         }
         .lineLimit(1)
@@ -227,7 +236,7 @@ private struct RuleDiagram: View {
 
 enum RuleLesson: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
-    case turn, flowers, claims, gold, winning, scoring
+    case turn, flowers, claims, gold, winning
 
     var title: String {
         switch self {
@@ -236,7 +245,6 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
         case .claims: "吃、碰、杠"
         case .gold: "金牌与抢金"
         case .winning: "怎样胡牌"
-        case .scoring: "计分与概率"
         }
     }
 
@@ -247,7 +255,6 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
         case .claims: claim.explanation
         case .gold: "开局翻一张牌来定本局的金牌。胡牌时，手里的金牌可以代替别的牌。图中用二筒金代替七万，组成六万、七万、八万的顺子。"
         case .winning: "普通胡牌需要凑齐五组牌和一对相同的牌。这一对叫将牌。每组可以是同一花色连着的三张牌（顺子）、三张相同的牌（刻子），或者一组杠。"
-        case .scoring: ""
         }
     }
 
@@ -258,7 +265,7 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
             "点一张手牌，再点「出牌」。也可以直接把那张牌向上滑出去。" + (houseRules.map { "\n\n\($0.summary)。" } ?? "")
         case .flowers:
             if ruleset == .legacy {
-                "在原版规则里，摸到也算金牌的花牌时，可以留作金牌，也可以选择补花。"
+                "摸到也算金牌的花牌时，可以留作金牌，也可以选择补花。"
             } else {
                 "开局从庄家开始轮流补花。如果补到的还是花牌，等其他玩家补完这一轮再补。" +
                     (indicators == .suitedOnly
@@ -268,7 +275,7 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
             "多人要同一张牌时，先看胡牌，再看碰或杠，最后才是吃。" +
                 (ruleset == .legacy ? "" : "有多人要胡时，金雀优先。同等优先级下，按出牌顺序取排在前面的一家。")
         case .gold:
-            (ruleset == .legacy ? "原版规则翻到梅兰菊竹或春夏秋冬时，这八种牌都算金牌。"
+            (ruleset == .legacy ? "翻到梅兰竹菊或春夏秋冬中的一张时，这八张花牌都算金牌。"
                     : indicators.explanation) +
                 "\n\n手里的金牌不能用来吃、碰或杠。自己打出金牌后，这局只能自摸。别人打出的金牌也不能拿来胡牌。" +
                 "\n\n开局时，如果翻出的牌能让你凑齐五组牌和一对将牌，就可以抢金。抢金时，每张牌都按牌面计算。" +
@@ -277,9 +284,8 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
             if ruleset == .legacy {
                 "已经亮出的牌组也算在五组里。自己摸到胡牌的那张牌叫自摸。用别人刚打出的牌胡牌叫接炮。"
             } else {
-                "已经亮出的牌组也算在五组里。自摸时，手里集齐三张金就能直接胡，这叫三金倒。胡牌时用两张金作将牌，叫金雀。下一页有各牌型的加分和计分示例。"
+                "已经亮出的牌组也算在五组里。自摸时，手里集齐三张金就能直接胡，这叫三金倒。胡牌时用两张金作将牌，叫金雀。点「规则详情」可查看各牌型的加分和计分示例。"
             }
-        case .scoring: ""
         }
     }
 
@@ -329,7 +335,6 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
                 RuleFrame(top: top, bottom: RuleLane("还差一张九万配成一对", groups: groups + [[single]])),
                 RuleFrame(top: top, bottom: RuleLane("凑齐五组牌和一对将牌", groups: groups + [pair]))
             ]
-        case .scoring: return []
         }
     }
 }

@@ -45,11 +45,24 @@ final class PurchaseFlowTests: XCTestCase {
         app.buttons["practice-entry"].tap()
         app.buttons["BackButton"].tap()
         XCTAssertTrue(app.buttons["solo-remaining"].label.contains("1"), "Resuming does not charge another hand")
-        app.buttons["home-more"].tap(); app.buttons["new-solo-game"].tap()
+        let newGame = app.buttons["new-solo-game"]
+        reveal(newGame, in: app)
+        newGame.tap()
+        let prompt = app.alerts["开始新的单机牌局？"]
+        let confirm = prompt.buttons["confirm-new-solo-game"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        prompt.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(prompt.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["practice-entry"].label.contains("继续单机"))
+        XCTAssertTrue(app.buttons["solo-remaining"].label.contains("1"))
+        newGame.tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
         skipOpening(app)
         app.buttons["BackButton"].tap()
         XCTAssertTrue(app.buttons["solo-remaining"].label.contains("0"))
-        app.buttons["home-more"].tap(); app.buttons["new-solo-game"].tap()
+        reveal(newGame, in: app)
+        newGame.tap()
         XCTAssertTrue(app.staticTexts["access-status"].waitForExistence(timeout: 5))
         let trial = app.buttons["trial-start"]
         reveal(trial, in: app); trial.tap()
@@ -111,10 +124,9 @@ final class PurchaseFlowTests: XCTestCase {
         let table = app.otherElements["table-surface"]
         let rack = app.otherElements["table-rack"]
         let actions = app.otherElements["table-actions"]
-        XCTAssertTrue(table.exists && rack.exists && actions.exists)
+        XCTAssertTrue(table.exists && rack.exists)
         let tableFrame = table.frame
         let rackFrame = rack.frame
-        let actionsFrame = actions.frame
 
         let pass = app.buttons["过"]
         let discard = app.buttons["discard-action"]
@@ -124,6 +136,7 @@ final class PurchaseFlowTests: XCTestCase {
             if pass.exists && pass.isEnabled { pass.tap() } else { break }
         }
         XCTAssertTrue(discard.exists && discard.isEnabled)
+        XCTAssertTrue(table.frame.contains(actions.frame))
         discard.tap()
         let confirmGold = app.alerts.buttons["confirm-gold-discard"]
         if confirmGold.waitForExistence(timeout: 1) { confirmGold.tap() }
@@ -131,7 +144,7 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertFalse(app.scrollViews["table-scroll"].exists)
         XCTAssertEqual(table.frame, tableFrame)
         XCTAssertEqual(rack.frame, rackFrame)
-        XCTAssertEqual(actions.frame, actionsFrame)
+        if actions.exists { XCTAssertTrue(table.frame.contains(actions.frame)) }
         capture("live-table-after-discard")
 
         arrange.tap()
