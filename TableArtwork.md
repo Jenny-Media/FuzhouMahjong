@@ -21,6 +21,85 @@ Subject: one perfectly front-facing, directly overhead, orthographic rounded rec
 Composition: continuous, straight, parallel sides with four small identical rounded corners. Keep the slim rail even in thickness on all four sides, about 4% of the overall frame width so the empty game area stays very large, with enough visual grain to read at small UI sizes. Delicate miter joints, no deep relief. Fully in frame with a little clear margin all around. Limit lighting to a soft diffuse highlight and restrained shadow within the wood itself. The entire central cutout and all area outside the rail must be genuinely transparent alpha. No jade felt in the output, no backing board, no objects, no tiles, no text, no ornament, no bright gold, no floor, no perspective, and no exterior cast shadows.
 ```
 
+## Glazed porcelain, gunmetal and wool
+
+Generated in the built-in ImageGen tool. The rail sprites follow the outline and scale of the walnut rail. Glazed Porcelain tiles use a cooler grade of the original Classic faces to preserve the relief, bevel and markings. A separate slate-glazed sprite is used for face-down tiles on the rack, during the deal and in the appearance preview.
+
+### Glazed porcelain rail
+
+[Transparent rail sprite](App/Assets.xcassets/GlazedPorcelainRail.imageset/rail.png)
+
+Use case: precise-object-edit. Production UI sprite for an original mahjong app. Image 1 is the existing craft-made edge rail and is the geometry registration reference. Replace the walnut and gold with a premium warm-white glazed porcelain rail, raised rounded outer bead, softly lit narrow crown, recessed inner lip with a fine restrained warm pewter line, subtle contact darkening along the inner edge. Sculpted enamel tabletop component, handcrafted satin ceramics, highlights on top and left, distinct warm silver shadow on lower and right surfaces, high material definition even when the rail is just 7 points thick. Rich dimensional shading integrated within the rail. Copy the reference's strict orthographic, front-facing square shape, centered opening, rail thickness, symmetrical rounded corners, and padding. Exactly one uninterrupted narrow frame, uniformly width all four sides, with the negative space dominating. Keep the central opening and all space outside the frame genuinely transparent alpha. No background, no shadow outside the frame, no lettering, no fractured glaze, no fluorescent glints. Rails look tactile like photographed porcelain dining ware.
+
+### Gunmetal rail
+
+[Transparent rail sprite](App/Assets.xcassets/GunmetalRail.imageset/rail.png)
+
+Use case: precise-object-edit. Production UI sprite for an original mahjong app. Image 1 is the exact orthographic outline, registration and thickness of an existing tabletop rail. Replace the material with a high-end charcoal blue gunmetal perimeter in four fitted pieces, fine lengthwise satin machining, soft breaks in the light between a narrow polished chamfer and broad brushed crown, and a darker recessed blue-gray inner edge. Warm graphite lowlights and soft pale gunmetal highlights from top and left. Restrained and clearly dimensional even at 7 display points thick. Preserve the centered square frame, true overhead orthographic projection, narrow uniform rail width on all sides, rounded corners and similar clear margins. Exactly one frame. Both the dominant center cutout and the entire outside have genuine transparency. No floor, extra objects, markings, decorative screws, mirror chrome, logos or cast shadow outside the shape.
+
+### Glazed porcelain tile back
+
+[Transparent tile sprite](App/Assets.xcassets/PorcelainTileBack.imageset/art.png)
+
+Use case: precise-object-edit. One production mahjong tile-back sprite. Image 1 is the existing back, keep its exact upright 5:7 rectangular framing, top-down orthographic angle, nearly edge-to-edge margin, round corner shape, narrow glaze lip and slight thickness along lower edge. Refinish the green insert in refined, desaturated smoke blue-gray glazed porcelain, medium slate rather than pale silver, with a warm white porcelain bevel. Fine top-left specular highlight and darker bottom shadow, controlled contrast and satin surface with only a trace of glaze texture. Clearly feels like a small ceramic object at tiny in-game scale. One tile with an entirely blank face, no marks, frame edge or background art, no body cast shadow, transparent alpha outside the tile. Orient and center like reference.
+
+### Fine wool
+
+[Felt texture](App/Assets.xcassets/FineWool.imageset/felt.jpg)
+
+Use case: photorealistic-natural. Production diffuse material texture for the fabric of a finely made mahjong table viewed from directly overhead. A full-bleed macro photograph of densely compressed premium billiard wool in even neutral mid-gray. Quiet refined worsted fibers and a barely visible, extremely fine repeating weave. Mostly uniform in tone, with individual strands detectable close up, subtle felted softness at play scale. Real wool fibers with fine, level nap. Broad diffuse soft lighting, flat orthographic macro, consistent illumination across the entire image, all fiber texture in focus, no directional gradient, seamless-looking edge to edge, no shadows, stains, knots, mottling, large speckles, marble-like clouds, swatch edge, text, vignette, table trim, objects, or tile. Gray value above medium 50%, very restrained contrast to support game text.
+
+
+## Redwood, bronze and collectible tile materials
+
+These assets were generated with the built-in ImageGen tool. The two rail sprites preserve the existing table silhouette and use the same corner-preserving stretch. Tile sheets are cropped to the two silhouettes and sized to the original 192 × 268 sprite dimensions. The new tile bodies use the existing Modern markings at their original positions. The app removes the source tile's pale face from the markings before placing them over the new bodies.
+
+### Redwood rail
+
+[Asset](App/Assets.xcassets/RedwoodRail.imageset/rail.png)
+
+Use case: precise-object-edit. Premium tabletop rim sprite for an original mahjong game. Image 1 is the geometry reference. Replace the walnut with finely finished deep reddish-brown rosewood-style hardwood. Tight lengthwise purple-brown and warm reddish grain, restrained satin patina, restrained fine flush dark bronze inlay at the recessed inside edge, narrow highlighted chamfer and a softly recessed inner lip. Preserve the existing 1254-square layout, centered square opening, slim even-width rounded four sides, exact orthographic face-on tabletop projection, and transparent central cutout and outside. Small radius corners, no border width changes, labels, logos, objects, floor or cast shadows. Physically recognizable timber even when rendered about 7 points wide. True alpha outside the rail, one single frame.
+
+### Smoke-gray suede
+
+[Asset](App/Assets.xcassets/SmokeSuede.imageset/felt.jpg)
+
+Use case: photorealistic-natural. Production diffuse background texture for a finely made mahjong table. Full-bleed top-down macro photo of fine short-nap smoke-gray suede. Densely packed, velvety fine fibers at tabletop scale. A slightly warm gray with tightly controlled low spatial contrast, no washed-out stains, clouds, veins or broad brush pattern. Even, large-source diffuse lighting, perfect overhead projection, no vignette or trim. Edge-to-edge texture, consistent appearance at all four edges, with no people, objects, labels, highlights or color patches. Gray above medium luminance, real tactile quality and extremely fine detail.
+
+### Aged bronze rail
+
+[Asset](App/Assets.xcassets/AgedBronzeRail.imageset/rail.png)
+
+Use case: precise-object-edit. Production table rail sprite for an original mahjong app. Image 1 is the registration and silhouette reference. Replace walnut in the same aligned 1254-square overhead frame with dark aged cast bronze, restrained olive-brown charcoal patina in the recesses and smooth satin brown-metal edge highlights on the upper-left bevel, a softened broad crown, and a darker narrow inner lip. Physically solid high-end furniture detail, minute patina texture without green corrosion, smooth machining, organic warm black accents. Exact centered square frame with thin straight sides, small rounded identical corners and genuine transparent center opening and outside. No patterns, typography, extra inset strip, screws, decorations, objects, backgrounds or cast shadow beyond the rail.
+
+### Espresso saddle leather
+
+[Asset](App/Assets.xcassets/SaddleLeather.imageset/felt.jpg)
+
+Use case: photorealistic-natural. Full-bleed, overhead photograph of the very fine tight grain of satin espresso saddle leather laid flat as a tabletop. A uniform medium espresso brown field, highly realistic fine closed pores, minimal tonal variation, nearly matte with an incredibly subtle directional sheen, soft diffused overhead light. Smooth quiet finish for actual game play, no veins, stippling islands, broad patches, crease, fold, stitching, label, border, marble effect, shadows or large specular, no object. Edge-to-edge, full sharp flat texture and matching brightness on every edge.
+
+### Ivory & Redwood tile body
+
+[Tile front](App/Assets.xcassets/IvoryRedwoodFront.imageset/art.png) · [Tile back](App/Assets.xcassets/IvoryRedwoodBack.imageset/art.png)
+
+Use case: product-mockup. One production sprite sheet for two views of the same premium handmade mahjong tile. Image 1 is the exact shape and straight-on orthographic framing reference, never repeat its dark green color. One row of exactly TWO separately isolated vertical 5:7 blank tiles of the same outer dimensions and corner radius, facing straight up to the camera, arranged front left and reverse right, generous transparent gutter and outer margin, no collisions. Left: deeply warm pale cream ivory-inspired satin composite, extremely fine subtle diagonal structure and softly chamfered edges, with only a thin lower dark red-brown hardwood side and one miniature visible dovetail seam at bottom. Its large completely blank playing face must be even and very light for separately overlaid markings. Right: dark reddish-purple-brown rosewood-style reverse, subtle rich grain lengthwise and satin finished, tiny warm ivory lip and very subtle interlocking dovetail joinery across the bottom edge of the back. These are tactile finished objects with directional soft top-left studio lights and detailed but subdued edges. No marks, pips, letters, engraving, labels, graphic patterns, checkerboard, environment, trim outside the tile, third object, decorative ornament or obvious cast shadow. True transparency between and around the cutouts.
+
+### Pale Jade tile body
+
+[Tile front](App/Assets.xcassets/PaleJadeFront.imageset/art.png) · [Tile back](App/Assets.xcassets/PaleJadeBack.imageset/art.png)
+
+Use case: product-mockup. Two orthographic blank 5:7 mahjong tiles with genuine alpha for a native game, Image 1 shows the exact shape, straight overhead camera, and delicate bevel height. One row of exactly two isolated tiles of the same size, both upright and centered in their halves with a wide empty gutter and outer margins. Front left: refined opaque-white with a subtle pale sage celadon tint, glossy dense polished pale jade-like stone, smooth translucent edges and delicate internal depth on the bevel, large even luminous playing surface reserved for legible separately composited markings. Reverse right: the back of the same stone tile, slightly more saturated quiet blue-green jade, subtle cloudy depth confined to edges and extremely faint striations, softly rounded bevel. Premium lapidary craft, narrow soft edge light, beautiful glossy finish. No intense emerald green, pronounced marbling, fractures, cast shadows outside the tiles, background, labels, engraving, letters, symbols, pieces or props. Two shapes only and true transparent alpha around and between them.
+
+### Cream Bakelite tile body
+
+[Tile front](App/Assets.xcassets/CreamBakeliteFront.imageset/art.png) · [Tile back](App/Assets.xcassets/CreamBakeliteBack.imageset/art.png)
+
+Use case: product-mockup. Two production mahjong tile sprites with genuine alpha. Image 1 is the reference for true top-down orthographic projection and the identical vertical 5:7 footprint and radius of both tiles. One row with exactly two separate tiles, left blank front and right blank reverse, wide gutter and clear margins, no objects or environment. Vintage 1920s-inspired premium dense compression-molded phenolic plastic. Front left: satin warm egg-custard cream playing face with muted caramel depth concentrated around the bevel and the lower sidewall, real material with subtle specular edge, opaque surface with even matte tones for game markings. Reverse right: the reverse of the same tile, deep old butterscotch with a softly polished satin rounded bevel, mild age patina with warm highlights and muted golden-brown depth. Both visibly the same polished material with different aging where exposed. No saturated orange resin, brass, gold, obvious cracks, checkerboard, engraving, pips, letters, ornament, extra objects, digits or cast shadows. Soft directional studio light and true transparency around each piece.
+
+The back received a second ImageGen pass after play-size review.
+
+Use case: precise-object-edit. This is a single tile-back sprite for a premium original mahjong game. Keep exactly the existing full-frame vertical 5:7 silhouette, overhead view, dimensions, clipping corners, shape of the bevel and genuinely transparent negative space. Recolor the entire homogeneous blank tile from bright honey-orange to muted dark roasted chestnut vintage phenolic resin, subdued satin surface, espresso-brown darker bevel and one soft toasted cream-colored reflection on upper left, low saturation, a warm dark tea color with caramel only in the specular, not yellow or orange plastic. Shadows integrated within the tile shape. No text, inset rectangle, letters, patterns, markings, added objects, or background. This should sit quietly against dark espresso saddle leather while remaining identifiable near a warm cream front.
+
 ## Shuffle hand
 
 [Asset](App/Assets.xcassets/ShuffleHand.imageset/art.png)

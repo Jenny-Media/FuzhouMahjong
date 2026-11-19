@@ -23,6 +23,8 @@ struct DiscardFlight: View {
         let tile: Tile
         let isGold: Bool
         let globalSource: CGRect
+        let seat: Seat
+        let impact: TableImpact
         let id = UUID()
     }
 

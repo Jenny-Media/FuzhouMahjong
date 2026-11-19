@@ -11,6 +11,8 @@ struct MatchView<Session: MatchSession>: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.boardStyle) private var boardStyle
+    @Environment(\.tileStyle) private var tileStyle
     @ScaledMetric(relativeTo: .subheadline) private var primaryControlWidth = 80.0
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("table.sound.enabled") private var soundEnabled = true
@@ -22,6 +24,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var openingStage = OpeningDeal.Stage.shuffle(nil)
     @State private var openingAnimationRound: Int?
     @State private var audio = TableAudio()
+    @State private var touch = TableTouch()
     @State private var observedDiscard: TableDiscard?
     @State private var drawCue: DrawCue?
     @State private var drawFlight: DrawPickup.Flight?
@@ -40,6 +43,9 @@ struct MatchView<Session: MatchSession>: View {
     private var opening: Int? { session.openingRound }
     private var active: Bool { scenePhase == .active && !session.paused }
     private var playsHaptics: Bool { hapticsEnabled && active && !showsScorecard && !showsHistory && guideLesson == nil }
+    private var feedbackProfile: TableFeedbackProfile {
+        TableFeedbackProfile(tile: tileStyle.material, surface: boardStyle.surface)
+    }
     private var dealStage: OpeningDeal.Stage? {
         guard let opening else { return nil }
         return openingAnimationRound == opening ? openingStage : .shuffle(nil)
@@ -106,6 +112,10 @@ struct MatchView<Session: MatchSession>: View {
             guard let opening, active, !showsScorecard else { return }
             await performOpening(opening)
         }
+        .task(id: feedbackProfile) {
+            if soundEnabled { audio.prepare(for: feedbackProfile) }
+            if playsHaptics { touch.prepare(for: feedbackProfile) }
+        }
         .task(id: TurnState(revision: session.revision, ready: active && opening == nil)) {
             guard !session.managesComputerTurns, active, opening == nil, session.computerHasMove else { return }
             let delay = session.table?.step == .turn ? Int.random(in: 1150...1420) : Int.random(in: 220...360)
@@ -129,13 +139,13 @@ struct MatchView<Session: MatchSession>: View {
             guard let discardFlight else { return }
             do { try await Task.sleep(for: .seconds(0.7)) }
             catch { return }
-            if self.discardFlight == discardFlight { self.discardFlight = nil }
+            finishDiscardLanding(discardFlight)
         }
         .task(id: claimFlight) {
             guard let claimFlight else { return }
             do { try await Task.sleep(for: .seconds(0.7)) }
             catch { return }
-            if self.claimFlight == claimFlight { self.claimFlight = nil }
+            finishClaimLanding(claimFlight)
         }
         .onChange(of: session.table) { before, after in
             guard let before, let after else { return }
@@ -152,6 +162,10 @@ struct MatchView<Session: MatchSession>: View {
         }
         .onChange(of: soundEnabled) { _, enabled in
             if !enabled { audio.stop() }
+        }
+        .onChange(of: playsHaptics) { _, enabled in
+            if enabled { touch.prepare(for: feedbackProfile) }
+            else { touch.stop() }
         }
         .onChange(of: opening) { _, round in
             if round == nil {
@@ -173,6 +187,7 @@ struct MatchView<Session: MatchSession>: View {
         }
         .onDisappear {
             audio.stop()
+            touch.stop()
             resetDiscardMotion()
             if let opening { finishOpening(opening) }
         }
@@ -301,7 +316,7 @@ struct MatchView<Session: MatchSession>: View {
         let source: CGRect
     }
     private enum TableHaptic {
-        case selection, impact(UIImpactFeedbackGenerator.FeedbackStyle), win
+        case selection, contact(TableImpact), gold, win
     }
     private struct DrawCue {
         let id = UUID()
@@ -317,6 +332,7 @@ struct MatchView<Session: MatchSession>: View {
         openingStage = .shuffle(reduceMotion ? nil : .now)
         do {
             if reduceMotion {
+                playHaptic(.contact(.shuffle))
                 play(.shuffle)
                 try await Task.sleep(for: .milliseconds(650))
                 openingStage = .settled
@@ -349,7 +365,7 @@ struct MatchView<Session: MatchSession>: View {
             if session.table?.gold != nil {
                 guard !Task.isCancelled, active, opening == round else { return }
                 openingStage = .revealGold
-                playHaptic(.impact(.rigid))
+                playHaptic(.gold)
                 try await Task.sleep(for: .milliseconds(500))
             }
         } catch { return }
@@ -360,20 +376,12 @@ struct MatchView<Session: MatchSession>: View {
     private func performShuffle(_ round: Int) async throws {
         let clock = ContinuousClock()
         let began = clock.now
-        let heavy = UIImpactFeedbackGenerator(style: .heavy)
-        let rigid = UIImpactFeedbackGenerator(style: .rigid)
-        if playsHaptics {
-            heavy.prepare()
-            rigid.prepare()
-        }
+        if playsHaptics { touch.prepare(for: feedbackProfile) }
         for (index, sweep) in ShuffleMotion.sweeps.enumerated() {
             try await clock.sleep(until: began.advanced(by: .seconds(sweep.time)))
             guard !Task.isCancelled, active, opening == round else { throw CancellationError() }
             let strongBeat = index.isMultiple(of: 2)
-            if playsHaptics {
-                (strongBeat ? heavy : rigid).impactOccurred()
-                (strongBeat ? rigid : heavy).prepare()
-            }
+            playHaptic(.contact(strongBeat ? .shuffle : .sweep))
             if strongBeat { play(.shuffle) }
         }
         try await clock.sleep(until: began.advanced(by: .seconds(ShuffleMotion.duration)))
@@ -398,15 +406,14 @@ struct MatchView<Session: MatchSession>: View {
             if drawCue?.id == cue.id {
                 drawFlight = nil
                 drawCue = nil
-                if landed, !Task.isCancelled { playDrawLanding(for: cue) }
+                if landed, !Task.isCancelled { playDrawHaptic(for: cue) }
             }
         }
-        if reduceMotion, !Task.isCancelled { playDrawLanding(for: cue) }
         do {
             if cue.contactDelay > .zero { try await Task.sleep(for: cue.contactDelay) }
             guard !Task.isCancelled, active, session.table?.current == cue.seat else { return }
             if reduceMotion {
-                play(.draw, by: cue.seat)
+                landed = true
                 return
             }
             if !cue.fromReserve, cue.replacesFlowers {
@@ -414,17 +421,15 @@ struct MatchView<Session: MatchSession>: View {
                 try await Task.sleep(for: .seconds(DrawPickup.flowerDuration))
             }
             drawFlight = .init(fromReserve: cue.fromReserve || cue.replacesFlowers, duration: DrawPickup.duration)
-            try await Task.sleep(for: .seconds(DrawPickup.contactDelay))
-            play(.draw, by: cue.seat)
-            try await Task.sleep(for: .seconds(DrawPickup.duration - DrawPickup.contactDelay))
+            try await Task.sleep(for: .seconds(DrawPickup.duration))
             landed = true
         } catch { return }
     }
 
-    private func playDrawLanding(for cue: DrawCue) {
+    private func playDrawHaptic(for cue: DrawCue) {
         guard opening == nil, !arranging, let table = session.table, table.step == .turn,
               cue.seat == table.viewer, table.current == cue.seat, table.drawn != nil else { return }
-        playHaptic(.impact(.soft))
+        playHaptic(.contact(.draw))
     }
 
     private func readTableChange(from before: TableState, to after: TableState) {
@@ -441,7 +446,7 @@ struct MatchView<Session: MatchSession>: View {
             if let pendingThrow, pendingThrow.tileID == discard.tile.id, discard.seat == after.viewer,
                after.result == nil, !reduceMotion {
                 discardFlight = .init(tile: discard.tile, isGold: after.isGold(discard.tile),
-                                      globalSource: pendingThrow.source)
+                                      globalSource: pendingThrow.source, seat: discard.seat, impact: .discard)
             }
             pendingThrow = nil
         } else if let pendingThrow, !after.moves.contains(.discard(pendingThrow.tileID)) {
@@ -451,14 +456,17 @@ struct MatchView<Session: MatchSession>: View {
         let meld = meldingPlayer.flatMap { old, new in new.melds.first { !old.melds.contains($0) } }
         let contact = discard != nil || meld != nil
         var contactDelay: Duration = contact ? .milliseconds(168) : .zero
-        if before.step == .claim, let meld, let claimed = before.latestDiscard,
+        var animatesMeld = false
+        if before.step == .claim, let (_, player) = meldingPlayer, let meld, let claimed = before.latestDiscard,
            meld.from == claimed.seat, meld.tiles.contains(claimed.tile),
            meld.kind == .chow || meld.kind == .pung || meld.kind == .openKong {
             if after.latestDiscard == nil, discard == nil { observedDiscard = claimed }
             if !reduceMotion, let frame = offeredTileFrame,
                frame.round == before.roundNumber, frame.tileID == claimed.id {
                 if discardFlight?.tile.id == claimed.id { discardFlight = nil }
-                claimFlight = .init(tile: claimed.tile, isGold: before.isGold(claimed.tile), globalSource: frame.bounds)
+                claimFlight = .init(tile: claimed.tile, isGold: before.isGold(claimed.tile), globalSource: frame.bounds,
+                                    seat: player.seat, impact: TableImpact(meld: meld.kind))
+                animatesMeld = true
                 contactDelay = .seconds(DiscardFlight.duration)
             }
         }
@@ -466,16 +474,12 @@ struct MatchView<Session: MatchSession>: View {
         if before.result == nil, let winner = after.result?.winner {
             play(.win, by: winner)
             if winner == after.viewer { playHaptic(.win) }
-        } else if let (_, meldingPlayer) = meldingPlayer, let meld {
-            play(.meld, by: meldingPlayer.seat)
-            if meldingPlayer.seat == after.viewer {
-                playHaptic(.impact(meld.kind == .chow || meld.kind == .pung ? .light : .medium))
+        } else if let (_, player) = meldingPlayer, let meld {
+            if !animatesMeld {
+                playContact(TableImpact(meld: meld.kind), seat: player.seat)
             }
-        } else if let discard {
-            play(.discard, by: discard.seat)
-            if discard.seat == after.viewer, discardFlight?.tile.id != discard.tile.id {
-                playHaptic(.impact(.medium))
-            }
+        } else if let discard, discardFlight?.tile.id != discard.tile.id {
+            playContact(.discard, seat: discard.seat)
         }
 
         let legacyDraw = after.remaining < before.remaining || (after.drawn != nil && after.drawn != before.drawn) ||
@@ -507,14 +511,32 @@ struct MatchView<Session: MatchSession>: View {
         if isNearby, nearbyOwnMovesOnly {
             guard let seat, seat == session.table?.viewer else { return }
         }
-        audio.play(cue, volume: isNearby ? 0.64 : 0.85)
+        audio.play(cue, profile: feedbackProfile, volume: isNearby ? 0.64 : 0.85)
+    }
+
+    private func playContact(_ impact: TableImpact, seat: Seat) {
+        if let sound = impact.sound { play(sound, by: seat) }
+        if seat == session.table?.viewer { playHaptic(.contact(impact)) }
+    }
+
+    private func finishDiscardLanding(_ flight: DiscardFlight.Motion) {
+        guard discardFlight == flight else { return }
+        discardFlight = nil
+        playContact(flight.impact, seat: flight.seat)
+    }
+
+    private func finishClaimLanding(_ flight: DiscardFlight.Motion) {
+        guard claimFlight == flight else { return }
+        claimFlight = nil
+        playContact(flight.impact, seat: flight.seat)
     }
 
     private func playHaptic(_ cue: TableHaptic) {
         guard playsHaptics else { return }
         switch cue {
         case .selection: UISelectionFeedbackGenerator().selectionChanged()
-        case .impact(let style): UIImpactFeedbackGenerator(style: style).impactOccurred()
+        case .contact(let impact): touch.play(impact, profile: feedbackProfile)
+        case .gold: UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
         case .win: UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
     }
@@ -622,10 +644,7 @@ struct MatchView<Session: MatchSession>: View {
                 DiscardFlight(tile: discardFlight.tile, isGold: discardFlight.isGold, id: discardFlight.id,
                               source: DiscardFlight.inside(source, size: geometry.size),
                               destination: destination) {
-                    if self.discardFlight == discardFlight {
-                        self.discardFlight = nil
-                        playHaptic(.impact(.medium))
-                    }
+                    finishDiscardLanding(discardFlight)
                 }
             }
             if let claimFlight, let destination = anchors[.meldTile(claimFlight.tile.id)], !destination.isEmpty {
@@ -633,7 +652,7 @@ struct MatchView<Session: MatchSession>: View {
                 let source = claimFlight.globalSource.offsetBy(dx: -origin.x, dy: -origin.y)
                 DiscardFlight(tile: claimFlight.tile, isGold: claimFlight.isGold, id: claimFlight.id,
                               source: source, destination: destination) {
-                    if self.claimFlight == claimFlight { self.claimFlight = nil }
+                    finishClaimLanding(claimFlight)
                 }
                 .onAppear { presentedClaimFlightID = claimFlight.id }
                 .onDisappear {
@@ -855,10 +874,10 @@ struct MatchView<Session: MatchSession>: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, rim)
         .padding(.vertical, 5)
-        .background(TeaTheme.railFinish, in: RoundedRectangle(cornerRadius: 12))
+        .background(boardStyle.tray, in: RoundedRectangle(cornerRadius: 12))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(TeaTheme.brassShade.opacity(0.55))
+                .strokeBorder(boardStyle.trayEdge.opacity(0.65))
                 .allowsHitTesting(false)
         }
         .accessibilityElement(children: .contain)
