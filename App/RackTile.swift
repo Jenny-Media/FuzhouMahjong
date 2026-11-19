@@ -14,14 +14,20 @@ struct RackTile: View {
     let discard: () -> Void
     var throwDiscard: ((CGRect, CGRect) -> Void)? = nil
     var meldAction: (label: String, perform: () -> Void)? = nil
+    var swipeReady: (() -> Void)? = nil
     var reposition: ((CGPoint) -> Void)? = nil
     var moveEarlier: (() -> Void)? = nil
     var moveLater: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
-    @GestureState private var offset: CGSize = .zero
+    @GestureState private var drag = TileDrag()
     @State private var faceFrame: CGRect?
+
+    private struct TileDrag {
+        var offset: CGSize = .zero
+        var reachedRelease = false
+    }
 
     static func faceSize(for rackCellWidth: CGFloat?) -> CGSize {
         let faceWidth = max(0, (rackCellWidth ?? TeaTheme.hitTarget) - (rackCellWidth == nil ? 4 : 1.5))
@@ -34,6 +40,7 @@ struct RackTile: View {
         let face = Self.faceSize(for: rackCellWidth)
         let tileLabel = isGold ? "\(tile.kind.spokenName)，金牌" : tile.kind.spokenName
         let isMeldCandidate = meldAction != nil
+        let offset = drag.offset
         let showsPreview = (isMeldCandidate || (throwDiscard != nil && canDiscard)) && !reduceMotion && offset != .zero
 
         return Button(action: select) {
@@ -62,6 +69,9 @@ struct RackTile: View {
         .buttonStyle(PressStyle())
         .disabled(!canSelect)
         .highPriorityGesture(placement, including: canDiscard || meldAction != nil || reposition != nil ? .all : .none)
+        .onChange(of: drag.reachedRelease) { _, reachedRelease in
+            if reachedRelease { swipeReady?() }
+        }
         .zIndex(offset != .zero ? 1 : 0)
         .accessibilityLabel(isDrawn ? "\(drawLabel)，\(tileLabel)" : tileLabel)
         .accessibilityValue(isMeldCandidate ? "牌组候选" : "")
@@ -78,18 +88,18 @@ struct RackTile: View {
 
     private var placement: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
-            .updating($offset) { drag, offset, _ in
-                offset = reposition != nil || isUpwardSwipe(drag.translation) ? drag.translation : .zero
+            .updating($drag) { gesture, drag, _ in
+                drag.offset = reposition != nil || isUpwardSwipe(gesture.translation) ? gesture.translation : .zero
+                if swipeReady != nil, !drag.reachedRelease, canRelease(gesture) {
+                    drag.reachedRelease = true
+                }
             }
             .onEnded { drag in
                 if let reposition {
                     reposition(drag.location)
                     return
                 }
-                let up = -drag.translation.height
-                let projectedUp = -drag.predictedEndTranslation.height
-                guard canDiscard || meldAction != nil, up >= 22, isUpwardSwipe(drag.translation) else { return }
-                guard up >= 48 || projectedUp >= 77 else { return }
+                guard canRelease(drag) else { return }
                 if let meldAction {
                     meldAction.perform()
                 } else if !reduceMotion, let frame = faceFrame, let throwDiscard {
@@ -98,6 +108,12 @@ struct RackTile: View {
                     discard()
                 }
             }
+    }
+
+    private func canRelease(_ drag: DragGesture.Value) -> Bool {
+        let up = -drag.translation.height
+        return (canDiscard || meldAction != nil) && up >= 22 && isUpwardSwipe(drag.translation) &&
+            (up >= 48 || -drag.predictedEndTranslation.height >= 77)
     }
 
     private func isUpwardSwipe(_ translation: CGSize) -> Bool {

@@ -34,6 +34,7 @@ struct MatchView<Session: MatchSession>: View {
 
     private var opening: Int? { session.openingRound }
     private var active: Bool { scenePhase == .active && !session.paused }
+    private var playsHaptics: Bool { hapticsEnabled && active && !showsScorecard && !showsHistory && guideLesson == nil }
     private var dealStage: OpeningDeal.Stage? {
         guard let opening else { return nil }
         return openingAnimationRound == opening ? openingStage : .shuffle(nil)
@@ -260,6 +261,9 @@ struct MatchView<Session: MatchSession>: View {
         let tileID: Tile.ID
         let source: CGRect
     }
+    private enum TableHaptic {
+        case selection, impact(UIImpactFeedbackGenerator.FeedbackStyle), win
+    }
     private struct DrawCue {
         let id = UUID()
         let seat: Seat
@@ -304,7 +308,9 @@ struct MatchView<Session: MatchSession>: View {
                 try await Task.sleep(for: .milliseconds(350))
             }
             if session.table?.gold != nil {
+                guard !Task.isCancelled, active, opening == round else { return }
                 openingStage = .revealGold
+                playHaptic(.impact(.rigid))
                 try await Task.sleep(for: .milliseconds(500))
             }
         } catch { return }
@@ -317,7 +323,7 @@ struct MatchView<Session: MatchSession>: View {
         let began = clock.now
         let heavy = UIImpactFeedbackGenerator(style: .heavy)
         let rigid = UIImpactFeedbackGenerator(style: .rigid)
-        if hapticsEnabled {
+        if playsHaptics {
             heavy.prepare()
             rigid.prepare()
         }
@@ -325,7 +331,7 @@ struct MatchView<Session: MatchSession>: View {
             try await clock.sleep(until: began.advanced(by: .seconds(sweep.time)))
             guard !Task.isCancelled, active, opening == round else { throw CancellationError() }
             let strongBeat = index.isMultiple(of: 2)
-            if hapticsEnabled {
+            if playsHaptics {
                 (strongBeat ? heavy : rigid).impactOccurred()
                 (strongBeat ? rigid : heavy).prepare()
             }
@@ -348,12 +354,15 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func performDraw(_ cue: DrawCue) async {
+        var landed = false
         defer {
             if drawCue?.id == cue.id {
                 drawFlight = nil
                 drawCue = nil
+                if landed, !Task.isCancelled { playDrawLanding(for: cue) }
             }
         }
+        if reduceMotion, !Task.isCancelled { playDrawLanding(for: cue) }
         do {
             if cue.afterContact { try await Task.sleep(for: .milliseconds(168)) }
             guard !Task.isCancelled, active, session.table?.current == cue.seat else { return }
@@ -369,7 +378,14 @@ struct MatchView<Session: MatchSession>: View {
             try await Task.sleep(for: .seconds(DrawPickup.contactDelay))
             play(.draw, by: cue.seat)
             try await Task.sleep(for: .seconds(DrawPickup.duration - DrawPickup.contactDelay))
+            landed = true
         } catch { return }
+    }
+
+    private func playDrawLanding(for cue: DrawCue) {
+        guard opening == nil, !arranging, let table = session.table, table.step == .turn,
+              cue.seat == table.viewer, table.current == cue.seat, table.drawn != nil else { return }
+        playHaptic(.impact(.soft))
     }
 
     private func readTableChange(from before: TableState, to after: TableState) {
@@ -396,9 +412,20 @@ struct MatchView<Session: MatchSession>: View {
         let meld = meldingPlayer?.melds.last
         let replacedFlower = pairs.contains { $1.flowerCount > $0.flowerCount }
         let contact = discard != nil || meld != nil
-        if before.result == nil, let winner = after.result?.winner { play(.win, by: winner) }
-        else if let meldingPlayer { play(.meld, by: meldingPlayer.seat) }
-        else if let discard { play(.discard, by: discard.seat) }
+        if before.result == nil, let winner = after.result?.winner {
+            play(.win, by: winner)
+            if winner == after.viewer { playHaptic(.win) }
+        } else if let meldingPlayer, let meld {
+            play(.meld, by: meldingPlayer.seat)
+            if meldingPlayer.seat == after.viewer {
+                playHaptic(.impact(meld.kind == .chow || meld.kind == .pung ? .light : .medium))
+            }
+        } else if let discard {
+            play(.discard, by: discard.seat)
+            if discard.seat == after.viewer, discardFlight?.tile.id != discard.tile.id {
+                playHaptic(.impact(.medium))
+            }
+        }
 
         let legacyDraw = after.remaining < before.remaining || (after.drawn != nil && after.drawn != before.drawn) ||
             replacedFlower || meld.map { $0.kind != .chow && $0.kind != .pung } == true
@@ -430,6 +457,15 @@ struct MatchView<Session: MatchSession>: View {
             guard let seat, seat == session.table?.viewer else { return }
         }
         audio.play(cue, volume: isNearby ? 0.64 : 0.85)
+    }
+
+    private func playHaptic(_ cue: TableHaptic) {
+        guard playsHaptics else { return }
+        switch cue {
+        case .selection: UISelectionFeedbackGenerator().selectionChanged()
+        case .impact(let style): UIImpactFeedbackGenerator(style: style).impactOccurred()
+        case .win: UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
     }
 
     private var names: [Seat: String] {
@@ -534,7 +570,10 @@ struct MatchView<Session: MatchSession>: View {
                 let source = discardFlight.globalSource.offsetBy(dx: -origin.x, dy: -origin.y)
                 DiscardFlight(motion: discardFlight, source: DiscardFlight.inside(source, size: geometry.size),
                               destination: destination) {
-                    if self.discardFlight == discardFlight { self.discardFlight = nil }
+                    if self.discardFlight == discardFlight {
+                        self.discardFlight = nil
+                        playHaptic(.impact(.medium))
+                    }
                 }
             }
         }
@@ -818,7 +857,7 @@ struct MatchView<Session: MatchSession>: View {
             ids.remove(at: source)
             ids.insert(id, at: destination)
             session.rackOrder = ids
-            if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
+            playHaptic(.selection)
         }
         arrangementSelection = nil
     }
@@ -838,6 +877,8 @@ struct MatchView<Session: MatchSession>: View {
         let options = meldOptions(for: tile, among: rackMelds, table: table)
         let canDiscard = playable && options.isEmpty && table.moves.contains(.discard(tile.id))
         let canSelect = !options.isEmpty || canDiscard || (playable && table.moves.contains(.replaceFlower(tile.id)))
+        let swipeReady: (() -> Void)? = playsHaptics && (canDiscard || options.count == 1)
+            ? { playHaptic(.selection) } : nil
         let meldAction: (label: String, perform: () -> Void)? = if options.isEmpty {
             nil
         } else {
@@ -856,12 +897,12 @@ struct MatchView<Session: MatchSession>: View {
             guard selectedID != tile.id else { return }
             if reduceMotion { selectedID = tile.id }
             else { withAnimation(.easeOut(duration: 0.15)) { selectedID = tile.id } }
-            if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
+            playHaptic(.selection)
         }, discard: {
             send(.discard(tile.id))
         }, throwDiscard: { origin, released in
             send(.discard(tile.id), throwFrom: table.isGold(tile) ? origin : released)
-        }, meldAction: meldAction)
+        }, meldAction: meldAction, swipeReady: swipeReady)
     }
 
     private func meldOptions(for tile: Tile, among moves: [Move], table: TableState) -> [Move] {
@@ -888,7 +929,7 @@ struct MatchView<Session: MatchSession>: View {
     private func showMeldPreview(_ preview: MeldPreview) {
         guard meldPreview != preview else { return }
         meldPreview = preview
-        if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
+        playHaptic(.selection)
     }
 
     private func actions(_ table: TableState) -> some View {
@@ -1132,13 +1173,6 @@ struct MatchView<Session: MatchSession>: View {
         }
         meldPreview = nil
         selectedID = nil
-        guard hapticsEnabled else { return }
-        if move == .win { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-        else if case .discard = move {
-            if table.step == .opening { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-            else { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
-        }
-        else if move.meld != nil { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
     }
 
     private func resetDiscardMotion() {
