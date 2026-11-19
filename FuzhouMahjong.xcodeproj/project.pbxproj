@@ -40,6 +40,7 @@
 		AB1716F840DD121326EF3CAF /* FuzhouCore in Frameworks */ = {isa = PBXBuildFile; productRef = D6D5DCDDE6EFD0A0CEC2B596 /* FuzhouCore */; };
 		AB39673C311AE8A18BB0FE1C /* MaterialCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903AE3CFF5A301DEBD9715F1 /* MaterialCatalogTests.swift */; };
 		B67863D0CB40D80C746E8CF8 /* FoldLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */; };
+		B7625D1D3F8C4A537060443E /* TablePresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E91900CAA4008F8AFAFE2A3 /* TablePresentationTests.swift */; };
 		CC0B3F636CB4CDD0E2061F48 /* deal.wav in Resources */ = {isa = PBXBuildFile; fileRef = A31F82099C976632E7E997E9 /* deal.wav */; };
 		CD035E235820D8EE54117E53 /* InviteScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4E33F096EF56DB090D04C00 /* InviteScanner.swift */; };
 		CD9F30563E5833FBD30E0A2E /* PurchaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1003A09EAEE135277481D775 /* PurchaseTests.swift */; };
@@ -80,6 +81,7 @@
 		4FB8BEF56EA7EFE126CC8C53 /* LiveTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTable.swift; sourceTree = "<group>"; };
 		587F0BF9F6FB8E3EFB9DF5C5 /* NearbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyView.swift; sourceTree = "<group>"; };
 		59F88E239CA09EAD13179C07 /* meld.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = meld.wav; sourceTree = "<group>"; };
+		5E91900CAA4008F8AFAFE2A3 /* TablePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TablePresentationTests.swift; sourceTree = "<group>"; };
 		658421D9AF838407845449F1 /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
 		6607E458A43F0DFF33AB36D4 /* MatchSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchSession.swift; sourceTree = "<group>"; };
 		81AFEB6B07439A07178BD24D /* FuzhouPurchasesTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FuzhouPurchasesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -147,6 +149,7 @@
 				049D58468392C495742BBB6D /* FuzhouMahjong.storekit */,
 				903AE3CFF5A301DEBD9715F1 /* MaterialCatalogTests.swift */,
 				1003A09EAEE135277481D775 /* PurchaseTests.swift */,
+				5E91900CAA4008F8AFAFE2A3 /* TablePresentationTests.swift */,
 			);
 			path = PurchaseTests;
 			sourceTree = "<group>";
@@ -381,6 +384,7 @@
 			files = (
 				AB39673C311AE8A18BB0FE1C /* MaterialCatalogTests.swift in Sources */,
 				CD9F30563E5833FBD30E0A2E /* PurchaseTests.swift in Sources */,
+				B7625D1D3F8C4A537060443E /* TablePresentationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

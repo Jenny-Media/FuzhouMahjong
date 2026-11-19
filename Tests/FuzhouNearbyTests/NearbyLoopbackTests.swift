@@ -76,12 +76,17 @@ final class NearbyLoopbackTests: XCTestCase {
 
         var original: NearbySession? = NearbySession(loopback: true, seatFile: file, hostingAllowed: { false })
         original?.join(room, name: "小林")
-        try await until("seat saved") { original?.lastRoomName == "房主" }
+        try await until("host accepted the saved seat") { original?.connected == true }
         host.startMatch()
         try await until("initial hand received") { original?.table != nil }
         let hand = try XCTUnwrap(original?.table)
         original?.setBackgrounded(true)
         try await until("host pauses for the absent guest") { host.paused }
+        original?.setBackgrounded(false)
+        XCTAssertEqual(original?.recovery, .reconnecting)
+        original?.returnToLobby()
+        XCTAssertFalse(original?.isInRoom == true)
+        XCTAssertTrue(host.paused)
         original = nil
 
         let guest = NearbySession(loopback: true, seatFile: file, hostingAllowed: { false })
@@ -102,6 +107,161 @@ final class NearbyLoopbackTests: XCTestCase {
         XCTAssertEqual(host.players.count, 2)
         guest.leave()
         try await until("explicit exit releases the seat") { !guest.isInRoom && host.players.count == 1 }
+        XCTAssertNil(NearbySession(loopback: true, seatFile: file).lastRoomName)
+    }
+
+    @MainActor
+    func testGuestRestoresTheExactHandAfterInterruptionBeforeFirstReply() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let file = directory.appending(path: "seat.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = NearbySession(loopback: true)
+        defer { host.leave() }
+        host.create(name: "房主")
+        try await until("host is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        let proxy = try MoveTimeoutProxy(target: room, blockFirstReply: true)
+        defer { proxy.stop() }
+        try await until("proxy is ready") { proxy.room != nil }
+        var initial: NearbySession? = NearbySession(loopback: true, seatFile: file)
+        initial?.join(try XCTUnwrap(proxy.room), name: "小林")
+        try await until("host accepted guest without the reply") { host.canStart }
+        XCTAssertFalse(initial?.connected == true)
+        host.startMatch()
+        initial?.setBackgrounded(true)
+        proxy.stop()
+        initial = nil
+        try await until("host reserves the seat") { host.paused }
+        let held = try XCTUnwrap(host.players.first { $0.name == "小林" }?.seat)
+        let fresh = NearbySession(loopback: true, seatFile: file)
+        fresh.resumeLastRoom()
+        fresh.discoveredRoomsChanged([room.id: room])
+        try await until("fresh session recovers outstanding join") { fresh.connected && !host.paused }
+        XCTAssertEqual(fresh.table?.viewer, held)
+        XCTAssertEqual(fresh.table?.hand.count, 16)
+        let restored = try XCTUnwrap(fresh.table)
+        fresh.setBackgrounded(true)
+        try await until("host pauses again") { host.paused }
+        fresh.setBackgrounded(false)
+        fresh.returnToLobby()
+        fresh.resumeLastRoom()
+        fresh.discoveredRoomsChanged([room.id: room])
+        try await until("same private snapshot") { fresh.connected && !host.paused }
+        XCTAssertEqual(fresh.table, restored)
+    }
+
+    @MainActor
+    func testExplicitLobbyChoicesSupersedeSavedSearchAndRejectionRetainsPriorSeat() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let file = directory.appending(path: "seat.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = NearbySession(loopback: true), second = NearbySession(loopback: true)
+        first.create(name: "原桌")
+        second.create(name: "扫码桌")
+        defer { first.leave(); second.leave() }
+        try await until("both tables ready") { first.loopbackRoom != nil && second.loopbackRoom != nil }
+        let a = try XCTUnwrap(first.loopbackRoom), b = try XCTUnwrap(second.loopbackRoom)
+        let original = NearbySession(loopback: true, seatFile: file)
+        original.join(a, name: "牌友")
+        try await until("original guest connected") { original.connected }
+        let archive = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        // Install the previous app version's single-seat file ahead of relaunch.
+        try JSONSerialization.data(withJSONObject: XCTUnwrap(archive["confirmed"])).write(to: file)
+        first.startMatch()
+        try await until("original hand received") { original.table != nil }
+        original.setBackgrounded(true)
+        try await until("first host waits") { first.paused }
+        let reopened = NearbySession(loopback: true, seatFile: file)
+        reopened.resumeLastRoom()
+        XCTAssertEqual(reopened.inviteSearch, .searching)
+        reopened.cancelInviteSearch()
+        reopened.discoveredRoomsChanged([a.id: a])
+        XCTAssertFalse(reopened.isInRoom)
+        reopened.create(name: "新桌")
+        XCTAssertTrue(reopened.isHost)
+        reopened.leave()
+
+        reopened.discoveredRoomsChanged([:])
+        reopened.resumeLastRoom()
+        reopened.cancelInviteSearch()
+        reopened.discoveredRoomsChanged([a.id: a, b.id: b])
+        // Once B is in progress, a new guest should get the rejection from B.
+        let other = NearbySession(loopback: true)
+        other.join(b, name: "另一位")
+        try await until("B can start") { second.canStart }
+        second.startMatch()
+        reopened.joinInvite(b.id, name: "牌友")
+        try await until("B rejected new guest") { !reopened.isInRoom }
+        XCTAssertEqual(reopened.notice, "牌桌已满或对局已开始。")
+        let retry = NearbySession(loopback: true, seatFile: file)
+        XCTAssertEqual(retry.lastRoomName, "原桌")
+        retry.discoveredRoomsChanged([a.id: a])
+        retry.resumeLastRoom()
+        try await until("confirmed seat survived failed new join") { retry.connected && !first.paused }
+    }
+
+    @MainActor
+    func testLostLeaveConfirmationKeepsTheCredentialUntilTheHostResolvesIt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let file = directory.appending(path: "seat.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = NearbySession(loopback: true), guest = NearbySession(loopback: true, seatFile: file)
+        host.create(name: "房主")
+        defer { host.leave() }
+        try await until("room is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        let proxy = try MoveTimeoutProxy(target: room)
+        defer { proxy.stop() }
+        try await until("guest proxy is ready") { proxy.room != nil }
+        guest.join(try XCTUnwrap(proxy.room), name: "牌友")
+        try await until("guest seated") { guest.connected }
+        host.startMatch()
+        try await until("guest has active hand") { guest.table != nil }
+        proxy.block(.hostToGuest)
+        guest.leave()
+        try await until("host released guest") { host.players.count == 1 }
+        proxy.stop()
+        try await until("unconfirmed exit returns to lobby") { !guest.isInRoom }
+        XCTAssertNotNil(guest.notice)
+        let fresh = NearbySession(loopback: true, seatFile: file)
+        XCTAssertEqual(fresh.lastRoomName, "房主")
+        fresh.discoveredRoomsChanged([room.id: room])
+        fresh.resumeLastRoom()
+        try await until("host confirms the seat is gone") { fresh.lastRoomName == nil }
+        XCTAssertNil(NearbySession(loopback: true, seatFile: file).lastRoomName)
+    }
+
+    @MainActor
+    func testSeatStorageFailuresStayVisibleAndCanBeRetried() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let file = directory.appending(path: "seat.json")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try Data().write(to: directory) // A file blocks creation of the seat directory.
+        let host = NearbySession(loopback: true), guest = NearbySession(loopback: true, seatFile: file)
+        defer { host.leave() }
+        host.create(name: "房主")
+        try await until("listener ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        guest.join(room, name: "牌友")
+        try await until("seat write failed before sending join") { guest.seatStorageIssue != nil }
+        XCTAssertFalse(guest.isInRoom)
+        XCTAssertFalse(host.canStart)
+        try FileManager.default.removeItem(at: directory)
+        guest.retrySeatStorage()
+        XCTAssertNil(guest.seatStorageIssue)
+        guest.join(room, name: "牌友")
+        try await until("guest joined after storage recovered") { guest.connected }
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        guest.leave()
+        try await until("host confirms release") { !guest.isInRoom && !host.canStart }
+        XCTAssertNotNil(guest.seatStorageIssue)
+        XCTAssertNotNil(NearbySession(loopback: true, seatFile: file).lastRoomName)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        guest.retrySeatStorage()
+        XCTAssertNil(guest.seatStorageIssue)
         XCTAssertNil(NearbySession(loopback: true, seatFile: file).lastRoomName)
     }
 
@@ -430,7 +590,10 @@ private final class MoveTimeoutProxy {
     private var currentLink: UUID?
     private var blocked: (id: UUID, direction: Direction)?
 
-    init(target: DiscoveredRoom) throws {
+    private var blockFirstReply: Bool
+
+    init(target: DiscoveredRoom, blockFirstReply: Bool = false) throws {
+        self.blockFirstReply = blockFirstReply
         self.target = target
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
@@ -454,6 +617,10 @@ private final class MoveTimeoutProxy {
         let host = NearbyWire(NWConnection(to: target.endpoint, using: .tcp))
         let id = guest.id
         currentLink = id
+        if blockFirstReply {
+            block(.hostToGuest)
+            blockFirstReply = false
+        }
         links[id] = (guest, host)
         guest.opened = { $0.accepted() }
         host.opened = { $0.accepted() }
@@ -478,6 +645,6 @@ private final class MoveTimeoutProxy {
 
     func stop() {
         listener.cancel()
-        for link in Array(links.values) { link.guest.close() }
+        for link in Array(links.values) { link.guest.close(); link.host.close() }
     }
 }

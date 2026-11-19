@@ -1,3 +1,4 @@
+import FuzhouCore
 import StoreKitTest
 import XCTest
 
@@ -7,7 +8,7 @@ final class PurchaseFlowTests: XCTestCase {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = ["-nearby.nickname", "测试房主"]
+        app.launchArguments = ["-nearby.nickname", "测试房主", "-nearby.customRulesetID", ""]
         app.launch()
         let store = try configureStore()
         defer { store.clearTransactions() }
@@ -34,6 +35,33 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertTrue(rules.label.contains(desiredTitle))
         app.buttons["离开牌桌"].tap()
         XCTAssertTrue(scan.waitForExistence(timeout: 5))
+    }
+
+    func testHostSetupHonorsSavedCustomRules() async throws {
+        continueAfterFailure = false
+        let preset = FuzhouHouseRules(name: "同桌家规")
+        let data = try JSONEncoder().encode([preset]).map { String(format: "%02x", $0) }.joined()
+        let app = XCUIApplication()
+        app.launchArguments = ["-table.custom-rulesets.v1", "<\(data)>", "-nearby.customRulesetID", preset.id.uuidString]
+        app.launch()
+        let store = try configureStore()
+        defer { store.clearTransactions() }
+        _ = try await store.buyProduct(identifier: "media.jenny.FuzhouMahjong.lifetime")
+        app.terminate()
+        app.launch()
+        app.buttons["nearby-entry"].tap()
+        let create = app.buttons["host-create"]
+        reveal(create, in: app)
+        create.tap()
+        let menu = app.buttons["custom-rules-menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        XCTAssertTrue(menu.label.contains(preset.name))
+        XCTAssertFalse(app.switches["pure-suit-bonus"].exists)
+        app.buttons["confirm-host-create"].tap()
+        let rules = app.descendants(matching: .any).matching(identifier: "room-ruleset").firstMatch
+        XCTAssertTrue(rules.waitForExistence(timeout: 5))
+        XCTAssertTrue(rules.label.contains(preset.name))
+        app.buttons["离开牌桌"].tap()
     }
 
     func testFreeAllowanceHostOfferTrialAndLifetimeInPortrait() throws {

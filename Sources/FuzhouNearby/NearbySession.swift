@@ -33,9 +33,23 @@ public final class NearbySession: MatchSession {
         let guestName: String
     }
 
+    private struct GuestSeats: Codable, Equatable {
+        var confirmed: GuestSeat?
+        var pending: GuestSeat?
+
+        var last: GuestSeat? { pending ?? confirmed }
+
+        func seat(in room: UUID) -> GuestSeat? {
+            if pending?.roomID == room { return pending }
+            return confirmed?.roomID == room ? confirmed : nil
+        }
+    }
+
     private let seatFile: URL?
-    private var savedSeat: GuestSeat?
-    public var lastRoomName: String? { savedSeat?.hostName }
+    private var seats = GuestSeats()
+    private var returningToSeat = false
+    public private(set) var seatStorageIssue: String?
+    public var lastRoomName: String? { seats.last?.hostName }
 
     @ObservationIgnored private let hostingAllowed: @MainActor () -> Bool
 
@@ -49,12 +63,18 @@ public final class NearbySession: MatchSession {
          hostingAllowed: @escaping @MainActor () -> Bool = { true }) {
         self.hostingAllowed = hostingAllowed
         self.seatFile = seatFile
-        savedSeat = seatFile.flatMap { try? Data(contentsOf: $0) }
-            .flatMap { try? JSONDecoder().decode(GuestSeat.self, from: $0) }
         advertises = !loopback
         self.recoveryTimeout = recoveryTimeout
         self.inviteTimeout = inviteTimeout
         self.moveReplyTimeout = moveReplyTimeout
+        if let seatFile, let data = try? Data(contentsOf: seatFile) {
+            let decoder = JSONDecoder()
+            if let previous = try? decoder.decode(GuestSeat.self, from: data) {
+                seats.confirmed = previous
+            } else if let saved = try? decoder.decode(GuestSeats.self, from: data) {
+                seats = saved
+            }
+        }
     }
 
     var loopbackRoom: DiscoveredRoom? {
@@ -128,6 +148,7 @@ public final class NearbySession: MatchSession {
     private var suspended = false
     private var didConnect = false
     private var leaving = false
+    private var leaveDeadline: Task<Void, Never>?
     private var submission: Submission?
     private var submissionTimeout: Task<Void, Never>?
 
@@ -214,11 +235,12 @@ public final class NearbySession: MatchSession {
     public func join(_ room: DiscoveredRoom, name: String) {
         guard !isInRoom else { return }
         cancelInviteSearch()
-        let previous = savedSeat.flatMap { $0.roomID == room.id ? $0 : nil }
+        let previous = seats.seat(in: room.id)
         guard previous == nil || previous?.hostKey == room.publicKey else {
             notice = "无法确认原来的房主，请向房主确认牌桌。"
             return
         }
+        returningToSeat = previous != nil
         target = room
         guestName = previous?.guestName ?? NearbyMatch.normalizedName(name)
         seatKey = previous?.seatKey ?? UUID()
@@ -228,45 +250,53 @@ public final class NearbySession: MatchSession {
     }
 
     public func resumeLastRoom() {
-        guard let savedSeat else { return }
-        joinInvite(savedSeat.roomID, name: savedSeat.guestName)
+        guard let last = seats.last else { return }
+        joinInvite(last.roomID, name: last.guestName)
     }
 
     public func forgetLastRoom() {
-        guard !isInRoom else { return }
-        if pendingInvite == savedSeat?.roomID { cancelInviteSearch() }
-        clearSavedSeat()
+        guard !isInRoom, let last = seats.last else { return }
+        if pendingInvite == last.roomID { cancelInviteSearch() }
+        forgetSeat(in: last.roomID)
     }
 
-    private func rememberSeat(in room: DiscoveredRoom) {
-        guard let seatFile else { return }
-        let seat = GuestSeat(roomID: room.id, hostKey: room.publicKey, hostName: room.name,
-                             seatKey: seatKey, guestName: guestName)
-        guard seat != savedSeat else { return }
+    private func forgetSeat(in room: UUID) {
+        guard seats.seat(in: room) != nil else { return }
+        if seats.pending?.roomID == room { seats.pending = nil }
+        if seats.confirmed?.roomID == room { seats.confirmed = nil }
+        persistSeats()
+    }
+
+    public func retrySeatStorage() {
+        if seatStorageIssue != nil { persistSeats() }
+    }
+
+    @discardableResult
+    private func persistSeats() -> Bool {
+        guard let seatFile else { return true }
         do {
-            var directory = seatFile.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            var attributes = URLResourceValues()
-            attributes.isExcludedFromBackup = true
-            try directory.setResourceValues(attributes)
-            let data = try JSONEncoder().encode(seat)
-            #if os(iOS)
-            try data.write(to: seatFile, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            #else
-            try data.write(to: seatFile, options: .atomic)
-            #endif
-            savedSeat = seat
+            if seats.last == nil {
+                do { try FileManager.default.removeItem(at: seatFile) }
+                catch let error as CocoaError where error.code == .fileNoSuchFile {}
+            } else {
+                var directory = seatFile.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                var attributes = URLResourceValues()
+                attributes.isExcludedFromBackup = true
+                try directory.setResourceValues(attributes)
+                let data = try JSONEncoder().encode(seats)
+                #if os(iOS)
+                try data.write(to: seatFile, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                #else
+                try data.write(to: seatFile, options: .atomic)
+                #endif
+            }
+            seatStorageIssue = nil
+            return true
         } catch {
-            notice = "座位未能保存，退出应用后可能无法返回本桌。"
+            seatStorageIssue = seats.last == nil ? "未能清除上次的座位记录。" : "未能保存座位记录。"
+            return false
         }
-    }
-
-    private func clearSavedSeat() {
-        if let seatFile, FileManager.default.fileExists(atPath: seatFile.path) {
-            do { try FileManager.default.removeItem(at: seatFile) }
-            catch { notice = "未能清除上次的座位，请重试。"; return }
-        }
-        savedSeat = nil
     }
 
     public func joinInvite(_ id: UUID, name: String) {
@@ -425,8 +455,13 @@ public final class NearbySession: MatchSession {
         beginRecovery()
     }
 
+    public func returnToLobby() {
+        guard host == nil, target != nil, !connected else { return }
+        resetRoom()
+    }
+
     public func leave() {
-        if let target, savedSeat?.roomID == target.id { clearSavedSeat() }
+        guard !leaving else { return }
         if host != nil {
             let closing = Array(links.values)
             for link in closing where link.seat != nil { sendToGuest(.closed, wire: link.wire) }
@@ -438,10 +473,16 @@ public final class NearbySession: MatchSession {
         // An explicit exit releases the guest seat. A transport loss keeps it reserved.
         if connected, let wire = guest?.wire, sendToHost(.leave) {
             leaving = true
-            wire.finishSending()
+            // Keep receiving until the host confirms that it released this seat.
+            leaveDeadline = Task { [weak wire] in
+                do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                wire?.close()
+            }
             return
         }
+        let hadGuestSeat = target != nil
         resetRoom()
+        if hadGuestSeat { notice = "未收到房主的离桌确认。可返回上次牌桌查看座位。" }
     }
 
     private func resetRoom() {
@@ -456,7 +497,10 @@ public final class NearbySession: MatchSession {
         computerTurn = nil
         connected = false
         leaving = false
+        leaveDeadline?.cancel()
+        leaveDeadline = nil
         didConnect = false
+        returningToSeat = false
         retry?.cancel()
         retry = nil
         clearRecovery()
@@ -649,6 +693,16 @@ public final class NearbySession: MatchSession {
         } catch { wire.close() }
     }
 
+    private func prepareSeatForJoin(_ room: DiscoveredRoom) -> Bool {
+        if seats.seat(in: room.id) != nil {
+            return seatStorageIssue == nil || persistSeats()
+        }
+        // Preserve the last confirmed seat until this host acknowledges the new one.
+        seats.pending = GuestSeat(roomID: room.id, hostKey: room.publicKey, hostName: room.name,
+                                  seatKey: seatKey, guestName: guestName)
+        return persistSeats()
+    }
+
     private func connect(_ room: DiscoveredRoom) {
         guard guest == nil, !suspended else { return }
         let own = Curve25519.KeyAgreement.PrivateKey()
@@ -659,6 +713,7 @@ public final class NearbySession: MatchSession {
             let guestKey = own.publicKey.rawRepresentation
             wire.opened = { [weak self] wire in
                 guard let self, guest?.wire.id == wire.id else { return }
+                guard prepareSeatForJoin(room) else { resetRoom(); return }
                 wire.send(guestKey)
                 _ = sendToHost(.join(seatKey, guestName))
             }
@@ -679,22 +734,25 @@ public final class NearbySession: MatchSession {
             switch try JSONDecoder().decode(HostMessage.self, from: clear) {
             case .update(let update):
                 guard !leaving else { return }
-                let resuming = !connected && (didConnect || savedSeat?.roomID == target.id)
+                let resuming = !connected && (didConnect || returningToSeat)
                 connected = true
                 didConnect = true
                 clearRecovery()
                 notice = nil
-                rememberSeat(in: target)
+                if let accepted = seats.seat(in: target.id), seats.pending != nil {
+                    seats = GuestSeats(confirmed: accepted)
+                    persistSeats()
+                }
                 wire.accepted()
                 publish(update, resuming: resuming)
             case .rejected:
-                let returning = savedSeat?.roomID == target.id
-                if returning { clearSavedSeat() }
+                let returning = returningToSeat
+                forgetSeat(in: target.id)
                 resetRoom()
                 notice = returning ? "原来的座位已释放。请让房主新建牌桌后再邀请你。" : "牌桌已满或对局已开始。"
             case .closed:
                 let hostEndedRoom = !leaving
-                if savedSeat?.roomID == target.id { clearSavedSeat() }
+                forgetSeat(in: target.id)
                 resetRoom()
                 if hostEndedRoom { notice = "房主已结束牌桌。" }
             }
@@ -709,6 +767,7 @@ public final class NearbySession: MatchSession {
         revision += 1
         if leaving {
             resetRoom()
+            notice = "未收到房主的离桌确认。可返回上次牌桌查看座位。"
         } else if !didConnect, !suspended {
             target = nil
             notice = "没能加入牌桌。请检查 Wi-Fi，再试一次。"

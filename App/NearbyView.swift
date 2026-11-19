@@ -47,7 +47,17 @@ struct NearbyView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if let recovery = session.recovery { recoveryBar(recovery) }
+            VStack(spacing: 0) {
+                if let issue = session.seatStorageIssue {
+                    HStack {
+                        Text(issue).font(.subheadline)
+                        Button("重试") { session.retrySeatStorage() }
+                    }
+                    .padding(8)
+                    .teaPanel(corner: 0)
+                }
+                if let recovery = session.recovery { recoveryBar(recovery) }
+            }
         }
         .task { session.browse() }
         .onDisappear {
@@ -110,7 +120,7 @@ struct NearbyView: View {
                 if state == .unavailable {
                     Button("重试") { session.retryRecovery() }.buttonStyle(TeaButtonStyle())
                 }
-                Button("返回大厅") { session.leave() }
+                Button("返回大厅") { session.returnToLobby() }
                     .buttonStyle(TeaButtonStyle(prominent: false))
                     .accessibilityIdentifier("recovery-lobby")
             }
@@ -190,7 +200,10 @@ struct NearbyView: View {
                     .font(.headline).foregroundStyle(TeaTheme.brass)
                     .accessibilityAddTraits(.isHeader)
                 Text("加入牌友的牌桌始终免费。").font(.footnote).foregroundStyle(TeaTheme.muted)
-                Button { showsScanner = true } label: {
+                Button {
+                    session.cancelInviteSearch()
+                    showsScanner = true
+                } label: {
                     Label("扫码加入", systemImage: "qrcode.viewfinder")
                         .frame(maxWidth: .infinity)
                 }
@@ -246,6 +259,7 @@ struct NearbyView: View {
             .teaPanel()
 
             Button {
+                session.cancelInviteSearch()
                 if access.authorizeHosting() { showsHostSetup = true }
                 else { purchaseReason = .hosting }
             } label: { Label("创建牌桌", systemImage: "plus").frame(maxWidth: .infinity) }

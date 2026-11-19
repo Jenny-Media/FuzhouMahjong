@@ -12,6 +12,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     let showsDrawDock: Bool
     let flyingDiscard: Tile.ID?
     let flyingClaim: Tile.ID?
+    @Binding var inspectedSeat: Seat?
     let onOfferedTileFrame: (Tile.ID, CGRect) -> Void
     @ViewBuilder let controls: () -> Controls
     @ViewBuilder let drawDock: () -> DrawDock
@@ -21,7 +22,6 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     @Environment(\.boardStyle) private var board
     @Environment(\.tileStyle) private var tileStyle
 
-    @State private var inspectedSeat: Seat?
 
     private let inset: CGFloat = 10
     private let gap: CGFloat = 6
@@ -43,6 +43,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         .modifier(Felt(gameTable: true))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("table-surface")
+        .onChange(of: table.roundNumber) { inspectedSeat = nil }
         .sheet(item: $inspectedSeat) { seat in
             NavigationStack {
                 ScrollView {
@@ -239,15 +240,19 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     let slot = OpeningDeal.opponentSlot(index, in: CGRect(origin: .zero, size: size))
                     OpeningDeal.drawBack(back, in: context, at: slot.center, width: slot.width)
                 }
-                if player.seat == table.dealer, table.isOpeningLayout, table.lastDraw?.isOpeningDeal == true,
-                   opening?.dealerTileLanded(at: time.date) ?? true {
+                let extraLanded = opening.map {
+                    player.seat == table.dealer && table.lastDraw?.isOpeningDeal == true && $0.dealerTileLanded(at: time.date)
+                } ?? (player.rackCount > FuzhouMatch.rackSize)
+                if extraLanded {
                     let extra = OpeningDeal.opponentDealerSlot(in: CGRect(origin: .zero, size: size))
                     OpeningDeal.drawBack(back, in: context, at: extra.center, width: extra.width)
                 }
             }
         }
         .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("手牌 \(player.rackCount) 张")
+        .accessibilityIdentifier("concealed-rack-\(player.seat.id)")
     }
 
     private func meldSummary(_ melds: [Meld], width: CGFloat, height: CGFloat) -> some View {

@@ -72,8 +72,9 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                    handNumber: dealerTurns % 4 + 1, matchFinished: matchFinished, current: current,
                    step: step, offeredTile: offeredTile, moves: openingDiscards == nil ? moves : [.win, .pass],
                    players: Seat.allCases.map {
-                       .init(seat: $0, rackCount: hands[$0.id].count, flowerCount: flowers[$0.id].count,
-                             discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id])
+                       let count = hands[$0.id].count + ($0 == current && drawn != nil ? 1 : 0)
+                       return .init(seat: $0, rackCount: count, flowerCount: flowers[$0.id].count,
+                                    discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id])
                    }, result: result, discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards)
     }

@@ -438,6 +438,13 @@ final class MatchTests: XCTestCase {
         let kong = try XCTUnwrap(match.legalMoves(for: .west).first {
             if case .meld(.openKong, _) = $0 { true } else { false }
         })
+        var afterChow = match
+        XCTAssertTrue(afterChow.apply(chow, by: .south))
+        passEveryoneElse(&afterChow, except: .south)
+        let claimant = afterChow.table(for: .south)
+        XCTAssertNil(claimant.drawn)
+        XCTAssertEqual(afterChow.table(for: .east).players[Seat.south.id].rackCount, claimant.hand.count)
+
         XCTAssertTrue(match.apply(chow, by: .south))
         XCTAssertTrue(match.apply(kong, by: .west))
         passEveryoneElse(&match, except: .west)
@@ -445,6 +452,9 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(table.current, .west)
         XCTAssertNotNil(table.drawn)
         XCTAssertEqual(table.hand.count, 13)
+        let observer = match.table(for: .north)
+        XCTAssertEqual(observer.players[Seat.west.id].rackCount, 14)
+        XCTAssertNil(observer.drawn)
         XCTAssertEqual(table.players[Seat.west.id].melds.first?.kind, .openKong)
         XCTAssertTrue(table.players[Seat.east.id].discards.isEmpty)
         let replacement = try XCTUnwrap(table.lastDraw)
@@ -559,6 +569,30 @@ final class MatchTests: XCTestCase {
             XCTAssertEqual(match.dealer, repeats ? firstDealer : firstDealer.advanced(1))
             XCTAssertEqual(match.scores.reduce(0, +), 0)
         }
+    }
+
+    func testOpponentCountFollowsTheExtraDrawWithoutRevealingItsFace() throws {
+        var random = TestRandom(seed: 1)
+        var match = FuzhouMatch(using: &random)
+        for _ in 0..<13 {
+            let seat = try XCTUnwrap(Seat.allCases.first { !match.legalMoves(for: $0).isEmpty })
+            let moves = match.legalMoves(for: seat)
+            let claim = moves.first { if case .meld = $0 { true } else { false } }
+            let move: Move = moves.contains(.win) ? .win : claim ?? (moves.contains(.pass) ? .pass : moves[0])
+            XCTAssertTrue(match.apply(move, by: seat))
+            if match.current == .north && match.table(for: .north).players[3].melds.first?.kind == .pung {
+                let owner = match.table(for: .north)
+                XCTAssertEqual(match.table(for: .south).players[3].rackCount, owner.hand.count + (owner.drawn == nil ? 0 : 1))
+            }
+        }
+        let owner = match.table(for: .north)
+        let draw = try XCTUnwrap(owner.drawn)
+        XCTAssertEqual(owner.hand.count, 13)
+        XCTAssertEqual(owner.players[Seat.north.id].melds.first?.kind, .pung)
+        XCTAssertNil(match.table(for: .south).drawn)
+        XCTAssertEqual(match.table(for: .south).players[Seat.north.id].rackCount, 14)
+        XCTAssertTrue(match.apply(.discard(draw.id), by: .north))
+        XCTAssertEqual(match.table(for: .south).players[Seat.north.id].rackCount, 13)
     }
 
     func testNearbySeatReservationAndPrivateSnapshot() throws {
