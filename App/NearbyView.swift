@@ -96,7 +96,7 @@ struct NearbyView: View {
         .sheet(isPresented: $showsScanner) {
             InviteScanner { id in
                 showsScanner = false
-                session.joinInvite(id, name: nickname)
+                session.joinInvite(id, name: { NearbyNickname.storedName })
             }
         }
         .confirmationDialog("离开当前牌桌？", isPresented: $confirmsLeave, titleVisibility: .visible) {
@@ -198,7 +198,7 @@ struct NearbyView: View {
                     Menu {
                         ForEach(session.earlierRooms, id: \.id) { room in
                             Button("返回\(room.name)的牌桌 · \(room.id.uuidString.prefix(4))") {
-                                session.joinInvite(room.id, name: nickname)
+                                session.joinInvite(room.id, name: { NearbyNickname.storedName })
                             }
                         }
                         Button("忘记上次牌桌", role: .destructive) { session.forgetLastRoom() }
@@ -332,6 +332,7 @@ struct NearbyView: View {
 
 enum NearbyNickname {
     static let storageKey = "nearby.nickname"
+    static var storedName: String { UserDefaults.standard.string(forKey: storageKey) ?? "" }
     private static let suggestions = [
         "安", "宝", "彬", "晨", "川", "春", "丹", "冬", "东", "芳", "菲", "飞", "峰", "福", "海", "禾",
         "红", "华", "欢", "杰", "晶", "静", "凯", "康", "兰", "岚", "乐", "林", "琳", "龙", "梅", "米",

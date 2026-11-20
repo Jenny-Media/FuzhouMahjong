@@ -99,12 +99,13 @@ final class NearbyLoopbackTests: XCTestCase {
         XCTAssertFalse(guest.isInRoom)
         XCTAssertEqual(guest.lastRoomName, "房主")
         guest.discoveredRoomsChanged([:])
-        guest.resumeLastRoom()
+        guest.joinInvite(room.id, name: { "新昵称" })
         guest.discoveredRoomsChanged([room.id: room])
         try await until("original seat resumes without purchase") { guest.connected && !host.paused }
         XCTAssertEqual(guest.table, hand)
         XCTAssertNil(guest.openingRound)
         XCTAssertEqual(host.players.count, 2)
+        XCTAssertEqual(guest.players.first(where: { $0.seat == hand.viewer })?.name, "小林")
         guest.leave()
         try await until("explicit exit releases the seat") { !guest.isInRoom && host.players.count == 1 }
         XCTAssertNil(NearbySession(loopback: true, seatFile: file).lastRoomName)
@@ -455,6 +456,43 @@ final class NearbyLoopbackTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingInviteUsesLatestNicknameWhenHostAppears() async throws {
+        let host = NearbySession(loopback: true), guest = NearbySession(loopback: true)
+        defer { guest.leave(); host.leave() }
+        host.create(name: "房主")
+        try await until("host is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+
+        let nickname = NicknamePreference()
+        guest.joinInvite(room.id, name: { nickname.value })
+        XCTAssertEqual(guest.inviteSearch, .searching)
+        nickname.value = "新昵称"
+        guest.discoveredRoomsChanged([room.id: room])
+        try await until("guest joins when the host is discovered") { guest.connected }
+        XCTAssertEqual(host.players.first(where: { $0.seat != .east })?.name, "新昵称")
+    }
+
+    @MainActor
+    func testInviteRetryUsesLatestNicknameAfterSearchTimeout() async throws {
+        let host = NearbySession(loopback: true)
+        let guest = NearbySession(loopback: true, inviteTimeout: .milliseconds(160))
+        defer { guest.leave(); host.leave() }
+        host.create(name: "房主")
+        try await until("host is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+
+        let nickname = NicknamePreference()
+        guest.joinInvite(room.id, name: { nickname.value })
+        try await until("missing invite reaches a bounded result") { guest.inviteSearch == .unavailable }
+        nickname.value = "新昵称"
+        guest.discoveredRoomsChanged([room.id: room])
+        XCTAssertFalse(guest.isInRoom)
+        guest.retryInviteSearch()
+        try await until("guest joins after retrying the invite") { guest.connected }
+        XCTAssertEqual(host.players.first(where: { $0.seat != .east })?.name, "新昵称")
+    }
+
+    @MainActor
     func testHostedComputersProgressWithoutAViewAndPauseForAnOfflineGuest() async throws {
         let host = NearbySession(loopback: true)
         let guest = NearbySession(loopback: true)
@@ -711,6 +749,11 @@ final class NearbyLoopbackTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(30))
         }
         guard condition() else { throw Failure.timeout(reason) }
+    }
+
+    @MainActor
+    private final class NicknamePreference {
+        var value = "旧昵称"
     }
 
     private enum Failure: Error { case timeout(String) }

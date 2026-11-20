@@ -137,8 +137,10 @@ public struct NearbyMatch: Sendable {
     }
 
     public static func normalizedName(_ name: String, fallback: String = "牌友") -> String {
-        let clean = String(name.trimmingCharacters(in: .whitespacesAndNewlines)
-            .filter { !$0.isNewline && !$0.isASCIIControl }.prefix(12))
+        let whitespace: CharacterSet = .whitespacesAndNewlines
+        let filtered = name.filter { !$0.isNewline && !$0.isASCIIControl }
+            .trimmingCharacters(in: whitespace)
+        let clean = String(filtered.prefix(12)).trimmingCharacters(in: whitespace)
         return clean.isEmpty ? fallback : clean
     }
 }

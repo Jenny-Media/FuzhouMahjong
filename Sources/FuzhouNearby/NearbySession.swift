@@ -34,6 +34,11 @@ public final class NearbySession: MatchSession {
         var confirmed: Bool? = false // Absent in the two legacy file layouts.
     }
 
+    private struct PendingInvite {
+        let roomID: UUID
+        let name: @MainActor () -> String
+    }
+
     private struct SeatArchive: Codable {
         let version: Int
         let rooms: [GuestSeat] // Most recently selected last.
@@ -185,7 +190,7 @@ public final class NearbySession: MatchSession {
     private var target: DiscoveredRoom?
     private var seatKey = UUID()
     private var guestName = ""
-    private var pendingInvite: UUID?
+    private var pendingInvite: PendingInvite?
     private var retry: Task<Void, Never>?
     private var recoveryDeadline: Task<Void, Never>?
     private var inviteDeadline: Task<Void, Never>?
@@ -281,10 +286,10 @@ public final class NearbySession: MatchSession {
 
     public func join(_ room: DiscoveredRoom, name: String) {
         beginLobbyChoice()
-        startJoin(room, name: name)
+        startJoin(room, name: { name })
     }
 
-    private func startJoin(_ room: DiscoveredRoom, name: String) {
+    private func startJoin(_ room: DiscoveredRoom, name: @MainActor () -> String) {
         guard !isInRoom, !needsSeatRead || readSeats() else { return }
         cancelInviteSearch()
         let previous = seat(in: room.id)
@@ -295,7 +300,7 @@ public final class NearbySession: MatchSession {
         }
         returningToSeat = previous != nil
         target = room
-        guestName = previous?.guestName ?? NearbyMatch.normalizedName(name)
+        guestName = previous?.guestName ?? NearbyMatch.normalizedName(name())
         seatKey = previous?.seatKey ?? UUID()
         didConnect = false
         notice = "正在加入牌桌…"
@@ -307,7 +312,7 @@ public final class NearbySession: MatchSession {
         if automatically && pendingInvite != nil { return }
         beginLobbyChoice()
         automaticallyReturning = automatically
-        findRoom(last.roomID, name: last.guestName)
+        findRoom(PendingInvite(roomID: last.roomID, name: { last.guestName }))
     }
 
     /// An explicit lobby action takes priority until an automatic return is acknowledged.
@@ -364,17 +369,21 @@ public final class NearbySession: MatchSession {
     }
 
     public func joinInvite(_ id: UUID, name: String) {
-        beginLobbyChoice()
-        findRoom(id, name: name)
+        joinInvite(id, name: { name })
     }
 
-    private func findRoom(_ id: UUID, name: String) {
+    /// Reads the current nickname when a room is found and a new seat is needed.
+    public func joinInvite(_ id: UUID, name: @escaping @MainActor () -> String) {
+        beginLobbyChoice()
+        findRoom(PendingInvite(roomID: id, name: name))
+    }
+
+    private func findRoom(_ invite: PendingInvite) {
         guard !isInRoom, !needsSeatRead || readSeats() else { return }
-        guestName = NearbyMatch.normalizedName(name)
-        if let room = rooms.first(where: { $0.id == id }) {
-            startJoin(room, name: guestName)
+        if let room = rooms.first(where: { $0.id == invite.roomID }) {
+            startJoin(room, name: invite.name)
         } else {
-            pendingInvite = id
+            pendingInvite = invite
             inviteSearch = .searching
             notice = "正在查找牌友邀请你加入的牌桌…"
             browse()
@@ -384,7 +393,8 @@ public final class NearbySession: MatchSession {
 
     public func retryInviteSearch() {
         guard let pendingInvite else { return }
-        joinInvite(pendingInvite, name: guestName)
+        beginLobbyChoice()
+        findRoom(pendingInvite)
     }
 
     public func cancelInviteSearch() {
@@ -397,11 +407,11 @@ public final class NearbySession: MatchSession {
 
     private func startInviteDeadline() {
         inviteDeadline?.cancel()
-        guard let pendingInvite, inviteSearch == .searching, !suspended else { return }
+        guard let roomID = pendingInvite?.roomID, inviteSearch == .searching, !suspended else { return }
         let delay = inviteTimeout
         inviteDeadline = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
-            guard let self, self.pendingInvite == pendingInvite, inviteSearch == .searching, !suspended else { return }
+            guard let self, pendingInvite?.roomID == roomID, inviteSearch == .searching, !suspended else { return }
             inviteDeadline = nil
             inviteSearch = .unavailable
             notice = "没找到这张牌桌。请打开 Wi-Fi，并确认房主在附近，牌桌还没关闭。"
@@ -612,8 +622,8 @@ public final class NearbySession: MatchSession {
 
     func discoveredRoomsChanged(_ available: [UUID: DiscoveredRoom]) {
         rooms = available.values.sorted { ($0.name, $0.code) < ($1.name, $1.code) }
-        if let pendingInvite, inviteSearch == .searching, let room = available[pendingInvite], !isInRoom {
-            startJoin(room, name: guestName)
+        if let pendingInvite, inviteSearch == .searching, let room = available[pendingInvite.roomID], !isInRoom {
+            startJoin(room, name: pendingInvite.name)
         } else if let target, let discovered = available[target.id],
                   discovered.publicKey == target.publicKey, guest == nil {
             tryReconnect()

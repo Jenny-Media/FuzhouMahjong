@@ -35,7 +35,6 @@ private struct HomeView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage(NearbyNickname.storageKey) private var nickname = ""
     @AppStorage("table.tileStyle") private var tileStyle = TileStyle.automatic
     @AppStorage("table.boardStyle") private var boardStyle = BoardStyle.automatic
     @Binding var appearance: GameAppearance
@@ -157,7 +156,7 @@ private struct HomeView: View {
             soloPrompt = nil
             opensSoloAfterSetup = false
             path = [.nearby]
-            nearby.joinInvite(id, name: nickname)
+            nearby.joinInvite(id, name: { NearbyNickname.storedName })
         }
     }
 
