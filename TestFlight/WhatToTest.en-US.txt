@@ -1,0 +1,3 @@
+Try nearby play with two phones. After the first deal, send the guest app to the background, then return and check that the same seat and hand are restored. If the host replaces the guest with a computer, check the message shown on reconnect.
+
+Watch an opponent draw in portrait and landscape. The new tile back should appear in the rack when it lands. After a chow, pung, or kong, tap the opponent’s seat to inspect the meld and check the remaining concealed tiles.
