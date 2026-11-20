@@ -136,10 +136,10 @@ public struct NearbyMatch: Sendable {
         if !preserveWindow { moveFloor = revision }
     }
 
-    public static func normalizedName(_ name: String) -> String {
+    public static func normalizedName(_ name: String, fallback: String = "牌友") -> String {
         let clean = String(name.trimmingCharacters(in: .whitespacesAndNewlines)
             .filter { !$0.isNewline && !$0.isASCIIControl }.prefix(12))
-        return clean.isEmpty ? "牌友" : clean
+        return clean.isEmpty ? fallback : clean
     }
 }
 

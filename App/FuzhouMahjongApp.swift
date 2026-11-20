@@ -7,6 +7,10 @@ import SwiftUI
 struct FuzhouMahjongApp: App {
     @AppStorage("appearance.mode") private var appearance = GameAppearance.system
 
+    init() {
+        NearbyNickname.prepareStoredName()
+    }
+
     var body: some Scene {
         WindowGroup {
             HomeView(appearance: $appearance)
@@ -31,7 +35,7 @@ private struct HomeView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("nearby.nickname") private var nickname = ""
+    @AppStorage(NearbyNickname.storageKey) private var nickname = ""
     @AppStorage("table.tileStyle") private var tileStyle = TileStyle.automatic
     @AppStorage("table.boardStyle") private var boardStyle = BoardStyle.automatic
     @Binding var appearance: GameAppearance
@@ -402,7 +406,7 @@ private struct SettingsView: View {
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("table.sound.enabled") private var soundEnabled = true
     @AppStorage("table.sound.nearbyOwnMovesOnly") private var nearbyOwnMovesOnly = true
-    @AppStorage("nearby.nickname") private var nickname = ""
+    @AppStorage(NearbyNickname.storageKey) private var nickname = ""
     @Binding var appearance: GameAppearance
     @Binding var boardStyle: BoardStyle
     @Binding var tileStyle: TileStyle
@@ -435,8 +439,7 @@ private struct SettingsView: View {
                 }
                 .listRowBackground(TeaTheme.surface)
                 Section("附近联机") {
-                    TextField("牌桌昵称", text: $nickname)
-                    Text("创建或加入附近牌桌时，牌友可以看到你的昵称。").font(.footnote)
+                    NearbyNicknameButton(nickname: $nickname)
                 }
                 .listRowBackground(TeaTheme.surface)
                 Section("支持与隐私") {

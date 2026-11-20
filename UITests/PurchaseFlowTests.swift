@@ -20,6 +20,45 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertFalse(cancel.exists)
     }
 
+    func testNearbyNicknameCanBeEditedAndSurvivesRelaunch() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["nearby-entry"].tap()
+        let nickname = app.buttons["nearby-nickname"]
+        XCTAssertTrue(nickname.waitForExistence(timeout: 5))
+        let original = try XCTUnwrap(nickname.value as? String)
+        XCTAssertFalse(original.isEmpty)
+        XCTAssertNotEqual(original, "牌友")
+        XCTAssertLessThan(nickname.frame.maxY, app.buttons["scan-invite"].frame.minY)
+        capture("nearby-nickname-lobby")
+
+        nickname.tap()
+        let field = app.textFields["nearby-nickname-input"]
+        let roll = app.buttons["nearby-nickname-random"]
+        let save = app.buttons["nearby-nickname-save"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, original)
+        roll.tap()
+        let suggestion = try XCTUnwrap(field.value as? String)
+        XCTAssertNotEqual(suggestion, original)
+        capture("nearby-nickname-editor")
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        let deletions = String(repeating: XCUIKeyboardKey.delete.rawValue, count: suggestion.count)
+        field.typeText(deletions + "RiverSeat")
+        XCTAssertEqual(field.value as? String, "RiverSeat")
+        save.tap()
+        XCTAssertTrue(save.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(nickname.value as? String, "RiverSeat")
+
+        app.terminate()
+        app.launch()
+        app.buttons["nearby-entry"].tap()
+        XCTAssertTrue(nickname.waitForExistence(timeout: 5))
+        XCTAssertEqual(nickname.value as? String, "RiverSeat")
+    }
+
     func testGuestsSeeJoiningFirstAndHostingHasItsOwnSetup() async throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -49,6 +88,7 @@ final class PurchaseFlowTests: XCTestCase {
         let rules = app.descendants(matching: .any).matching(identifier: "room-ruleset").firstMatch
         XCTAssertTrue(rules.waitForExistence(timeout: 5))
         XCTAssertTrue(rules.label.contains(desiredTitle))
+        XCTAssertTrue(app.staticTexts["测试房主"].exists)
         app.buttons["离开牌桌"].tap()
         XCTAssertTrue(scan.waitForExistence(timeout: 5))
     }

@@ -81,6 +81,32 @@ final class TablePresentationTests: XCTestCase {
     }
 }
 
+final class NearbyNicknameTests: XCTestCase {
+    func testGeneratedNicknamePersistsAndExistingNicknameIsPreserved() throws {
+        let domain = "NearbyNicknameTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+
+        NearbyNickname.prepareStoredName(in: defaults)
+        let generated = try XCTUnwrap(defaults.string(forKey: NearbyNickname.storageKey))
+        XCTAssertFalse(generated.isEmpty)
+        XCTAssertNotEqual(generated, "牌友")
+        XCTAssertLessThanOrEqual(generated.count, 12)
+        NearbyNickname.prepareStoredName(in: defaults)
+        XCTAssertEqual(defaults.string(forKey: NearbyNickname.storageKey), generated)
+
+        defaults.set("  牌友  ", forKey: NearbyNickname.storageKey)
+        NearbyNickname.prepareStoredName(in: defaults)
+        XCTAssertEqual(defaults.string(forKey: NearbyNickname.storageKey), "牌友")
+
+        defaults.set(" \n\t", forKey: NearbyNickname.storageKey)
+        NearbyNickname.prepareStoredName(in: defaults)
+        let replacement = try XCTUnwrap(defaults.string(forKey: NearbyNickname.storageKey))
+        XCTAssertFalse(replacement.isEmpty)
+        XCTAssertNotEqual(replacement, "牌友")
+    }
+}
+
 @MainActor @Observable
 private final class InspectorFixture {
     var table: TableState

@@ -12,7 +12,7 @@ struct NearbyView: View {
     @Environment(RulesetLibrary.self) private var rulesetLibrary
     @State private var purchaseReason: AccessReason?
 
-    @AppStorage("nearby.nickname") private var nickname = ""
+    @AppStorage(NearbyNickname.storageKey) private var nickname = ""
     @AppStorage("nearby.ruleset") private var ruleset = FuzhouRuleset.pureSuit
     @AppStorage("nearby.customRulesetID") private var customRulesetID = ""
     @Environment(\.openURL) private var openURL
@@ -186,6 +186,10 @@ struct NearbyView: View {
 
     private var discovery: some View {
         Group {
+            NearbyNicknameButton(nickname: $nickname)
+                .padding(.horizontal, 12)
+                .teaPanel(corner: TeaTheme.controlCorner)
+
             if let previous = session.lastRoomName {
                 HStack {
                     Button("返回上次牌桌 · \(previous)") { session.resumeLastRoom() }
@@ -273,11 +277,6 @@ struct NearbyView: View {
             } label: { Label("创建牌桌", systemImage: "plus").frame(maxWidth: .infinity) }
             .buttonStyle(TeaButtonStyle(prominent: false))
             .accessibilityIdentifier("host-create")
-
-            TextField("牌桌昵称（可选）", text: $nickname)
-                .padding(12)
-                .frame(minHeight: TeaTheme.hitTarget)
-                .teaPanel(corner: TeaTheme.controlCorner)
         }
     }
 
@@ -328,6 +327,119 @@ struct NearbyView: View {
             Button("离开牌桌") { session.leave() }
                 .buttonStyle(TeaButtonStyle(prominent: false))
         }
+    }
+}
+
+enum NearbyNickname {
+    static let storageKey = "nearby.nickname"
+    private static let stems = ["榕叶", "茉莉", "白鹭", "海风", "豆花", "青梅", "纸鸢", "小鲤", "春笋", "荔枝", "晴舟", "小竹"]
+
+    static func prepareStoredName(in defaults: UserDefaults = .standard) {
+        let stored = defaults.string(forKey: storageKey) ?? ""
+        let cleaned = NearbyMatch.normalizedName(stored, fallback: "")
+        let name = cleaned.isEmpty ? suggestion() : cleaned
+        if name != stored { defaults.set(name, forKey: storageKey) }
+    }
+
+    static func suggestion(excluding current: String = "") -> String {
+        var name: String
+        repeat {
+            let stem = stems[Int.random(in: stems.indices)]
+            name = "\(stem)\(Int.random(in: 100...9999))"
+        } while name == current
+        return name
+    }
+}
+
+struct NearbyNicknameButton: View {
+    @Binding var nickname: String
+    @State private var showsEditor = false
+
+    var body: some View {
+        Button {
+            showsEditor = true
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("我的昵称").font(.caption).foregroundStyle(TeaTheme.muted)
+                    Text(nickname).font(.headline).foregroundStyle(TeaTheme.ink)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Label("更改", systemImage: "pencil")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(TeaTheme.brass)
+            }
+            .padding(.vertical, 8)
+            .frame(minHeight: TeaTheme.hitTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("我的昵称")
+        .accessibilityValue(nickname)
+        .accessibilityHint("更改附近联机时使用的昵称")
+        .accessibilityIdentifier("nearby-nickname")
+        .sheet(isPresented: $showsEditor) {
+            NearbyNicknameEditor(nickname: $nickname)
+                .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+private struct NearbyNicknameEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding private var nickname: String
+    @State private var draft: String
+    @FocusState private var editing: Bool
+
+    init(nickname: Binding<String>) {
+        _nickname = nickname
+        _draft = State(initialValue: nickname.wrappedValue)
+    }
+
+    private var cleaned: String { NearbyMatch.normalizedName(draft, fallback: "") }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("输入昵称", text: $draft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($editing)
+                        .submitLabel(.done)
+                        .onSubmit(save)
+                        .accessibilityIdentifier("nearby-nickname-input")
+                    Button("换个随机昵称", systemImage: "shuffle") {
+                        draft = NearbyNickname.suggestion(excluding: cleaned)
+                    }
+                    .accessibilityIdentifier("nearby-nickname-random")
+                } footer: {
+                    Text("最多 12 个字符。创建或加入新牌桌时，牌友会看到这个昵称。")
+                }
+                .listRowBackground(TeaTheme.surface)
+            }
+            .scrollContentBackground(.hidden)
+            .modifier(HingeSafeContent())
+            .teaBackdrop()
+            .navigationTitle("更改昵称")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存", action: save)
+                        .disabled(cleaned.isEmpty)
+                        .accessibilityIdentifier("nearby-nickname-save")
+                }
+            }
+            .onAppear { editing = true }
+        }
+    }
+
+    private func save() {
+        guard !cleaned.isEmpty else { return }
+        nickname = cleaned
+        dismiss()
     }
 }
 
