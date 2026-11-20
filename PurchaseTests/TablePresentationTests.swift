@@ -89,9 +89,8 @@ final class NearbyNicknameTests: XCTestCase {
 
         NearbyNickname.prepareStoredName(in: defaults)
         let generated = try XCTUnwrap(defaults.string(forKey: NearbyNickname.storageKey))
-        XCTAssertFalse(generated.isEmpty)
-        XCTAssertNotEqual(generated, "牌友")
-        XCTAssertLessThanOrEqual(generated.count, 12)
+        XCTAssertEqual(generated.count, 2)
+        XCTAssertTrue(generated.allSatisfy(\.isLetter))
         NearbyNickname.prepareStoredName(in: defaults)
         XCTAssertEqual(defaults.string(forKey: NearbyNickname.storageKey), generated)
 
@@ -102,7 +101,7 @@ final class NearbyNicknameTests: XCTestCase {
         defaults.set(" \n\t", forKey: NearbyNickname.storageKey)
         NearbyNickname.prepareStoredName(in: defaults)
         let replacement = try XCTUnwrap(defaults.string(forKey: NearbyNickname.storageKey))
-        XCTAssertFalse(replacement.isEmpty)
+        XCTAssertEqual(replacement.count, 2)
         XCTAssertNotEqual(replacement, "牌友")
     }
 }

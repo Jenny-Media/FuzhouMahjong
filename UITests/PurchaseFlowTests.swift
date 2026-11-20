@@ -43,6 +43,8 @@ final class PurchaseFlowTests: XCTestCase {
         roll.tap()
         let suggestion = try XCTUnwrap(field.value as? String)
         XCTAssertNotEqual(suggestion, original)
+        XCTAssertEqual(suggestion.count, 2)
+        XCTAssertTrue(suggestion.allSatisfy(\.isLetter))
         capture("nearby-nickname-editor")
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         let deletions = String(repeating: XCUIKeyboardKey.delete.rawValue, count: suggestion.count)

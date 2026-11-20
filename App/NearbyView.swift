@@ -332,7 +332,15 @@ struct NearbyView: View {
 
 enum NearbyNickname {
     static let storageKey = "nearby.nickname"
-    private static let stems = ["榕叶", "茉莉", "白鹭", "海风", "豆花", "青梅", "纸鸢", "小鲤", "春笋", "荔枝", "晴舟", "小竹"]
+    private static let suggestions = [
+        "安", "宝", "彬", "晨", "川", "春", "丹", "冬", "东", "芳", "菲", "飞", "峰", "福", "海", "禾",
+        "红", "华", "欢", "杰", "晶", "静", "凯", "康", "兰", "岚", "乐", "林", "琳", "龙", "梅", "米",
+        "明", "敏", "楠", "宁", "鹏", "平", "萍", "青", "晴", "秋", "蓉", "荣", "松", "涛", "桃", "田",
+        "文", "夏", "晓", "星", "雪", "阳", "宜", "英", "雨", "月", "远", "悦", "云", "珍", "竹", "卓",
+    ].flatMap { ["阿\($0)", "小\($0)"] } + [
+        "安安", "白白", "冰冰", "晨晨", "东东", "朵朵", "果果", "佳佳", "晶晶", "乐乐", "林林", "玲玲",
+        "米米", "明明", "宁宁", "妞妞", "平平", "青青", "晴晴", "双双", "甜甜", "星星", "圆圆", "云云",
+    ]
 
     static func prepareStoredName(in defaults: UserDefaults = .standard) {
         let stored = defaults.string(forKey: storageKey) ?? ""
@@ -344,8 +352,7 @@ enum NearbyNickname {
     static func suggestion(excluding current: String = "") -> String {
         var name: String
         repeat {
-            let stem = stems[Int.random(in: stems.indices)]
-            name = "\(stem)\(Int.random(in: 100...9999))"
+            name = suggestions[Int.random(in: suggestions.indices)]
         } while name == current
         return name
     }
