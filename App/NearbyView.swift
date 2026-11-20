@@ -16,6 +16,7 @@ struct NearbyView: View {
     @AppStorage("nearby.ruleset") private var ruleset = FuzhouRuleset.pureSuit
     @AppStorage("nearby.customRulesetID") private var customRulesetID = ""
     @Environment(\.openURL) private var openURL
+    @State private var showsNicknameEditor = false
     @State private var showsHostSetup = false
     @State private var showsInvite = false
     @State private var showsScanner = false
@@ -64,6 +65,12 @@ struct NearbyView: View {
         .onDisappear {
             if let round = session.openingRound { session.finishOpening(round) }
             if !session.isInRoom { session.stopBrowsing() }
+            session.setInviteJoiningDeferred(false)
+        }
+        .sheet(isPresented: $showsNicknameEditor, onDismiss: {
+            session.setInviteJoiningDeferred(false)
+        }) {
+            NearbyNicknameEditor(nickname: $nickname)
         }
         .sheet(item: $purchaseReason) { PurchaseSheet(reason: $0) }
         .sheet(isPresented: $showsHostSetup) {
@@ -186,9 +193,12 @@ struct NearbyView: View {
 
     private var discovery: some View {
         Group {
-            NearbyNicknameButton(nickname: $nickname)
-                .padding(.horizontal, 12)
-                .teaPanel(corner: TeaTheme.controlCorner)
+            NearbyNicknameButton(nickname: nickname) {
+                session.setInviteJoiningDeferred(true)
+                showsNicknameEditor = true
+            }
+            .padding(.horizontal, 12)
+            .teaPanel(corner: TeaTheme.controlCorner)
 
             if let previous = session.lastRoomName {
                 HStack {
@@ -348,9 +358,8 @@ enum NearbyNickname {
 
     static func prepareStoredName(in defaults: UserDefaults = .standard) {
         let stored = defaults.string(forKey: storageKey) ?? ""
-        let cleaned = NearbyMatch.normalizedName(stored, fallback: "")
-        let name = cleaned.isEmpty ? suggestion() : cleaned
-        if name != stored { defaults.set(name, forKey: storageKey) }
+        guard NearbyMatch.normalizedName(stored, fallback: "").isEmpty else { return }
+        defaults.set(suggestion(), forKey: storageKey)
     }
 
     static func suggestion(excluding current: String = "") -> String {
@@ -363,17 +372,16 @@ enum NearbyNickname {
 }
 
 struct NearbyNicknameButton: View {
-    @Binding var nickname: String
-    @State private var showsEditor = false
+    let nickname: String
+    let edit: () -> Void
 
     var body: some View {
-        Button {
-            showsEditor = true
-        } label: {
+        let displayName = NearbyMatch.normalizedName(nickname)
+        Button(action: edit) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("我的昵称").font(.caption).foregroundStyle(TeaTheme.muted)
-                    Text(nickname).font(.headline).foregroundStyle(TeaTheme.ink)
+                    Text(displayName).font(.headline).foregroundStyle(TeaTheme.ink)
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
@@ -387,17 +395,13 @@ struct NearbyNicknameButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("我的昵称")
-        .accessibilityValue(nickname)
+        .accessibilityValue(displayName)
         .accessibilityHint("更改附近联机时使用的昵称")
         .accessibilityIdentifier("nearby-nickname")
-        .sheet(isPresented: $showsEditor) {
-            NearbyNicknameEditor(nickname: $nickname)
-                .presentationDetents([.medium, .large])
-        }
     }
 }
 
-private struct NearbyNicknameEditor: View {
+struct NearbyNicknameEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var nickname: String
     @State private var draft: String
@@ -445,6 +449,7 @@ private struct NearbyNicknameEditor: View {
             }
             .onAppear { editing = true }
         }
+        .presentationDetents([.medium, .large])
     }
 
     private func save() {

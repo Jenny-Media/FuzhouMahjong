@@ -473,6 +473,52 @@ final class NearbyLoopbackTests: XCTestCase {
     }
 
     @MainActor
+    func testInviteWaitsForNicknameSaveWhileHostIsAvailable() async throws {
+        let host = NearbySession(loopback: true)
+        let guest = NearbySession(loopback: true, inviteTimeout: .milliseconds(160))
+        defer { guest.leave(); host.leave() }
+        host.create(name: "房主")
+        try await until("host is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        let nickname = NicknamePreference()
+
+        guest.joinInvite(room.id, name: { nickname.value })
+        guest.setInviteJoiningDeferred(true)
+        guest.discoveredRoomsChanged([room.id: room])
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(guest.inviteSearch, .searching)
+        XCTAssertFalse(guest.isInRoom)
+
+        nickname.value = "新昵称"
+        guest.setInviteJoiningDeferred(false)
+        try await until("guest joins after saving their nickname") { guest.connected }
+        XCTAssertEqual(host.players.first(where: { $0.seat != .east })?.name, "新昵称")
+    }
+
+    @MainActor
+    func testCancelingNicknameEditWaitsForHostToReappear() async throws {
+        let host = NearbySession(loopback: true), guest = NearbySession(loopback: true)
+        defer { guest.leave(); host.leave() }
+        host.create(name: "房主")
+        try await until("host is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        let nickname = NicknamePreference()
+
+        guest.discoveredRoomsChanged([room.id: room])
+        guest.setInviteJoiningDeferred(true)
+        guest.joinInvite(room.id, name: { nickname.value })
+        XCTAssertFalse(guest.isInRoom)
+        guest.discoveredRoomsChanged([:])
+        guest.setInviteJoiningDeferred(false)
+        XCTAssertFalse(guest.isInRoom)
+        XCTAssertEqual(guest.inviteSearch, .searching)
+
+        guest.discoveredRoomsChanged([room.id: room])
+        try await until("guest joins when the host returns") { guest.connected }
+        XCTAssertEqual(host.players.first(where: { $0.seat != .east })?.name, "旧昵称")
+    }
+
+    @MainActor
     func testInviteRetryUsesLatestNicknameAfterSearchTimeout() async throws {
         let host = NearbySession(loopback: true)
         let guest = NearbySession(loopback: true, inviteTimeout: .milliseconds(160))
@@ -490,6 +536,33 @@ final class NearbyLoopbackTests: XCTestCase {
         guest.retryInviteSearch()
         try await until("guest joins after retrying the invite") { guest.connected }
         XCTAssertEqual(host.players.first(where: { $0.seat != .east })?.name, "新昵称")
+    }
+
+    @MainActor
+    func testBonjourRoomLabelFitsWhenRosterNameContainsLongEmoji() async throws {
+        let host = NearbySession(loopback: true), guest = NearbySession(loopback: true)
+        defer { guest.leave(); host.leave() }
+        let family = "👨‍👩‍👧‍👦"
+        let fullName = String(repeating: family, count: 12)
+        host.create(name: fullName)
+        try await until("host is ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+
+        let txt = NearbySession.roomTXTRecord(id: room.id, name: room.name, publicKey: room.publicKey)
+        let label = try XCTUnwrap(txt["name"])
+        XCTAssertEqual(label, String(repeating: family, count: 9))
+        XCTAssertEqual(txt["id"], room.id.uuidString)
+        XCTAssertEqual(txt["key"], room.publicKey.base64EncodedString())
+
+        let oversizedCharacter = "a" + String(repeating: "\u{0301}", count: 120)
+        XCTAssertEqual(oversizedCharacter.count, 1)
+        let fallback = NearbySession.roomTXTRecord(id: room.id, name: oversizedCharacter, publicKey: room.publicKey)
+        XCTAssertEqual(fallback["name"], "牌友")
+
+        let advertisedRoom = DiscoveredRoom(id: room.id, name: label, endpoint: room.endpoint, publicKey: room.publicKey)
+        guest.join(advertisedRoom, name: "牌友")
+        try await until("guest joins the advertised room") { guest.connected }
+        XCTAssertEqual(guest.players.first(where: { $0.seat == .east })?.name, fullName)
     }
 
     @MainActor

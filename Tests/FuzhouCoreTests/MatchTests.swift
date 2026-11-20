@@ -642,6 +642,8 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(NearbyMatch.normalizedName(whitespaceBetweenControls, fallback: ""), "")
         XCTAssertEqual(NearbyMatch.normalizedName(whitespaceBetweenControls), "牌友")
         XCTAssertEqual(NearbyMatch.normalizedName("\u{0007} 哥哥 \u{007F}"), "哥哥")
+        XCTAssertEqual(NearbyMatch.normalizedName("\u{2060} \u{200D}", fallback: ""), "")
+        XCTAssertEqual(NearbyMatch.normalizedName("\u{0086}\u{2060}"), "牌友")
 
         let name = NearbyMatch.normalizedName("ABCDEFGHIJK L")
         XCTAssertEqual(name, "ABCDEFGHIJK")

@@ -406,6 +406,7 @@ private struct SettingsView: View {
     @AppStorage("table.sound.enabled") private var soundEnabled = true
     @AppStorage("table.sound.nearbyOwnMovesOnly") private var nearbyOwnMovesOnly = true
     @AppStorage(NearbyNickname.storageKey) private var nickname = ""
+    @State private var showsNicknameEditor = false
     @Binding var appearance: GameAppearance
     @Binding var boardStyle: BoardStyle
     @Binding var tileStyle: TileStyle
@@ -438,7 +439,7 @@ private struct SettingsView: View {
                 }
                 .listRowBackground(TeaTheme.surface)
                 Section("附近联机") {
-                    NearbyNicknameButton(nickname: $nickname)
+                    NearbyNicknameButton(nickname: nickname) { showsNicknameEditor = true }
                 }
                 .listRowBackground(TeaTheme.surface)
                 Section("支持与隐私") {
@@ -457,6 +458,7 @@ private struct SettingsView: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
             }
         }
+        .sheet(isPresented: $showsNicknameEditor) { NearbyNicknameEditor(nickname: $nickname) }
         .gameAppearance(appearance)
     }
 }

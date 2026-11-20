@@ -138,13 +138,13 @@ public struct NearbyMatch: Sendable {
 
     public static func normalizedName(_ name: String, fallback: String = "牌友") -> String {
         let whitespace: CharacterSet = .whitespacesAndNewlines
-        let filtered = name.filter { !$0.isNewline && !$0.isASCIIControl }
-            .trimmingCharacters(in: whitespace)
+        let filtered = name.filter { character in
+            !character.isNewline && !character.unicodeScalars.allSatisfy { $0.properties.generalCategory == .control }
+        }.trimmingCharacters(in: whitespace)
         let clean = String(filtered.prefix(12)).trimmingCharacters(in: whitespace)
-        return clean.isEmpty ? fallback : clean
+        let hasVisibleContent = clean.unicodeScalars.contains {
+            !$0.properties.isDefaultIgnorableCodePoint && !whitespace.contains($0)
+        }
+        return hasVisibleContent ? clean : fallback
     }
-}
-
-private extension Character {
-    var isASCIIControl: Bool { asciiValue.map { $0 < 32 || $0 == 127 } ?? false }
 }

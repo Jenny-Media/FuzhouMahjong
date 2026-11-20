@@ -30,7 +30,6 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertTrue(nickname.waitForExistence(timeout: 5))
         let original = try XCTUnwrap(nickname.value as? String)
         XCTAssertFalse(original.isEmpty)
-        XCTAssertNotEqual(original, "牌友")
         XCTAssertLessThan(nickname.frame.maxY, app.buttons["scan-invite"].frame.minY)
         capture("nearby-nickname-lobby")
 
@@ -39,16 +38,15 @@ final class PurchaseFlowTests: XCTestCase {
         let roll = app.buttons["nearby-nickname-random"]
         let save = app.buttons["nearby-nickname-save"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        XCTAssertEqual(field.value as? String, original)
+        let draft = try XCTUnwrap(field.value as? String)
+        XCTAssertEqual(NearbyMatch.normalizedName(draft), original)
         roll.tap()
         let suggestion = try XCTUnwrap(field.value as? String)
         XCTAssertNotEqual(suggestion, original)
         XCTAssertEqual(suggestion.count, 2)
         XCTAssertTrue(suggestion.allSatisfy(\.isLetter))
         capture("nearby-nickname-editor")
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        let deletions = String(repeating: XCUIKeyboardKey.delete.rawValue, count: suggestion.count)
-        field.typeText(deletions + "RiverSeat")
+        try replaceNickname(in: field, with: "RiverSeat")
         XCTAssertEqual(field.value as? String, "RiverSeat")
         save.tap()
         XCTAssertTrue(save.waitForNonExistence(timeout: 5))
@@ -59,6 +57,40 @@ final class PurchaseFlowTests: XCTestCase {
         app.buttons["nearby-entry"].tap()
         XCTAssertTrue(nickname.waitForExistence(timeout: 5))
         XCTAssertEqual(nickname.value as? String, "RiverSeat")
+    }
+
+    func testSettingsCanSaveGenericNearbyNickname() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["home-more"].tap()
+        app.buttons["设置"].tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+        let nickname = app.buttons["nearby-nickname"]
+        let dragStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.86))
+        let dragEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.40))
+        for _ in 0..<4 where !nickname.isHittable {
+            dragStart.press(forDuration: 0.02, thenDragTo: dragEnd)
+        }
+        XCTAssertTrue(nickname.isHittable)
+        nickname.tap()
+        let field = app.textFields["nearby-nickname-input"]
+        let save = app.buttons["nearby-nickname-save"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        app.buttons["nearby-nickname-random"].tap()
+        try replaceNickname(in: field, with: "牌友")
+        XCTAssertEqual(field.value as? String, "牌友")
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        XCTAssertTrue(save.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(nickname.value as? String, "牌友")
+
+        app.terminate()
+        app.launch()
+        app.buttons["nearby-entry"].tap()
+        XCTAssertTrue(nickname.waitForExistence(timeout: 5))
+        XCTAssertEqual(nickname.value as? String, "牌友")
     }
 
     func testGuestsSeeJoiningFirstAndHostingHasItsOwnSetup() async throws {
@@ -294,6 +326,13 @@ final class PurchaseFlowTests: XCTestCase {
         gold.tap()
         XCTAssertTrue(app.staticTexts["rule-lesson-title"].waitForExistence(timeout: 5))
         capture("gold-guide-landscape")
+    }
+
+    private func replaceNickname(in field: XCUIElement, with name: String) throws {
+        let current = try XCTUnwrap(field.value as? String)
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        let deletions = String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count)
+        field.typeText(deletions + name)
     }
 
     private func configureStore() throws -> SKTestSession {
