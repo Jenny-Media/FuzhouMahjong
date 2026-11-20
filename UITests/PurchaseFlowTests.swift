@@ -4,6 +4,22 @@ import XCTest
 
 @MainActor
 final class PurchaseFlowTests: XCTestCase {
+    func testEnteringAnotherInviteCodeCancelsTheCurrentSearch() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        let invitation = try XCTUnwrap(URL(string: "fuzhou-mahjong://join/\(UUID().uuidString)"))
+        app.open(invitation)
+        let cancel = app.buttons["cancel-invite-search"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        let code = app.textFields["4 位邀请码"]
+        reveal(code, in: app)
+        code.tap()
+        code.typeText("ABCD")
+        XCTAssertEqual(code.value as? String, "ABCD")
+        XCTAssertFalse(cancel.exists)
+    }
+
     func testGuestsSeeJoiningFirstAndHostingHasItsOwnSetup() async throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait

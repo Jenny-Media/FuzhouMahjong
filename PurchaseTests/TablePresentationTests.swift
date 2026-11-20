@@ -1,10 +1,58 @@
-import FuzhouCore
+@testable import FuzhouCore
 import SwiftUI
 import XCTest
 @testable import FuzhouMahjong
 
 @MainActor
 final class TablePresentationTests: XCTestCase {
+    func testOpponentDrawAppearsInTheRackOnlyWhenItLands() {
+        var table = FuzhouMatch().table(for: .south)
+        table.step = .turn
+        table.current = .east
+        var player = table.players[Seat.east.id]
+        for (total, melds) in [(17, 0), (14, 1)] {
+            if melds > 0 {
+                player.melds = [Meld(kind: .openKong, tiles: Array(Tile.fullSet.prefix(4)), from: .south)]
+            }
+            player.rackCount = total
+            let flying = OpponentRackCounts(player, at: table, pendingDraw: .east, reduceMotion: false)
+            XCTAssertEqual(flying.total, total)
+            XCTAssertEqual(flying.landed, total - 1)
+            XCTAssertEqual(OpponentRackCounts(player, at: table, pendingDraw: nil, reduceMotion: false).landed, total)
+            XCTAssertEqual(OpponentRackCounts(player, at: table, pendingDraw: .east, reduceMotion: true).landed, total)
+        }
+        table.step = .claim
+        XCTAssertEqual(OpponentRackCounts(player, at: table, pendingDraw: .east, reduceMotion: false).landed, 14)
+    }
+
+    func testRenderedOpponentRackGainsOneBackAtLandingWithAndWithoutAMeld() throws {
+        var table = FuzhouMatch().table(for: .south)
+        table.step = .turn
+        table.current = .east
+        let actor = Seat.east.id
+        let size = CGSize(width: 600, height: 240)
+        func render(pending: Seat?) throws -> Data {
+            let board = LiveTable(table: table, names: [:], latest: nil, opening: nil, drawingFromReserve: nil,
+                                  pendingDraw: pending, paused: false, size: size, showsDrawDock: false,
+                                  flyingDiscard: nil, flyingClaim: nil, inspectedSeat: .constant(nil),
+                                  onOfferedTileFrame: { _, _ in }) { EmptyView() } drawDock: { EmptyView() }
+            return try XCTUnwrap(ImageRenderer(content: board).uiImage?.pngData())
+        }
+
+        for total in [17, 14] {
+            if total == 14 {
+                table.players[actor].melds = [Meld(kind: .openKong, tiles: Array(Tile.fullSet.prefix(4)), from: .south)]
+            }
+            table.players[actor].rackCount = total - 1
+            let before = try render(pending: nil)
+            table.players[actor].rackCount = total
+            let inFlight = try render(pending: .east)
+            let landed = try render(pending: nil)
+            XCTAssertTrue(before == inFlight, "The stationary rack gained a back during flight (\(total) tiles)")
+            XCTAssertTrue(inFlight != landed, "The rack did not gain a visible back on landing (\(total) tiles)")
+        }
+    }
+
     func testGuestSeatInspectorDismissesWhenHostDealsAgain() async throws {
         var game = FuzhouMatch()
         while game.result == nil, let (seat, move) = game.nextComputerMove(excluding: []) {

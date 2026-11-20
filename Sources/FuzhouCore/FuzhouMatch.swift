@@ -75,7 +75,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                        let count = hands[$0.id].count + ($0 == current && drawn != nil ? 1 : 0)
                        return .init(seat: $0, rackCount: count, flowerCount: flowers[$0.id].count,
                                     discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id])
-                   }, result: result, discardTimeline: discardTimeline, lastDraw: lastDraw,
+                   }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards)
     }
 

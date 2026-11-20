@@ -133,7 +133,18 @@ final class NearbyLoopbackTests: XCTestCase {
         initial = nil
         try await until("host reserves the seat") { host.paused }
         let held = try XCTUnwrap(host.players.first { $0.name == "小林" }?.seat)
+        let full = NearbySession(loopback: true), other = NearbySession(loopback: true)
+        full.create(name: "已开局")
+        defer { full.leave() }
+        try await until("other table ready") { full.loopbackRoom != nil }
+        let b = try XCTUnwrap(full.loopbackRoom)
+        other.join(b, name: "另一位")
+        try await until("other guest connected") { other.connected }
+        full.startMatch()
         let fresh = NearbySession(loopback: true, seatFile: file)
+        fresh.join(b, name: "小林")
+        try await until("second host rejected the attempt") { !fresh.isInRoom }
+        XCTAssertEqual(fresh.lastRoomName, "房主")
         fresh.resumeLastRoom()
         fresh.discoveredRoomsChanged([room.id: room])
         try await until("fresh session recovers outstanding join") { fresh.connected && !host.paused }
@@ -166,7 +177,9 @@ final class NearbyLoopbackTests: XCTestCase {
         try await until("original guest connected") { original.connected }
         let archive = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
         // Install the previous app version's single-seat file ahead of relaunch.
-        try JSONSerialization.data(withJSONObject: XCTUnwrap(archive["confirmed"])).write(to: file)
+        var legacy = try XCTUnwrap((archive["rooms"] as? [[String: Any]])?.first)
+        legacy.removeValue(forKey: "confirmed")
+        try JSONSerialization.data(withJSONObject: legacy).write(to: file)
         first.startMatch()
         try await until("original hand received") { original.table != nil }
         original.setBackgrounded(true)
@@ -198,6 +211,127 @@ final class NearbyLoopbackTests: XCTestCase {
         retry.discoveredRoomsChanged([a.id: a])
         retry.resumeLastRoom()
         try await until("confirmed seat survived failed new join") { retry.connected && !first.paused }
+    }
+
+    @MainActor
+    func testExplicitInviteWhileAutomaticJoinAwaitsHostKeepsBothSeats() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + "/seat.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let first = NearbySession(loopback: true), second = NearbySession(loopback: true)
+        first.create(name: "原桌")
+        second.create(name: "新桌")
+        defer { first.leave(); second.leave() }
+        try await until("both ready") { first.loopbackRoom != nil && second.loopbackRoom != nil }
+        let a = try XCTUnwrap(first.loopbackRoom), b = try XCTUnwrap(second.loopbackRoom)
+        let initial = NearbySession(loopback: true, seatFile: file)
+        initial.join(a, name: "小林")
+        try await until("initial guest seated") { initial.connected }
+        first.startMatch()
+        try await until("first hand received") { initial.table != nil }
+        let original = try XCTUnwrap(initial.table)
+        initial.setBackgrounded(true)
+        try await until("first host paused") { first.paused }
+
+        let guest = NearbySession(loopback: true, seatFile: file)
+        guest.resumeLastRoom(automatically: true)
+        guest.beginLobbyChoice() // Focusing the code field cancels a pending discovery.
+        guest.discoveredRoomsChanged([a.id: a])
+        XCTAssertFalse(guest.isInRoom)
+
+        let proxy = try MoveTimeoutProxy(target: a, blockFirstReply: true)
+        defer { proxy.stop() }
+        try await until("proxy ready") { proxy.room != nil }
+        guest.discoveredRoomsChanged([a.id: try XCTUnwrap(proxy.room), b.id: b])
+        guest.resumeLastRoom(automatically: true)
+        try await until("A accepted but its reply is held") { !first.paused }
+        XCTAssertFalse(guest.connected)
+        XCTAssertTrue(guest.automaticallyReturning)
+        guest.joinInvite(b.id, name: "小林")
+        try await until("explicit invite won") { guest.connected && guest.roomID == b.id }
+        try await until("superseded link disconnected from A") { first.paused }
+        XCTAssertEqual(guest.earlierRooms.map(\.id), [a.id])
+        guest.joinInvite(a.id, name: "小林")
+        XCTAssertEqual(guest.roomID, b.id) // A confirmed connection stays put.
+        guest.leave()
+        try await until("B confirmed departure") { !guest.isInRoom }
+        let reopened = NearbySession(loopback: true, seatFile: file)
+        XCTAssertEqual(reopened.lastRoomName, "原桌")
+        reopened.discoveredRoomsChanged([a.id: a])
+        reopened.resumeLastRoom()
+        try await until("rejoined original hand") { reopened.connected && !first.paused }
+        XCTAssertEqual(reopened.table, original)
+    }
+
+    @MainActor
+    func testUnreadableAndCorruptSeatFilesSurviveRetryAndManualJoin() async throws {
+        let fm = FileManager.default
+        let file = fm.temporaryDirectory.appending(path: UUID().uuidString + "/seat.json")
+        defer { try? fm.removeItem(at: file.deletingLastPathComponent()) }
+        let host = NearbySession(loopback: true)
+        host.create(name: "原桌")
+        defer { host.leave() }
+        try await until("host ready") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        let original = NearbySession(loopback: true, seatFile: file)
+        original.join(room, name: "牌友")
+        try await until("seat saved") { original.connected }
+        host.startMatch()
+        try await until("hand dealt") { original.table != nil }
+        let hand = try XCTUnwrap(original.table)
+        let valid = try Data(contentsOf: file)
+        original.setBackgrounded(true)
+        try await until("seat reserved") { host.paused }
+
+        for bytes in [Data("{".utf8), Data(#"{"unknown":true}"#.utf8)] {
+            try bytes.write(to: file)
+            let guest = NearbySession(loopback: true, seatFile: file)
+            guest.join(room, name: "新名")
+            guest.retrySeatStorage()
+            XCTAssertNotNil(guest.seatStorageIssue)
+            XCTAssertFalse(guest.isInRoom)
+            XCTAssertEqual(try Data(contentsOf: file), bytes)
+            try valid.write(to: file)
+            guest.retrySeatStorage()
+            XCTAssertNil(guest.seatStorageIssue)
+            XCTAssertEqual(guest.lastRoomName, "原桌")
+        }
+
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+        let retry = NearbySession(loopback: true, seatFile: file)
+        XCTAssertNotNil(retry.seatStorageIssue)
+        retry.join(room, name: "新名")
+        XCTAssertFalse(retry.isInRoom)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        retry.join(room, name: "新名")
+        try await until("manual join reuses recovered key") { retry.connected && !host.paused }
+        XCTAssertNil(retry.seatStorageIssue)
+        XCTAssertEqual(retry.table, hand)
+        XCTAssertEqual(try Data(contentsOf: file), valid)
+    }
+
+    @MainActor
+    func testLegacyConfirmedAndPendingRoomsMigrateTogether() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "seat.json")
+        func legacy(_ name: String) -> [String: String] {
+            ["roomID": UUID().uuidString, "hostName": name, "guestName": "牌友",
+             "seatKey": UUID().uuidString, "hostKey": Data(repeating: 1, count: 32).base64EncodedString()]
+        }
+        let a = legacy("甲"), b = legacy("乙")
+        try JSONEncoder().encode(["confirmed": a, "pending": b]).write(to: file)
+        let guest = NearbySession(loopback: true, seatFile: file)
+        XCTAssertNil(guest.seatStorageIssue)
+        XCTAssertEqual(guest.lastRoomName, "乙")
+        XCTAssertEqual(guest.earlierRooms.map(\.name), ["甲"])
+        guest.forgetLastRoom()
+        let migrated = NearbySession(loopback: true, seatFile: file)
+        XCTAssertEqual(migrated.lastRoomName, "甲")
+        let archive = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        let rooms = try XCTUnwrap(archive["rooms"] as? [[String: Any]])
+        XCTAssertEqual(rooms.first?["seatKey"] as? String, a["seatKey"])
+        XCTAssertEqual(rooms.first?["hostKey"] as? String, a["hostKey"])
     }
 
     @MainActor
@@ -239,8 +373,8 @@ final class NearbyLoopbackTests: XCTestCase {
             try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
             try? FileManager.default.removeItem(at: directory)
         }
-        try Data().write(to: directory) // A file blocks creation of the seat directory.
         let host = NearbySession(loopback: true), guest = NearbySession(loopback: true, seatFile: file)
+        try Data().write(to: directory) // The directory becomes unwritable after the initial read.
         defer { host.leave() }
         host.create(name: "房主")
         try await until("listener ready") { host.loopbackRoom != nil }
@@ -285,6 +419,9 @@ final class NearbyLoopbackTests: XCTestCase {
         try await until("host can substitute") { host.paused }
         host.substitute(seat)
         let guest = NearbySession(loopback: true, seatFile: file)
+        original.setBackgrounded(false)
+        try await until("same guest receives the reason for losing its seat") { !original.isInRoom }
+        XCTAssertTrue(original.notice?.contains("座位已释放") == true)
         guest.discoveredRoomsChanged([room.id: room])
         guest.resumeLastRoom()
         try await until("the original host rejected the released seat") { guest.lastRoomName == nil }
@@ -630,9 +767,8 @@ private final class MoveTimeoutProxy {
         host.received = { [weak self, weak guest] _, frame in
             if self?.isBlocked(id, direction: .hostToGuest) == false { guest?.send(frame) }
         }
-        guest.ended = { [weak self, weak host] _ in
-            self?.links[id] = nil
-            host?.close()
+        guest.ended = { [weak self] _ in
+            self?.links.removeValue(forKey: id)?.host.close()
         }
         host.ended = { [weak guest] _ in guest?.close() }
         host.start()

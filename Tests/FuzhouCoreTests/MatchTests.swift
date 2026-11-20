@@ -571,6 +571,48 @@ final class MatchTests: XCTestCase {
         }
     }
 
+    func testVersionOneSnapshotsShowTheSameConcealedCountAsTheOwnersHand() throws {
+        // Replay both published v1 encodings without the newer discriminator.
+        func check(_ match: FuzhouMatch, file: StaticString = #filePath, line: UInt = #line) throws {
+            let actor = match.current
+            let owner = match.table(for: actor)
+            let total = owner.hand.count + (owner.drawn == nil ? 0 : 1)
+            let observer = match.table(for: actor.advanced(1))
+            XCTAssertNil(observer.drawn, file: file, line: line)
+            for sent in Set([owner.hand.count, total]) {
+                var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(observer)) as? [String: Any])
+                json.removeValue(forKey: "rackCountsIncludeDrawnTile")
+                var players = try XCTUnwrap(json["players"] as? [[String: Any]])
+                players[actor.id]["rackCount"] = sent
+                json["players"] = players
+                let decoded = try JSONDecoder().decode(TableState.self, from: JSONSerialization.data(withJSONObject: json))
+                XCTAssertEqual(decoded.concealedCount(for: decoded.players[actor.id]), total, file: file, line: line)
+                for player in decoded.players where player.seat != actor {
+                    XCTAssertEqual(decoded.concealedCount(for: player), player.rackCount, file: file, line: line)
+                }
+            }
+        }
+
+        for ruleset in [FuzhouRuleset.pureSuit, .legacy] {
+            var opening = try fixture(hands: [.south: Array(completed.dropLast())],
+                                      gold: .init(.bamboo, 5), draws: [.init(.bamboo, 9)], ruleset: ruleset)
+            XCTAssertEqual(opening.table(for: .south).step, .opening)
+            try check(opening)
+            XCTAssertTrue(opening.apply(.win, by: .south))
+            passEveryoneElse(&opening, except: .south)
+            XCTAssertEqual(opening.result?.kind, .robGold)
+            try check(opening)
+
+            var random = TestRandom(seed: 1)
+            var game = FuzhouMatch(using: &random, ruleset: ruleset)
+            try check(game)
+            while let (seat, move) = game.nextComputerMove(excluding: []) {
+                XCTAssertTrue(game.apply(move, by: seat))
+                try check(game)
+            }
+        }
+    }
+
     func testOpponentCountFollowsTheExtraDrawWithoutRevealingItsFace() throws {
         var random = TestRandom(seed: 1)
         var match = FuzhouMatch(using: &random)

@@ -21,6 +21,7 @@ struct NearbyView: View {
     @State private var showsScanner = false
     @State private var confirmsLeave = false
     @State private var inviteCode = ""
+    @FocusState private var enteringInviteCode: Bool
 
     var body: some View {
         Group {
@@ -163,13 +164,13 @@ struct NearbyView: View {
                             Button("重新查找邀请牌桌") { session.retryInviteSearch() }
                                 .buttonStyle(TeaButtonStyle())
                         }
-                        Button("取消查找") { session.cancelInviteSearch() }
+                        Button("取消查找") { session.beginLobbyChoice() }
                             .buttonStyle(TeaButtonStyle(prominent: false))
                             .accessibilityIdentifier("cancel-invite-search")
                     }
                 }
 
-                if session.isInRoom {
+                if session.isInRoom && !session.automaticallyReturning {
                     roster
                 } else {
                     discovery
@@ -191,6 +192,11 @@ struct NearbyView: View {
                         .buttonStyle(TeaButtonStyle(prominent: false))
                         .disabled(session.inviteSearch == .searching)
                     Menu {
+                        ForEach(session.earlierRooms, id: \.id) { room in
+                            Button("返回\(room.name)的牌桌 · \(room.id.uuidString.prefix(4))") {
+                                session.joinInvite(room.id, name: nickname)
+                            }
+                        }
                         Button("忘记上次牌桌", role: .destructive) { session.forgetLastRoom() }
                     } label: { Label("上次牌桌选项", systemImage: "ellipsis.circle").labelStyle(.iconOnly) }
                 }
@@ -201,7 +207,7 @@ struct NearbyView: View {
                     .accessibilityAddTraits(.isHeader)
                 Text("加入牌友的牌桌始终免费。").font(.footnote).foregroundStyle(TeaTheme.muted)
                 Button {
-                    session.cancelInviteSearch()
+                    session.beginLobbyChoice()
                     showsScanner = true
                 } label: {
                     Label("扫码加入", systemImage: "qrcode.viewfinder")
@@ -226,6 +232,8 @@ struct NearbyView: View {
                 }
                 HStack {
                     TextField("4 位邀请码", text: $inviteCode)
+                        .focused($enteringInviteCode)
+                        .onChange(of: enteringInviteCode) { if enteringInviteCode { session.beginLobbyChoice() } }
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .padding(.horizontal, 10)
@@ -259,7 +267,7 @@ struct NearbyView: View {
             .teaPanel()
 
             Button {
-                session.cancelInviteSearch()
+                session.beginLobbyChoice()
                 if access.authorizeHosting() { showsHostSetup = true }
                 else { purchaseReason = .hosting }
             } label: { Label("创建牌桌", systemImage: "plus").frame(maxWidth: .infinity) }

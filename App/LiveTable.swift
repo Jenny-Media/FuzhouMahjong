@@ -1,12 +1,25 @@
 import FuzhouCore
 import SwiftUI
 
+struct OpponentRackCounts {
+    let total: Int
+    let landed: Int
+
+    init(_ player: TableState.Player, at table: TableState, pendingDraw: Seat?, reduceMotion: Bool) {
+        total = max(0, table.concealedCount(for: player))
+        let collecting = !reduceMotion && table.step == .turn && pendingDraw == player.seat
+            && table.current == player.seat && player.seat != table.viewer
+        landed = collecting ? max(0, total - 1) : total
+    }
+}
+
 struct LiveTable<Controls: View, DrawDock: View>: View {
     let table: TableState
     let names: [Seat: String]
     let latest: TableDiscard?
     let opening: OpeningDeal.Stage?
     let drawingFromReserve: Bool?
+    var pendingDraw: Seat? = nil
     let paused: Bool
     let size: CGSize
     let showsDrawDock: Bool
@@ -181,19 +194,20 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 .accessibilityHint("查看这位玩家的亮牌")
                 .accessibilityAction { inspectedSeat = seat }
 
+                let counts = OpponentRackCounts(player, at: table, pendingDraw: pendingDraw, reduceMotion: reduceMotion)
                 let rackHeight = max(1, vertical ? height - 40 : height - 6)
                 VStack(alignment: .leading, spacing: 2) {
                     if player.melds.isEmpty {
                         if seat != table.viewer, !won {
-                            opponentRack(player)
+                            opponentRack(player, counts: counts)
                         }
                     } else {
-                        let showsBacks = seat != table.viewer && !won && player.rackCount > 0
+                        let showsBacks = seat != table.viewer && !won && counts.total > 0
                         if showsBacks {
-                            smallRack(count: player.rackCount, width: meldWidth)
+                            smallRack(count: counts.landed, width: meldWidth)
                                 .frame(height: 8)
                                 .accessibilityElement(children: .ignore)
-                                .accessibilityLabel("手牌 \(player.rackCount) 张")
+                                .accessibilityLabel("手牌 \(counts.total) 张")
                                 .accessibilityIdentifier("concealed-rack-\(seat.id)")
                         }
                         meldSummary(player.melds, width: meldWidth, height: rackHeight - (showsBacks ? 10 : 0))
@@ -231,9 +245,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         }
     }
 
-    private func opponentRack(_ player: TableState.Player) -> some View {
+    private func opponentRack(_ player: TableState.Player, counts: OpponentRackCounts) -> some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: opening?.isDealing != true)) { time in
-            let landed = opening?.landed(for: player.seat, dealer: table.dealer, at: time.date) ?? player.rackCount
+            let landed = opening?.landed(for: player.seat, dealer: table.dealer, at: time.date) ?? counts.landed
             Canvas { context, size in
                 let back = context.resolve(Image(decorative: tileStyle.backArtwork))
                 for index in 0..<min(FuzhouMatch.rackSize, landed) {
@@ -242,7 +256,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 }
                 let extraLanded = opening.map {
                     player.seat == table.dealer && table.lastDraw?.isOpeningDeal == true && $0.dealerTileLanded(at: time.date)
-                } ?? (player.rackCount > FuzhouMatch.rackSize)
+                } ?? (counts.landed > FuzhouMatch.rackSize)
                 if extraLanded {
                     let extra = OpeningDeal.opponentDealerSlot(in: CGRect(origin: .zero, size: size))
                     OpeningDeal.drawBack(back, in: context, at: extra.center, width: extra.width)
@@ -251,7 +265,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         }
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("手牌 \(player.rackCount) 张")
+        .accessibilityLabel("手牌 \(counts.total) 张")
         .accessibilityIdentifier("concealed-rack-\(player.seat.id)")
     }
 

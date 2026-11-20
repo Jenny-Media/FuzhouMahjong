@@ -194,7 +194,7 @@ private struct HomeView: View {
 
             Button {
                 path.append(.nearby)
-                if !nearby.isInRoom { nearby.resumeLastRoom() }
+                if !nearby.isInRoom { nearby.resumeLastRoom(automatically: true) }
             } label: {
                 modeRow(nearby.isInRoom ? "返回附近牌桌" : nearby.lastRoomName == nil ? "附近联机" : "返回上次牌桌",
                         detail: (nearby.roomName ?? nearby.lastRoomName).map { "\($0)的牌桌" } ?? "与身边的牌友同桌", icon: "person.2.fill")
