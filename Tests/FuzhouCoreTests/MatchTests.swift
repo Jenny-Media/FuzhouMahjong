@@ -637,6 +637,23 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(match.table(for: .south).players[Seat.north.id].rackCount, 13)
     }
 
+    func testNearbyNameNormalizationProducesAStableNonblankName() {
+        let whitespaceBetweenControls = "\u{0007} \u{0007}"
+        XCTAssertEqual(NearbyMatch.normalizedName(whitespaceBetweenControls, fallback: ""), "")
+        XCTAssertEqual(NearbyMatch.normalizedName(whitespaceBetweenControls), "牌友")
+        XCTAssertEqual(NearbyMatch.normalizedName("\u{0007} 哥哥 \u{007F}"), "哥哥")
+        XCTAssertEqual(NearbyMatch.normalizedName("\u{2060} \u{200D}", fallback: ""), "")
+        XCTAssertEqual(NearbyMatch.normalizedName("\u{0086}\u{2060}"), "牌友")
+
+        let name = NearbyMatch.normalizedName("ABCDEFGHIJK L")
+        XCTAssertEqual(name, "ABCDEFGHIJK")
+        XCTAssertEqual(NearbyMatch.normalizedName(name), name)
+
+        let family = "👨‍👩‍👧‍👦"
+        XCTAssertEqual(NearbyMatch.normalizedName(String(repeating: family, count: 13)),
+                       String(repeating: family, count: 12))
+    }
+
     func testNearbySeatReservationAndPrivateSnapshot() throws {
         var host = NearbyMatch(hostName: "阿榕")
         let key = UUID()

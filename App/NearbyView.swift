@@ -12,10 +12,11 @@ struct NearbyView: View {
     @Environment(RulesetLibrary.self) private var rulesetLibrary
     @State private var purchaseReason: AccessReason?
 
-    @AppStorage("nearby.nickname") private var nickname = ""
+    @AppStorage(NearbyNickname.storageKey) private var nickname = ""
     @AppStorage("nearby.ruleset") private var ruleset = FuzhouRuleset.pureSuit
     @AppStorage("nearby.customRulesetID") private var customRulesetID = ""
     @Environment(\.openURL) private var openURL
+    @State private var showsNicknameEditor = false
     @State private var showsHostSetup = false
     @State private var showsInvite = false
     @State private var showsScanner = false
@@ -64,6 +65,12 @@ struct NearbyView: View {
         .onDisappear {
             if let round = session.openingRound { session.finishOpening(round) }
             if !session.isInRoom { session.stopBrowsing() }
+            session.setInviteJoiningDeferred(false)
+        }
+        .sheet(isPresented: $showsNicknameEditor, onDismiss: {
+            session.setInviteJoiningDeferred(false)
+        }) {
+            NearbyNicknameEditor(nickname: $nickname)
         }
         .sheet(item: $purchaseReason) { PurchaseSheet(reason: $0) }
         .sheet(isPresented: $showsHostSetup) {
@@ -96,7 +103,7 @@ struct NearbyView: View {
         .sheet(isPresented: $showsScanner) {
             InviteScanner { id in
                 showsScanner = false
-                session.joinInvite(id, name: nickname)
+                session.joinInvite(id, name: { NearbyNickname.storedName })
             }
         }
         .confirmationDialog("离开当前牌桌？", isPresented: $confirmsLeave, titleVisibility: .visible) {
@@ -186,6 +193,13 @@ struct NearbyView: View {
 
     private var discovery: some View {
         Group {
+            NearbyNicknameButton(nickname: nickname) {
+                session.setInviteJoiningDeferred(true)
+                showsNicknameEditor = true
+            }
+            .padding(.horizontal, 12)
+            .teaPanel(corner: TeaTheme.controlCorner)
+
             if let previous = session.lastRoomName {
                 HStack {
                     Button("返回上次牌桌 · \(previous)") { session.resumeLastRoom() }
@@ -194,7 +208,7 @@ struct NearbyView: View {
                     Menu {
                         ForEach(session.earlierRooms, id: \.id) { room in
                             Button("返回\(room.name)的牌桌 · \(room.id.uuidString.prefix(4))") {
-                                session.joinInvite(room.id, name: nickname)
+                                session.joinInvite(room.id, name: { NearbyNickname.storedName })
                             }
                         }
                         Button("忘记上次牌桌", role: .destructive) { session.forgetLastRoom() }
@@ -273,11 +287,6 @@ struct NearbyView: View {
             } label: { Label("创建牌桌", systemImage: "plus").frame(maxWidth: .infinity) }
             .buttonStyle(TeaButtonStyle(prominent: false))
             .accessibilityIdentifier("host-create")
-
-            TextField("牌桌昵称（可选）", text: $nickname)
-                .padding(12)
-                .frame(minHeight: TeaTheme.hitTarget)
-                .teaPanel(corner: TeaTheme.controlCorner)
         }
     }
 
@@ -328,6 +337,125 @@ struct NearbyView: View {
             Button("离开牌桌") { session.leave() }
                 .buttonStyle(TeaButtonStyle(prominent: false))
         }
+    }
+}
+
+enum NearbyNickname {
+    static let storageKey = "nearby.nickname"
+    static var storedName: String { UserDefaults.standard.string(forKey: storageKey) ?? "" }
+    private static let suggestions = [
+        "安", "宝", "彬", "晨", "川", "春", "丹", "冬", "东", "芳", "菲", "飞", "峰", "福", "海", "禾",
+        "红", "华", "欢", "杰", "晶", "静", "凯", "康", "兰", "岚", "乐", "林", "琳", "龙", "梅", "米",
+        "明", "敏", "楠", "宁", "鹏", "平", "萍", "青", "晴", "秋", "蓉", "荣", "松", "涛", "桃", "田",
+        "文", "夏", "晓", "星", "雪", "阳", "宜", "英", "雨", "月", "远", "悦", "云", "珍", "竹", "卓",
+    ].flatMap { ["阿\($0)", "小\($0)"] } + [
+        "安安", "白白", "冰冰", "晨晨", "东东", "朵朵", "果果", "佳佳", "晶晶", "乐乐", "林林", "玲玲",
+        "米米", "明明", "宁宁", "妞妞", "平平", "青青", "晴晴", "双双", "甜甜", "星星", "圆圆", "云云",
+        "哥哥", "姐姐", "弟弟", "妹妹", "爸爸", "妈妈", "爷爷", "奶奶", "外公", "外婆", "姥爷", "姥姥",
+        "伯伯", "伯母", "叔叔", "婶婶", "阿姨", "姨妈", "姨父", "舅舅", "舅妈", "姑姑", "姑父", "姑妈",
+        "表哥", "表姐", "表弟", "表妹", "堂哥", "堂姐", "堂弟", "堂妹",
+    ]
+
+    static func prepareStoredName(in defaults: UserDefaults = .standard) {
+        let stored = defaults.string(forKey: storageKey) ?? ""
+        guard NearbyMatch.normalizedName(stored, fallback: "").isEmpty else { return }
+        defaults.set(suggestion(), forKey: storageKey)
+    }
+
+    static func suggestion(excluding current: String = "") -> String {
+        var name: String
+        repeat {
+            name = suggestions[Int.random(in: suggestions.indices)]
+        } while name == current
+        return name
+    }
+}
+
+struct NearbyNicknameButton: View {
+    let nickname: String
+    let edit: () -> Void
+
+    var body: some View {
+        let displayName = NearbyMatch.normalizedName(nickname)
+        Button(action: edit) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("我的昵称").font(.caption).foregroundStyle(TeaTheme.muted)
+                    Text(displayName).font(.headline).foregroundStyle(TeaTheme.ink)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Label("更改", systemImage: "pencil")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(TeaTheme.brass)
+            }
+            .padding(.vertical, 8)
+            .frame(minHeight: TeaTheme.hitTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("我的昵称")
+        .accessibilityValue(displayName)
+        .accessibilityHint("更改附近联机时使用的昵称")
+        .accessibilityIdentifier("nearby-nickname")
+    }
+}
+
+struct NearbyNicknameEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding private var nickname: String
+    @State private var draft: String
+    @FocusState private var editing: Bool
+
+    init(nickname: Binding<String>) {
+        _nickname = nickname
+        _draft = State(initialValue: nickname.wrappedValue)
+    }
+
+    private var cleaned: String { NearbyMatch.normalizedName(draft, fallback: "") }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("输入昵称", text: $draft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($editing)
+                        .submitLabel(.done)
+                        .onSubmit(save)
+                        .accessibilityIdentifier("nearby-nickname-input")
+                    Button("换个随机昵称", systemImage: "shuffle") {
+                        draft = NearbyNickname.suggestion(excluding: cleaned)
+                    }
+                    .accessibilityIdentifier("nearby-nickname-random")
+                } footer: {
+                    Text("最多 12 个字符。创建或加入新牌桌时，牌友会看到这个昵称。")
+                }
+                .listRowBackground(TeaTheme.surface)
+            }
+            .scrollContentBackground(.hidden)
+            .modifier(HingeSafeContent())
+            .teaBackdrop()
+            .navigationTitle("更改昵称")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存", action: save)
+                        .disabled(cleaned.isEmpty)
+                        .accessibilityIdentifier("nearby-nickname-save")
+                }
+            }
+            .onAppear { editing = true }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func save() {
+        guard !cleaned.isEmpty else { return }
+        nickname = cleaned
+        dismiss()
     }
 }
 
