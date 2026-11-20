@@ -438,6 +438,13 @@ final class MatchTests: XCTestCase {
         let kong = try XCTUnwrap(match.legalMoves(for: .west).first {
             if case .meld(.openKong, _) = $0 { true } else { false }
         })
+        var afterChow = match
+        XCTAssertTrue(afterChow.apply(chow, by: .south))
+        passEveryoneElse(&afterChow, except: .south)
+        let claimant = afterChow.table(for: .south)
+        XCTAssertNil(claimant.drawn)
+        XCTAssertEqual(afterChow.table(for: .east).players[Seat.south.id].rackCount, claimant.hand.count)
+
         XCTAssertTrue(match.apply(chow, by: .south))
         XCTAssertTrue(match.apply(kong, by: .west))
         passEveryoneElse(&match, except: .west)
@@ -445,6 +452,9 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(table.current, .west)
         XCTAssertNotNil(table.drawn)
         XCTAssertEqual(table.hand.count, 13)
+        let observer = match.table(for: .north)
+        XCTAssertEqual(observer.players[Seat.west.id].rackCount, 14)
+        XCTAssertNil(observer.drawn)
         XCTAssertEqual(table.players[Seat.west.id].melds.first?.kind, .openKong)
         XCTAssertTrue(table.players[Seat.east.id].discards.isEmpty)
         let replacement = try XCTUnwrap(table.lastDraw)
@@ -499,6 +509,34 @@ final class MatchTests: XCTestCase {
         XCTAssertTrue(match.apply(move, by: .south))
     }
 
+    func testComputerPassesPungsThatBreakReadyHandsFromSeeds50And53() throws {
+        let cases: [(hand: [TileKind], opened: TileKind, offered: TileKind, gold: TileKind)] = [
+            ([4, 4].map { TileKind(.characters, $0) } + [1, 2, 3, 3, 4, 5].map { TileKind(.circles, $0) }
+                + [5, 6, 7, 7, 7].map { TileKind(.bamboo, $0) },
+             TileKind(.characters, 2), TileKind(.circles, 3), TileKind(.bamboo, 9)),
+            ([4, 4, 5, 5, 7, 8, 9].map { TileKind(.characters, $0) } + [5, 6, 7, 7, 8, 9].map { TileKind(.circles, $0) },
+             TileKind(.bamboo, 9), TileKind(.circles, 7), TileKind(.circles, 1))
+        ]
+        let filler = TileKind(.bamboo, 1)
+        for example in cases {
+            let rack = example.hand + [example.opened, example.opened, filler]
+            var match = try fixture(hands: [.west: rack], gold: example.gold,
+                                    draws: [example.opened, example.offered], ruleset: .pureSuit)
+            resolveOpening(&match)
+            XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .east))
+            passEveryoneElse(&match, except: .west)
+            let pung = try XCTUnwrap(match.legalMoves(for: .west).first { if case .meld(.pung, _) = $0 { true } else { false } })
+            XCTAssertTrue(match.apply(pung, by: .west))
+            let spare = try XCTUnwrap(match.table(for: .west).hand.first { $0.kind == filler })
+            XCTAssertTrue(match.apply(.discard(spare.id), by: .west))
+            passEveryoneElse(&match, except: .west)
+            XCTAssertEqual(match.drawn?.kind, example.offered)
+            XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .north))
+            XCTAssertTrue(match.legalMoves(for: .west).contains { if case .meld(.pung, _) = $0 { true } else { false } })
+            XCTAssertEqual(match.nextComputerMove(excluding: [.east, .south, .north])?.1, .pass)
+        }
+    }
+
     func testGoldDiscardRestrictionIsVisibleToTheDiscarder() throws {
         let gold = TileKind(.bamboo, 9)
         var match = try fixture(hands: [:], gold: gold, draws: [gold])
@@ -531,6 +569,72 @@ final class MatchTests: XCTestCase {
             XCTAssertEqual(match.dealer, repeats ? firstDealer : firstDealer.advanced(1))
             XCTAssertEqual(match.scores.reduce(0, +), 0)
         }
+    }
+
+    func testVersionOneSnapshotsShowTheSameConcealedCountAsTheOwnersHand() throws {
+        // Replay both published v1 encodings without the newer discriminator.
+        func check(_ match: FuzhouMatch, file: StaticString = #filePath, line: UInt = #line) throws {
+            let actor = match.current
+            let owner = match.table(for: actor)
+            let total = owner.hand.count + (owner.drawn == nil ? 0 : 1)
+            let observer = match.table(for: actor.advanced(1))
+            XCTAssertNil(observer.drawn, file: file, line: line)
+            for sent in Set([owner.hand.count, total]) {
+                var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(observer)) as? [String: Any])
+                json.removeValue(forKey: "rackCountsIncludeDrawnTile")
+                var players = try XCTUnwrap(json["players"] as? [[String: Any]])
+                players[actor.id]["rackCount"] = sent
+                json["players"] = players
+                let decoded = try JSONDecoder().decode(TableState.self, from: JSONSerialization.data(withJSONObject: json))
+                XCTAssertEqual(decoded.concealedCount(for: decoded.players[actor.id]), total, file: file, line: line)
+                for player in decoded.players where player.seat != actor {
+                    XCTAssertEqual(decoded.concealedCount(for: player), player.rackCount, file: file, line: line)
+                }
+            }
+        }
+
+        for ruleset in [FuzhouRuleset.pureSuit, .legacy] {
+            var opening = try fixture(hands: [.south: Array(completed.dropLast())],
+                                      gold: .init(.bamboo, 5), draws: [.init(.bamboo, 9)], ruleset: ruleset)
+            XCTAssertEqual(opening.table(for: .south).step, .opening)
+            try check(opening)
+            XCTAssertTrue(opening.apply(.win, by: .south))
+            passEveryoneElse(&opening, except: .south)
+            XCTAssertEqual(opening.result?.kind, .robGold)
+            try check(opening)
+
+            var random = TestRandom(seed: 1)
+            var game = FuzhouMatch(using: &random, ruleset: ruleset)
+            try check(game)
+            while let (seat, move) = game.nextComputerMove(excluding: []) {
+                XCTAssertTrue(game.apply(move, by: seat))
+                try check(game)
+            }
+        }
+    }
+
+    func testOpponentCountFollowsTheExtraDrawWithoutRevealingItsFace() throws {
+        var random = TestRandom(seed: 1)
+        var match = FuzhouMatch(using: &random)
+        for _ in 0..<13 {
+            let seat = try XCTUnwrap(Seat.allCases.first { !match.legalMoves(for: $0).isEmpty })
+            let moves = match.legalMoves(for: seat)
+            let claim = moves.first { if case .meld = $0 { true } else { false } }
+            let move: Move = moves.contains(.win) ? .win : claim ?? (moves.contains(.pass) ? .pass : moves[0])
+            XCTAssertTrue(match.apply(move, by: seat))
+            if match.current == .north && match.table(for: .north).players[3].melds.first?.kind == .pung {
+                let owner = match.table(for: .north)
+                XCTAssertEqual(match.table(for: .south).players[3].rackCount, owner.hand.count + (owner.drawn == nil ? 0 : 1))
+            }
+        }
+        let owner = match.table(for: .north)
+        let draw = try XCTUnwrap(owner.drawn)
+        XCTAssertEqual(owner.hand.count, 13)
+        XCTAssertEqual(owner.players[Seat.north.id].melds.first?.kind, .pung)
+        XCTAssertNil(match.table(for: .south).drawn)
+        XCTAssertEqual(match.table(for: .south).players[Seat.north.id].rackCount, 14)
+        XCTAssertTrue(match.apply(.discard(draw.id), by: .north))
+        XCTAssertEqual(match.table(for: .south).players[Seat.north.id].rackCount, 13)
     }
 
     func testNearbySeatReservationAndPrivateSnapshot() throws {

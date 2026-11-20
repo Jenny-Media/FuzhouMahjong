@@ -1,8 +1,85 @@
+import FuzhouCore
 import StoreKitTest
 import XCTest
 
 @MainActor
 final class PurchaseFlowTests: XCTestCase {
+    func testEnteringAnotherInviteCodeCancelsTheCurrentSearch() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        let invitation = try XCTUnwrap(URL(string: "fuzhou-mahjong://join/\(UUID().uuidString)"))
+        app.open(invitation)
+        let cancel = app.buttons["cancel-invite-search"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        let code = app.textFields["4 位邀请码"]
+        reveal(code, in: app)
+        code.tap()
+        code.typeText("ABCD")
+        XCTAssertEqual(code.value as? String, "ABCD")
+        XCTAssertFalse(cancel.exists)
+    }
+
+    func testGuestsSeeJoiningFirstAndHostingHasItsOwnSetup() async throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["-nearby.nickname", "测试房主", "-nearby.customRulesetID", ""]
+        app.launch()
+        let store = try configureStore()
+        defer { store.clearTransactions() }
+        _ = try await store.buyProduct(identifier: "media.jenny.FuzhouMahjong.lifetime")
+        app.terminate()
+        app.launch()
+        app.buttons["nearby-entry"].tap()
+        let scan = app.buttons["scan-invite"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 5))
+        XCTAssertTrue(scan.isHittable)
+        XCTAssertTrue(app.textFields["4 位邀请码"].isHittable)
+        XCTAssertFalse(app.switches["pure-suit-bonus"].exists)
+        capture("guest-first-lobby")
+        let create = app.buttons["host-create"]
+        reveal(create, in: app)
+        create.tap()
+        let bonus = app.switches["pure-suit-bonus"]
+        XCTAssertTrue(bonus.waitForExistence(timeout: 5))
+        let desiredTitle = bonus.value as? String == "1" ? "清一色不加分" : "清一色加分"
+        bonus.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        app.buttons["confirm-host-create"].tap()
+        let rules = app.descendants(matching: .any).matching(identifier: "room-ruleset").firstMatch
+        XCTAssertTrue(rules.waitForExistence(timeout: 5))
+        XCTAssertTrue(rules.label.contains(desiredTitle))
+        app.buttons["离开牌桌"].tap()
+        XCTAssertTrue(scan.waitForExistence(timeout: 5))
+    }
+
+    func testHostSetupHonorsSavedCustomRules() async throws {
+        continueAfterFailure = false
+        let preset = FuzhouHouseRules(name: "同桌家规")
+        let data = try JSONEncoder().encode([preset]).map { String(format: "%02x", $0) }.joined()
+        let app = XCUIApplication()
+        app.launchArguments = ["-table.custom-rulesets.v1", "<\(data)>", "-nearby.customRulesetID", preset.id.uuidString]
+        app.launch()
+        let store = try configureStore()
+        defer { store.clearTransactions() }
+        _ = try await store.buyProduct(identifier: "media.jenny.FuzhouMahjong.lifetime")
+        app.terminate()
+        app.launch()
+        app.buttons["nearby-entry"].tap()
+        let create = app.buttons["host-create"]
+        reveal(create, in: app)
+        create.tap()
+        let menu = app.buttons["custom-rules-menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        XCTAssertTrue(menu.label.contains(preset.name))
+        XCTAssertFalse(app.switches["pure-suit-bonus"].exists)
+        app.buttons["confirm-host-create"].tap()
+        let rules = app.descendants(matching: .any).matching(identifier: "room-ruleset").firstMatch
+        XCTAssertTrue(rules.waitForExistence(timeout: 5))
+        XCTAssertTrue(rules.label.contains(preset.name))
+        app.buttons["离开牌桌"].tap()
+    }
+
     func testFreeAllowanceHostOfferTrialAndLifetimeInPortrait() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

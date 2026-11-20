@@ -72,9 +72,10 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                    handNumber: dealerTurns % 4 + 1, matchFinished: matchFinished, current: current,
                    step: step, offeredTile: offeredTile, moves: openingDiscards == nil ? moves : [.win, .pass],
                    players: Seat.allCases.map {
-                       .init(seat: $0, rackCount: hands[$0.id].count, flowerCount: flowers[$0.id].count,
-                             discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id])
-                   }, result: result, discardTimeline: discardTimeline, lastDraw: lastDraw,
+                       let count = hands[$0.id].count + ($0 == current && drawn != nil ? 1 : 0)
+                       return .init(seat: $0, rackCount: count, flowerCount: flowers[$0.id].count,
+                                    discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id])
+                   }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards)
     }
 
@@ -168,14 +169,9 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             }) {
                 return (seat, kong)
             }
-            if step == .claim, let pung = moves.first(where: {
-                if case .meld(.pung, _) = $0 { true } else { false }
-            }) {
-                return (seat, pung)
-            }
             let tiles = combinedHand(for: seat)
             if moves.contains(.pass) {
-                if let chow = advantageousChow(moves, seat: seat, tiles: tiles) { return (seat, chow) }
+                if let claim = preferredClaim(moves, seat: seat, tiles: tiles) { return (seat, claim) }
                 return (seat, .pass)
             }
             let discardable = Set(moves.compactMap { if case .discard(let id) = $0 { id } else { nil } })
@@ -189,25 +185,25 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         return nil
     }
 
-    private func advantageousChow(_ moves: [Move], seat: Seat, tiles: [Tile]) -> Move? {
-        let chows = moves.compactMap { move -> [Tile.ID]? in
-            if case .meld(.chow, let ids) = move { return ids }
-            return nil
-        }
-        guard !chows.isEmpty else { return nil }
+    private func preferredClaim(_ moves: [Move], seat: Seat, tiles: [Tile]) -> Move? {
+        guard moves.contains(where: { if case .meld = $0 { true } else { false } }) else { return nil }
         let available = availableDraws(seenBy: seat)
         let count = melds[seat.id].count
         var bestWaits = winningCopies(tiles, meldCount: count, available: available)
-        var chosen: [Tile.ID]?
-        for ids in chows {
+        var chosen: Move?
+        for move in moves {
+            guard case let .meld(kind, ids) = move, kind == .pung || kind == .chow else { continue }
             let rest = tiles.filter { !ids.contains($0.id) }
             let allowed = Set(rest.filter(canDiscard).map(\.id))
             guard let followUp = bestDiscard(from: rest, allowed: allowed, meldCount: count + 1,
-                                             available: available), followUp.waits > bestWaits else { continue }
-            bestWaits = followUp.waits
-            chosen = ids
+                                             available: available) else { continue }
+            // Prefer a pung on an equal wait; a chow must improve on passing.
+            if followUp.waits > bestWaits || (kind == .pung && followUp.waits == bestWaits) {
+                bestWaits = followUp.waits
+                chosen = move
+            }
         }
-        return chosen.map { .meld(.chow, $0) }
+        return chosen
     }
 
     private func bestDiscard(from tiles: [Tile], allowed: Set<Tile.ID>, meldCount: Int,

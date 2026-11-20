@@ -191,6 +191,8 @@ public struct TableState: Equatable, Codable, Sendable {
     public var moves: [Move]
     public var players: [Player]
     public var result: RoundResult?
+    /// Set by hosts that count a player's separate draw in Player.rackCount.
+    public var rackCountsIncludeDrawnTile: Bool? = nil
     public var discardTimeline: [TableDiscard]? = nil
     public var lastDraw: TableDraw? = nil
     var matchRuleset: FuzhouRuleset? = nil
@@ -199,6 +201,24 @@ public struct TableState: Equatable, Codable, Sendable {
     public var robGoldDiscardIDs: [Tile.ID]? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? .legacy }
+
+    public func concealedCount(for player: Player) -> Int {
+        if rackCountsIncludeDrawnTile == true { return player.rackCount }
+        if player.seat == viewer { return hand.count + (drawn == nil ? 0 : 1) }
+        // Both older formats used protocol v1. Some included the draw, others sent only the rack.
+        // A chow or pung already leaves an extra tile in the rack before the claimant discards.
+        guard player.seat == current, player.rackCount == FuzhouMatch.rackSize - 3 * player.melds.count else {
+            return player.rackCount
+        }
+        let dealerHoldsExtra = player.seat == dealer && lastDraw?.isOpeningDeal == true
+        switch step {
+        case .turn: return player.rackCount + 1
+        case .opening where dealerHoldsExtra: return player.rackCount + 1
+        case .finished where dealerHoldsExtra && result?.kind == .robGold && result?.winner != dealer:
+            return player.rackCount + 1
+        default: return player.rackCount
+        }
+    }
 
     public func canSubmit(_ move: Move) -> Bool {
         if moves.contains(move) { return true }

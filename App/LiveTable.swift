@@ -1,24 +1,40 @@
 import FuzhouCore
 import SwiftUI
 
+struct OpponentRackCounts {
+    let total: Int
+    let landed: Int
+
+    init(_ player: TableState.Player, at table: TableState, pendingDraw: Seat?, reduceMotion: Bool) {
+        total = max(0, table.concealedCount(for: player))
+        let collecting = !reduceMotion && table.step == .turn && pendingDraw == player.seat
+            && table.current == player.seat && player.seat != table.viewer
+        landed = collecting ? max(0, total - 1) : total
+    }
+}
+
 struct LiveTable<Controls: View, DrawDock: View>: View {
     let table: TableState
     let names: [Seat: String]
     let latest: TableDiscard?
     let opening: OpeningDeal.Stage?
     let drawingFromReserve: Bool?
+    var pendingDraw: Seat? = nil
     let paused: Bool
     let size: CGSize
     let showsDrawDock: Bool
     let flyingDiscard: Tile.ID?
     let flyingClaim: Tile.ID?
+    @Binding var inspectedSeat: Seat?
     let onOfferedTileFrame: (Tile.ID, CGRect) -> Void
     @ViewBuilder let controls: () -> Controls
     @ViewBuilder let drawDock: () -> DrawDock
 
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.boardStyle) private var board
     @Environment(\.tileStyle) private var tileStyle
+
 
     private let inset: CGFloat = 10
     private let gap: CGFloat = 6
@@ -40,6 +56,34 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         .modifier(Felt(gameTable: true))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("table-surface")
+        .onChange(of: table.roundNumber) { inspectedSeat = nil }
+        .sheet(item: $inspectedSeat) { seat in
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let player = table.players.first(where: { $0.seat == seat }) {
+                            Text("\(table.wind(for: seat).wind)风 · \(player.score)分 · 花牌 \(player.flowerCount)张")
+                                .font(.subheadline).foregroundStyle(TeaTheme.muted)
+                            if player.melds.isEmpty { Text("还没有亮出的牌组") }
+                            ForEach(player.melds) { meld in
+                                MeldTiles(meld: meld, width: 40)
+                                    .accessibilityIdentifier("inspected-meld-\(meld.id)")
+                            }
+                        }
+                    }
+                    .padding(TeaTheme.gutter)
+                    .frame(maxWidth: TeaTheme.contentWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                }
+                .modifier(HingeSafeContent())
+                .teaBackdrop()
+                .navigationTitle("\(name(of: seat))的亮牌")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { inspectedSeat = nil } } }
+            }
+            .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private func seatedTable(width: CGFloat, height: CGFloat) -> some View {
@@ -132,9 +176,12 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(name).font(.caption.weight(.semibold))
-                        Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(highlighted ? board.accent : board.muted)
+                        HStack(spacing: 2) {
+                            Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
+                            if !player.melds.isEmpty { Image(systemName: "magnifyingglass") }
+                        }
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(highlighted ? board.accent : board.muted)
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -143,18 +190,34 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(wind.wind)风，\(name)，\(dealer ? "庄家，" : "")\(won ? "本局赢家，" : acting ? "当前回合，" : "")\(player.score)分")
                 .accessibilityIdentifier("seat-score-\(seat.id)")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("查看这位玩家的亮牌")
+                .accessibilityAction { inspectedSeat = seat }
 
-                meldSummary(player.melds, width: meldWidth, columns: vertical ? 2 : 3)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("\(name)亮出的牌组")
-                    .accessibilityIdentifier("seat-melds-\(seat.id)")
-                    .accessibilityHidden(player.melds.isEmpty)
-                    .overlay {
-                        if seat != table.viewer, !won, player.melds.isEmpty {
-                            opponentRack(player)
+                let counts = OpponentRackCounts(player, at: table, pendingDraw: pendingDraw, reduceMotion: reduceMotion)
+                let rackHeight = max(1, vertical ? height - 40 : height - 6)
+                VStack(alignment: .leading, spacing: 2) {
+                    if player.melds.isEmpty {
+                        if seat != table.viewer, !won {
+                            opponentRack(player, counts: counts)
                         }
+                    } else {
+                        let showsBacks = seat != table.viewer && !won && counts.total > 0
+                        if showsBacks {
+                            smallRack(count: counts.landed, width: meldWidth)
+                                .frame(height: 8)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel("手牌 \(counts.total) 张")
+                                .accessibilityIdentifier("concealed-rack-\(seat.id)")
+                        }
+                        meldSummary(player.melds, width: meldWidth, height: rackHeight - (showsBacks ? 10 : 0))
+                            .accessibilityElement(children: .contain)
+                            .accessibilityLabel("\(name)亮出的牌组")
+                            .accessibilityIdentifier("seat-melds-\(seat.id)")
                     }
-                    .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { $0[.player(seat)] = $1 }
+                }
+                .frame(width: meldWidth, height: rackHeight)
+                .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { $0[.player(seat)] = $1 }
             }
             .frame(width: width, height: height)
             .dynamicTypeSize(...DynamicTypeSize.xLarge)
@@ -164,33 +227,60 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                                    lineWidth: won ? 2.5 : acting ? 1.5 : 1)
                     .allowsHitTesting(false)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { inspectedSeat = seat }
             .accessibilityElement(children: .contain)
         }
     }
 
-    private func opponentRack(_ player: TableState.Player) -> some View {
+    private func smallRack(count: Int, width: CGFloat) -> some View {
+        Canvas { context, size in
+            let back = context.resolve(Image(decorative: tileStyle.backArtwork))
+            let tileWidth = min(size.height / 1.4, width / CGFloat(max(count, 1)))
+            for index in 0..<count {
+                OpeningDeal.drawBack(back, in: context,
+                                     at: CGPoint(x: (CGFloat(index) + 0.5) * tileWidth, y: size.height / 2),
+                                     width: tileWidth)
+            }
+        }
+    }
+
+    private func opponentRack(_ player: TableState.Player, counts: OpponentRackCounts) -> some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: opening?.isDealing != true)) { time in
-            let landed = opening?.landed(for: player.seat, dealer: table.dealer, at: time.date) ?? player.rackCount
+            let landed = opening?.landed(for: player.seat, dealer: table.dealer, at: time.date) ?? counts.landed
             Canvas { context, size in
                 let back = context.resolve(Image(decorative: tileStyle.backArtwork))
                 for index in 0..<min(FuzhouMatch.rackSize, landed) {
                     let slot = OpeningDeal.opponentSlot(index, in: CGRect(origin: .zero, size: size))
                     OpeningDeal.drawBack(back, in: context, at: slot.center, width: slot.width)
                 }
-                if player.seat == table.dealer, table.isOpeningLayout, table.lastDraw?.isOpeningDeal == true,
-                   opening?.dealerTileLanded(at: time.date) ?? true {
+                let extraLanded = opening.map {
+                    player.seat == table.dealer && table.lastDraw?.isOpeningDeal == true && $0.dealerTileLanded(at: time.date)
+                } ?? (counts.landed > FuzhouMatch.rackSize)
+                if extraLanded {
                     let extra = OpeningDeal.opponentDealerSlot(in: CGRect(origin: .zero, size: size))
                     OpeningDeal.drawBack(back, in: context, at: extra.center, width: extra.width)
                 }
             }
         }
         .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("手牌 \(counts.total) 张")
+        .accessibilityIdentifier("concealed-rack-\(player.seat.id)")
     }
 
-    private func meldSummary(_ melds: [Meld], width: CGFloat, columns: Int) -> some View {
+    private func meldSummary(_ melds: [Meld], width: CGFloat, height: CGFloat) -> some View {
+        let largestSet = melds.map(\.tiles.count).max() ?? 4
+        func faceWidth(columns: Int) -> CGFloat {
+            let rows = (melds.count + columns - 1) / columns
+            let cell = (width - CGFloat(columns - 1) * 3) / CGFloat(columns)
+            let rowHeight = (height - CGFloat(rows - 1) * 2) / CGFloat(rows)
+            return max(0, min(22, (cell - CGFloat(largestSet - 1)) / CGFloat(largestSet),
+                              rowHeight * TileFace.artworkAspectRatio))
+        }
+        let columns = (1...melds.count).max { faceWidth(columns: $0) < faceWidth(columns: $1) } ?? 1
         let groupWidth = max(0, (width - CGFloat(columns - 1) * 3) / CGFloat(columns))
-        let tileWidth = max(0, min(9, (groupWidth - 3) / 4))
+        let tileWidth = faceWidth(columns: columns)
         let grid = Array(repeating: GridItem(.fixed(groupWidth), spacing: 3, alignment: .leading), count: columns)
 
         return ZStack(alignment: .leading) {
@@ -211,7 +301,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 }
             }
         }
-        .frame(width: width, height: (tileWidth / TileFace.artworkAspectRatio + 2) * (columns == 2 ? 3 : 2) - 2)
+        .frame(width: width, height: max(0, height))
     }
 
     private func tableStrip(width: CGFloat) -> some View {

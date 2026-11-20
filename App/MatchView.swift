@@ -18,6 +18,7 @@ struct MatchView<Session: MatchSession>: View {
     @AppStorage("table.sound.enabled") private var soundEnabled = true
     @AppStorage("table.sound.nearbyOwnMovesOnly") private var nearbyOwnMovesOnly = true
     @State private var selectedID: Tile.ID?
+    @State private var inspectedSeat: Seat?
     @State private var showsHistory = false
     @State private var guideLesson: RuleLesson?
     @State private var showsScorecard = false
@@ -680,11 +681,11 @@ struct MatchView<Session: MatchSession>: View {
     private func tableSurface(_ table: TableState, drawsOnBoard: Bool, showsResultActions: Bool = true) -> some View {
         GeometryReader { surface in
             LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
-                      opening: dealStage, drawingFromReserve: drawFlight?.fromReserve,
+                      opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,
-                      onOfferedTileFrame: rememberOfferedTileFrame) {
+                      inspectedSeat: $inspectedSeat, onOfferedTileFrame: rememberOfferedTileFrame) {
                 tableActions(table, showsResultActions: showsResultActions)
             } drawDock: {
                 drawSlot(table.drawn, table: table)
