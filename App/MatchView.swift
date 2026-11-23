@@ -401,6 +401,9 @@ struct MatchView<Session: MatchSession>: View {
             }
         } catch { return }
         guard !Task.isCancelled else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-manual-opening") { return }
+        #endif
         finishOpening(round, animateDraw: !dealsDealerTile)
     }
 

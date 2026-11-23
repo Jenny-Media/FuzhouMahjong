@@ -107,7 +107,8 @@ struct OpeningDeal: View {
     private func drawPile(in context: GraphicsContext, back: GraphicsContext.ResolvedImage,
                           elapsed: TimeInterval, stacking: Double = 0) {
         guard let center = anchors[.center] else { return }
-        let spread = min(center.width * 0.95, center.height * 1.47, 300)
+        // Leave room for the rotated tile backs and their depth inside the felt's hold target.
+        let spread = min(center.width * 0.95, center.height * 1.28, 300)
         let width = max(0, spread * 0.077)
         let wall = (0..<7).compactMap { anchors[.wallStack($0)] }
         for (index, pose) in ShuffleMotion.poses(at: elapsed).enumerated() {
