@@ -881,6 +881,29 @@ final class TableFlowTests: XCTestCase {
         }
     }
 
+    func testOpeningFeltRequiresAHoldToSkip() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["-play-access.archive.v1", ""]
+        app.launch()
+        openFreshSoloGame(app)
+
+        let skip = app.buttons["skip-opening"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 5))
+        let table = element("table-surface", in: app)
+        let felt = table.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+        felt.tap()
+        XCTAssertTrue(skip.exists)
+        felt.press(forDuration: 0.4)
+        XCTAssertTrue(skip.exists)
+
+        felt.press(forDuration: 1)
+        XCTAssertTrue(skip.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
+            .firstMatch.waitForExistence(timeout: 3))
+    }
+
     func testRotationDuringTheDealSettlesOnTheCurrentTable() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait

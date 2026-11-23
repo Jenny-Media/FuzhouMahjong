@@ -41,6 +41,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var showsScorecard = false
     @State private var openingStage = OpeningDeal.Stage.shuffle(nil)
     @State private var openingAnimationRound: Int?
+    @State private var openingSkipHeld = false
     @State private var audio = TableAudio()
     @State private var touch = TableTouch()
     @State private var observedDiscard: TableDiscard?
@@ -625,6 +626,20 @@ struct MatchView<Session: MatchSession>: View {
                     .accessibilityHidden(true)
                 }
             }
+            .overlayPreferenceValue(TableAnchors.self) { anchors in
+                if let opening, active, !showsScorecard, let center = anchors[.center] {
+                    GeometryReader { overlay in
+                        let target = overlay[center]
+                        OpeningSkipTarget(size: target.size, isHolding: $openingSkipHeld) {
+                            guard active, self.opening == opening else { return }
+                            playHaptic(.selection)
+                            finishOpening(opening)
+                        }
+                        .id(opening)
+                        .position(x: target.midX, y: target.midY)
+                    }
+                }
+            }
             .overlayPreferenceValue(DiscardDragPreview.Key.self) { preview in
                 if !reduceMotion, active, let preview {
                     GeometryReader { overlay in
@@ -819,9 +834,11 @@ struct MatchView<Session: MatchSession>: View {
             .lineLimit(1)
             Spacer(minLength: 0)
             if let opening {
-                Button { finishOpening(opening) } label: { tableControlLabel("跳过动画", primary: true) }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("skip-opening")
+                Button { finishOpening(opening) } label: {
+                    tableControlLabel("跳过动画", primary: true, holdProgress: openingSkipHeld)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("skip-opening")
             }
             if showsGoldIndicator, let gold = table.gold {
                 Button { guideLesson = .gold } label: { goldIndicator(gold.kind) }
@@ -1354,7 +1371,7 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func tableControlLabel(_ title: String, prominent: Bool = false, primary: Bool = false,
-                                   winning: Bool = false) -> some View {
+                                   winning: Bool = false, holdProgress: Bool? = nil) -> some View {
         let shape = RoundedRectangle(cornerRadius: 10)
         return Text(title)
             .font(winning ? .title3.weight(.bold) : .subheadline.weight(.semibold))
@@ -1364,7 +1381,19 @@ struct MatchView<Session: MatchSession>: View {
             .padding(.horizontal, 5)
             .frame(minWidth: winning ? 64 : primary ? min(112, primaryControlWidth) : TeaTheme.hitTarget,
                    minHeight: winning ? 48 : TeaTheme.hitTarget)
-            .background(prominent ? TeaTheme.brassFinish : TeaTheme.panelFinish, in: shape)
+            .background {
+                ZStack {
+                    shape.fill(prominent ? TeaTheme.brassFinish : TeaTheme.panelFinish)
+                    if let holdProgress {
+                        Rectangle().fill(TeaTheme.brass.opacity(0.24))
+                            .scaleEffect(x: holdProgress ? 1 : 0, y: 1, anchor: .leading)
+                            .environment(\.layoutDirection, .leftToRight)
+                            .animation(holdProgress ? .linear(duration: OpeningSkipTarget.duration) : nil,
+                                       value: holdProgress)
+                            .clipShape(shape)
+                    }
+                }
+            }
             .overlay { shape.strokeBorder(prominent ? TeaTheme.brass : TeaTheme.line).allowsHitTesting(false) }
     }
 
@@ -1438,6 +1467,38 @@ struct MatchView<Session: MatchSession>: View {
         discardFlight = nil
         claimFlight = nil
         presentedClaimFlightID = nil
+    }
+}
+
+private struct OpeningSkipTarget: View {
+    static let duration: TimeInterval = 0.8
+
+    let size: CGSize
+    @Binding var isHolding: Bool
+    let skip: () -> Void
+    @GestureState private var press = Press.idle
+
+    private enum Press { case idle, holding, cancelled }
+
+    var body: some View {
+        Color.clear
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).updating($press) { value, press, _ in
+                guard press != .cancelled else { return }
+                let bounds = CGRect(origin: .zero, size: size)
+                press = bounds.contains(value.location) ? .holding : .cancelled
+            })
+            .accessibilityHidden(true)
+            .onChange(of: press == .holding) { _, holding in isHolding = holding }
+            .onDisappear { isHolding = false }
+            .task(id: press) {
+                guard press == .holding else { return }
+                do { try await Task.sleep(for: .seconds(Self.duration)) }
+                catch { return }
+                guard !Task.isCancelled, press == .holding else { return }
+                skip()
+            }
     }
 }
 
