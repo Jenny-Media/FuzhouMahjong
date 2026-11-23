@@ -37,14 +37,28 @@ final class PurchaseFlowTests: XCTestCase {
         let field = app.textFields["nearby-nickname-input"]
         let roll = app.buttons["nearby-nickname-random"]
         let save = app.buttons["nearby-nickname-save"]
+        let choices = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "nearby-nickname-suggestion-"))
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         let draft = try XCTUnwrap(field.value as? String)
         XCTAssertEqual(NearbyMatch.normalizedName(draft), original)
+        XCTAssertTrue(app.staticTexts["昵称"].exists)
+        XCTAssertTrue(choices.firstMatch.waitForExistence(timeout: 5))
+        let firstBatch = Set(choices.allElementsBoundByIndex.map(\.label))
+        XCTAssertEqual(firstBatch.count, 6)
+        XCTAssertFalse(firstBatch.contains(original))
+        XCTAssertTrue(firstBatch.allSatisfy { $0.count == 2 && $0.allSatisfy(\.isLetter) })
+        let choice = choices.firstMatch
+        let chosenName = choice.label
+        choice.tap()
+        XCTAssertEqual(field.value as? String, chosenName)
+        XCTAssertTrue(choice.isSelected)
+        capture("nearby-nickname-selection")
+
         roll.tap()
-        let suggestion = try XCTUnwrap(field.value as? String)
-        XCTAssertNotEqual(suggestion, original)
-        XCTAssertEqual(suggestion.count, 2)
-        XCTAssertTrue(suggestion.allSatisfy(\.isLetter))
+        let secondBatch = Set(choices.allElementsBoundByIndex.map(\.label))
+        XCTAssertEqual(secondBatch.count, 6)
+        XCTAssertTrue(firstBatch.isDisjoint(with: secondBatch))
+        XCTAssertEqual(field.value as? String, chosenName)
         capture("nearby-nickname-editor")
         try replaceNickname(in: field, with: "RiverSeat")
         XCTAssertEqual(field.value as? String, "RiverSeat")
@@ -59,7 +73,7 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertEqual(nickname.value as? String, "RiverSeat")
     }
 
-    func testSettingsCanSaveGenericNearbyNickname() throws {
+    func testSettingsCanSaveFamilyTitleAndGenericNearbyNickname() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -78,7 +92,18 @@ final class PurchaseFlowTests: XCTestCase {
         let field = app.textFields["nearby-nickname-input"]
         let save = app.buttons["nearby-nickname-save"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        app.buttons["nearby-nickname-random"].tap()
+        let familyTitle = app.buttons["nearby-nickname-family-妈妈"]
+        reveal(familyTitle, in: app)
+        familyTitle.tap()
+        XCTAssertEqual(field.value as? String, "妈妈")
+        XCTAssertTrue(familyTitle.isSelected)
+        save.tap()
+        XCTAssertTrue(save.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(nickname.value as? String, "妈妈")
+
+        nickname.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, "妈妈")
         try replaceNickname(in: field, with: "牌友")
         XCTAssertEqual(field.value as? String, "牌友")
         XCTAssertTrue(save.isEnabled)
