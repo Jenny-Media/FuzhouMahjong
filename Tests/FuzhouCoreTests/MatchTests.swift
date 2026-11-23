@@ -342,6 +342,8 @@ final class MatchTests: XCTestCase {
         XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .east))
         XCTAssertTrue(match.apply(.win, by: .west))
         XCTAssertNil(match.result)
+        XCTAssertFalse(match.settleRestoredDiscard())
+        XCTAssertTrue(match.legalMoves(for: .south).contains(.win))
         XCTAssertTrue(match.apply(.win, by: .south))
         XCTAssertEqual(match.result?.winner, .south)
         XCTAssertEqual(match.table(for: .west).discardClaimFeedback, .overridden(.win, by: .win))

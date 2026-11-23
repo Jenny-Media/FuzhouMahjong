@@ -13,6 +13,35 @@ struct OpponentRackCounts {
     }
 }
 
+struct FlowerStripLayout {
+    let tiles: ArraySlice<Tile>
+    let hiddenCount: Int
+    let labelWidth: CGFloat
+    let countWidth: CGFloat
+    let tileWidth: CGFloat
+    let spacing: CGFloat
+
+    init(_ player: TableState.Player, highlighted: Set<Tile.ID>, width: CGFloat, height: CGFloat) {
+        let flowers = player.exposedFlowers ?? []
+        let faceWidth = height * TileFace.artworkAspectRatio
+        labelWidth = min(13, width * 0.24)
+        let overflowWidth = min(player.flowerCount < 10 ? 12 : 17, width * 0.34)
+        let tileSpace = width - labelWidth
+        let capacity = Int(tileSpace / (faceWidth + 1))
+        let compactCapacity = Int(max(0, tileSpace - overflowWidth - 1) / (faceWidth + 1))
+        // Newly revealed flowers are appended to the row. Keep the full reveal visible while it is highlighted.
+        let revealed = flowers.reversed().prefix { highlighted.contains($0.id) }.count
+        let visibleCount = player.flowerCount <= capacity ? capacity : max(1, compactCapacity, revealed)
+        tiles = flowers.suffix(visibleCount)
+        hiddenCount = max(0, player.flowerCount - tiles.count)
+        countWidth = hiddenCount > 0 ? overflowWidth : 0
+        let available = max(0, tileSpace - countWidth)
+        let gaps = CGFloat(tiles.count + (hiddenCount > 0 ? 1 : 0))
+        spacing = min(1, available / (2 * max(1, gaps)))
+        tileWidth = min(faceWidth, (available - gaps * spacing) / CGFloat(max(1, tiles.count)))
+    }
+}
+
 struct LiveTable<Controls: View, DrawDock: View>: View {
     let table: TableState
     let names: [Seat: String]
@@ -262,29 +291,30 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     }
 
     private func flowerStrip(_ player: TableState.Player, width: CGFloat, height: CGFloat) -> some View {
-        let flowers = player.exposedFlowers ?? []
-        let faceWidth = height * TileFace.artworkAspectRatio
-        let capacity = max(0, Int((width - 15) / (faceWidth + 1)))
-        let visible = flowers.suffix(flowers.count <= capacity ? capacity : max(0, capacity - 2))
-        let hidden = player.flowerCount - visible.count
-        return HStack(spacing: 1) {
-            Text("花").frame(width: 13)
-            ForEach(visible, id: \.id) { flower in
+        let layout = FlowerStripLayout(player, highlighted: highlightedFlowers, width: width, height: height)
+        return HStack(spacing: layout.spacing) {
+            Text("花").frame(width: layout.labelWidth)
+            ForEach(layout.tiles) { flower in
                 TileFace(kind: flower.kind)
-                    .frame(width: faceWidth, height: height)
+                    .frame(width: layout.tileWidth, height: layout.tileWidth / TileFace.artworkAspectRatio)
                     .overlay {
                         if highlightedFlowers.contains(flower.id) {
                             RoundedRectangle(cornerRadius: 2).strokeBorder(board.accent, lineWidth: 1.5)
                         }
                     }
             }
-            if hidden > 0 { Text(visible.isEmpty ? "\(hidden)" : "+\(hidden)") }
+            if layout.hiddenCount > 0 {
+                Text(layout.tiles.isEmpty ? "\(layout.hiddenCount)" : "+\(layout.hiddenCount)")
+                    .frame(width: layout.countWidth)
+            }
         }
         .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
         .foregroundStyle(board.ink)
         .frame(width: width, height: height, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(name(of: player.seat))，花牌 \(player.flowerCount) 张\(visible.isEmpty ? "" : "，" + visible.map { $0.kind.spokenName }.joined(separator: "、"))")
+        .accessibilityLabel("\(name(of: player.seat))，花牌 \(player.flowerCount) 张\(layout.tiles.isEmpty ? "" : "，" + layout.tiles.map { $0.kind.spokenName }.joined(separator: "、"))")
         .accessibilityIdentifier("seat-flowers-\(player.seat.id)")
     }
 

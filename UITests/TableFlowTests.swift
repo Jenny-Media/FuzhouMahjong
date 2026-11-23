@@ -724,6 +724,27 @@ final class TableFlowTests: XCTestCase {
         capture("overridden-pung-feedback")
     }
 
+    func testResumingAnOlderSaveSettlesTheDiscardWithoutAskingForPung() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 662, after: 24)
+        XCTAssertTrue(fixture.legalMoves(for: .north).contains(.win))
+        let data = try JSONEncoder().encode(fixture)
+        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // Earlier versions saved the computer's Hu while still waiting for the player's Pung or Pass.
+        saved["responses"] = [
+            ["pending": ["_0": Seat.south.rawValue]],
+            ["chose": ["_0": Seat.north.rawValue, "_1": ["win": [String: String]()]]],
+        ]
+        let oldSave = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: saved))
+        XCTAssertTrue(oldSave.legalMoves(for: .south).contains(.pass))
+        XCTAssertFalse(oldSave.hasComputerMove(excluding: [.south]))
+
+        let app = try launchSavedMatch(oldSave)
+        XCTAssertTrue(app.buttons["view-scorecard"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["table-move-过"].exists)
+    }
+
     func testClaimThenDiscardInBothOrientations() throws {
         continueAfterFailure = false
         defer { XCUIDevice.shared.orientation = .portrait }

@@ -5,6 +5,24 @@ import XCTest
 
 @MainActor
 final class TablePresentationTests: XCTestCase {
+    func testCompactFlowerRowKeepsTheFullReplacementChainVisible() {
+        let flowers = Array(Tile.fullSet.lazy.filter { $0.kind.isFlower }.prefix(10))
+        let player = TableState.Player(seat: .west, rackCount: 16, flowerCount: flowers.count,
+                                       discards: [], melds: [], score: 0, exposedFlowers: flowers)
+        let newlyRevealed = flowers.suffix(3)
+        for width in [CGFloat(38), 75] {
+            let cue = Set(newlyRevealed.map(\.id))
+            let highlighted = FlowerStripLayout(player, highlighted: cue, width: width, height: 19)
+            XCTAssertTrue(cue.isSubset(of: Set(highlighted.tiles.map(\.id))))
+            XCTAssertGreaterThan(highlighted.tileWidth, 0)
+            XCTAssertEqual(highlighted.hiddenCount + highlighted.tiles.count, flowers.count)
+
+            let settled = FlowerStripLayout(player, highlighted: [], width: width, height: 19)
+            XCTAssertEqual(settled.tiles.last, flowers.last)
+            XCTAssertLessThan(settled.tiles.count, flowers.count)
+        }
+    }
+
     func testOpponentDrawAppearsInTheRackOnlyWhenItLands() {
         var table = FuzhouMatch().table(for: .south)
         table.step = .turn

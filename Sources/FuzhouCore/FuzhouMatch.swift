@@ -153,6 +153,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         return true
     }
 
+    /// Settles a restored discard window when all remaining claims are already outranked.
+    public mutating func settleRestoredDiscard() -> Bool {
+        guard step == .claim else { return false }
+        resolveResponses()
+        return step != .claim
+    }
+
     public func hasComputerMove(excluding humans: Set<Seat>) -> Bool {
         switch step {
         case .finished: false

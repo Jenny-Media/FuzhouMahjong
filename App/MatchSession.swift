@@ -61,8 +61,11 @@ final class SoloMatch: MatchSession {
     }
 
     private func restore(_ saved: SavedTable) {
-        match = saved.match
-        storedRackOrder = saved.match.result == nil ? saved.rackOrder : nil
+        var restored = saved.match
+        let settled = restored.settleRestoredDiscard()
+        match = restored
+        storedRackOrder = restored.result == nil ? saved.rackOrder : nil
+        if settled { persist() }
     }
 
     var table: TableState? { match?.table(for: FuzhouMatch.player) }
