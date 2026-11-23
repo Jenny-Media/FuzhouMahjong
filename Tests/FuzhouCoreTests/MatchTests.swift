@@ -93,8 +93,18 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(table.gold?.kind, indicator)
         XCTAssertEqual(table.drawn?.kind, replacement)
         XCTAssertEqual(table.players.first?.flowerCount, 2)
+        XCTAssertEqual(table.players.first?.exposedFlowers?.map(\.kind), [.init(.season, 1), .init(.flower, 1)])
+        XCTAssertEqual(match.table(for: .south).players.first?.exposedFlowers, table.players.first?.exposedFlowers)
         XCTAssertEqual(table.lastDraw?.flowersReplaced, 2)
         XCTAssertEqual(table.lastDraw?.fromReserve, true)
+    }
+
+    func testFlowerProjectionAcceptsOlderHostsWithOnlyACount() throws {
+        let player = TableState.Player(seat: .east, rackCount: 17, flowerCount: 2, discards: [], melds: [], score: 0)
+        let data = try JSONEncoder().encode(player)
+        let decoded = try JSONDecoder().decode(TableState.Player.self, from: data)
+        XCTAssertEqual(decoded.flowerCount, 2)
+        XCTAssertNil(decoded.exposedFlowers)
     }
 
     func testGuestRobGoldKeepsDealerExtraAndOldOpeningSavesCanFinish() throws {
@@ -138,6 +148,7 @@ final class MatchTests: XCTestCase {
             let table = match.table(for: .east)
             XCTAssertEqual(table.ruleset, ruleset)
             XCTAssertEqual(table.players.map(\.flowerCount), [3, 0, 0, 0])
+            XCTAssertEqual(table.players.first?.exposedFlowers?.map(\.kind), bonusFlips)
             XCTAssertEqual(table.drawn?.kind, .init(.circles, 9))
             XCTAssertTrue(table.hand.allSatisfy { !$0.kind.isFlower })
         }
@@ -271,10 +282,71 @@ final class MatchTests: XCTestCase {
         resolveOpening(&match)
         XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .east))
         XCTAssertTrue(match.apply(.win, by: .south))
+        XCTAssertNil(match.result)
+        XCTAssertEqual(match.table(for: .south).discardClaimFeedback, .pending(.win))
         XCTAssertTrue(match.apply(.win, by: .west))
         passEveryoneElse(&match, except: .west)
         XCTAssertEqual(match.result?.winner, .west)
         XCTAssertEqual(match.result?.patterns, [.goldenPair])
+        XCTAssertEqual(match.table(for: .south).discardClaimFeedback, .overridden(.win, by: .win))
+    }
+
+    func testDiscardWinSettlesWithoutWaitingForPungAndExplainsAnEarlierPung() throws {
+        let offered = TileKind(.bamboo, 5)
+        let south = [offered, offered] + (1...9).map { TileKind(.characters, $0) }
+            + [1, 3, 5, 6, 9].map { TileKind(.circles, $0) }
+        var match = try fixture(hands: [.south: south, .west: Array(completed.dropLast())],
+                                gold: .init(.bamboo, 9), draws: [offered], ruleset: .pureSuit)
+        resolveOpening(&match)
+        XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .east))
+        if match.legalMoves(for: .north).contains(.pass) { XCTAssertTrue(match.apply(.pass, by: .north)) }
+        let pung = try XCTUnwrap(match.legalMoves(for: .south).first {
+            if case .meld(.pung, _) = $0 { true } else { false }
+        })
+        XCTAssertFalse(match.legalMoves(for: .south).contains(.win))
+
+        var winningFirst = match
+        XCTAssertTrue(winningFirst.apply(.win, by: .west))
+        XCTAssertEqual(winningFirst.result?.winner, .west)
+        XCTAssertFalse(winningFirst.apply(pung, by: .south))
+        XCTAssertNil(winningFirst.table(for: .south).discardClaimFeedback)
+
+        XCTAssertTrue(match.apply(pung, by: .south))
+        XCTAssertEqual(match.table(for: .south).discardClaimFeedback, .pending(pung))
+        XCTAssertNil(match.table(for: .west).discardClaimFeedback)
+        XCTAssertTrue(match.table(for: .south).players[Seat.south.id].melds.isEmpty)
+        let saved = try JSONEncoder().encode(match)
+        match = try JSONDecoder().decode(FuzhouMatch.self, from: saved)
+        XCTAssertEqual(match.table(for: .south).discardClaimFeedback, .pending(pung))
+
+        var passing = match
+        XCTAssertTrue(passing.apply(.pass, by: .west))
+        XCTAssertEqual(passing.table(for: .south).players[Seat.south.id].melds.first?.kind, .pung)
+        XCTAssertNil(passing.table(for: .south).discardClaimFeedback)
+
+        XCTAssertTrue(match.apply(.win, by: .west))
+        XCTAssertEqual(match.result, winningFirst.result)
+        XCTAssertEqual(match.table(for: .south).discardClaimFeedback, .overridden(pung, by: .win))
+        XCTAssertNil(match.table(for: .west).discardClaimFeedback)
+        match.nextRound()
+        XCTAssertNil(match.table(for: .south).discardClaimFeedback)
+    }
+
+    func testDiscardWinsAtEqualPriorityWaitForTheEarlierSeat() throws {
+        let west = [1, 2, 3, 4, 5, 6].map { TileKind(.circles, $0) }
+            + [3, 4, 5, 6, 7, 8].map { TileKind(.characters, $0) }
+            + [3, 4, 9, 9].map { TileKind(.bamboo, $0) }
+        var match = try fixture(hands: [.south: Array(completed.dropLast()), .west: west],
+                                gold: .init(.bamboo, 8), draws: [.init(.bamboo, 5)], ruleset: .pureSuit)
+        resolveOpening(&match)
+        XCTAssertTrue(match.apply(.discard(try XCTUnwrap(match.drawn).id), by: .east))
+        XCTAssertTrue(match.apply(.win, by: .west))
+        XCTAssertNil(match.result)
+        XCTAssertFalse(match.settleRestoredDiscard())
+        XCTAssertTrue(match.legalMoves(for: .south).contains(.win))
+        XCTAssertTrue(match.apply(.win, by: .south))
+        XCTAssertEqual(match.result?.winner, .south)
+        XCTAssertEqual(match.table(for: .west).discardClaimFeedback, .overridden(.win, by: .win))
     }
 
     func testSavesWithoutARulesetKeepLegacyRules() throws {
@@ -446,9 +518,11 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(afterChow.table(for: .east).players[Seat.south.id].rackCount, claimant.hand.count)
 
         XCTAssertTrue(match.apply(chow, by: .south))
+        XCTAssertEqual(match.table(for: .south).discardClaimFeedback, .pending(chow))
         XCTAssertTrue(match.apply(kong, by: .west))
         passEveryoneElse(&match, except: .west)
         let table = match.table(for: .west)
+        XCTAssertEqual(match.table(for: .south).discardClaimFeedback, .overridden(chow, by: kong))
         XCTAssertEqual(table.current, .west)
         XCTAssertNotNil(table.drawn)
         XCTAssertEqual(table.hand.count, 13)
@@ -468,6 +542,7 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(table.latestDiscard, TableDiscard(seat: .east, tile: discarded))
         let nextTile = try XCTUnwrap(table.drawn)
         XCTAssertTrue(match.apply(.discard(nextTile.id), by: .west))
+        XCTAssertNil(match.table(for: .south).discardClaimFeedback)
         XCTAssertEqual(match.table(for: .south).discardTimeline, [
             TableDiscard(seat: .east, tile: discarded), TableDiscard(seat: .west, tile: nextTile),
         ])

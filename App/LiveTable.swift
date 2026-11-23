@@ -13,6 +13,35 @@ struct OpponentRackCounts {
     }
 }
 
+struct FlowerStripLayout {
+    let tiles: ArraySlice<Tile>
+    let hiddenCount: Int
+    let labelWidth: CGFloat
+    let countWidth: CGFloat
+    let tileWidth: CGFloat
+    let spacing: CGFloat
+
+    init(_ player: TableState.Player, highlighted: Set<Tile.ID>, width: CGFloat, height: CGFloat) {
+        let flowers = player.exposedFlowers ?? []
+        let faceWidth = height * TileFace.artworkAspectRatio
+        labelWidth = min(13, width * 0.24)
+        let overflowWidth = min(player.flowerCount < 10 ? 12 : 17, width * 0.34)
+        let tileSpace = width - labelWidth
+        let capacity = Int(tileSpace / (faceWidth + 1))
+        let compactCapacity = Int(max(0, tileSpace - overflowWidth - 1) / (faceWidth + 1))
+        // Newly revealed flowers are appended to the row. Keep the full reveal visible while it is highlighted.
+        let revealed = flowers.reversed().prefix { highlighted.contains($0.id) }.count
+        let visibleCount = player.flowerCount <= capacity ? capacity : max(1, compactCapacity, revealed)
+        tiles = flowers.suffix(visibleCount)
+        hiddenCount = max(0, player.flowerCount - tiles.count)
+        countWidth = hiddenCount > 0 ? overflowWidth : 0
+        let available = max(0, tileSpace - countWidth)
+        let gaps = CGFloat(tiles.count + (hiddenCount > 0 ? 1 : 0))
+        spacing = min(1, available / (2 * max(1, gaps)))
+        tileWidth = min(faceWidth, (available - gaps * spacing) / CGFloat(max(1, tiles.count)))
+    }
+}
+
 struct LiveTable<Controls: View, DrawDock: View>: View {
     let table: TableState
     let names: [Seat: String]
@@ -20,6 +49,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     let opening: OpeningDeal.Stage?
     let drawingFromReserve: Bool?
     var pendingDraw: Seat? = nil
+    var highlightedFlowers: Set<Tile.ID> = []
     let paused: Bool
     let size: CGSize
     let showsDrawDock: Bool
@@ -39,6 +69,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private let inset: CGFloat = 10
     private let gap: CGFloat = 6
     private let stripHeight: CGFloat = 24
+    private var showsFlowers: Bool { opening?.showsFlowers ?? true }
 
     var body: some View {
         let width = max(0, size.width - inset * 2)
@@ -62,9 +93,25 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         if let player = table.players.first(where: { $0.seat == seat }) {
-                            Text("\(table.wind(for: seat).wind)风 · \(player.score)分 · 花牌 \(player.flowerCount)张")
+                            Text("\(table.wind(for: seat).wind)风 · \(player.score)分")
                                 .font(.subheadline).foregroundStyle(TeaTheme.muted)
-                            if player.melds.isEmpty { Text("还没有亮出的牌组") }
+                            if showsFlowers, player.flowerCount > 0 {
+                                Text("花牌 \(player.flowerCount) 张").font(.headline)
+                                if let flowers = player.exposedFlowers, !flowers.isEmpty {
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 36), spacing: 4)], spacing: 4) {
+                                        ForEach(flowers) { tile in
+                                            TileFace(kind: tile.kind).frame(width: 36, height: 50)
+                                                .accessibilityElement(children: .ignore)
+                                                .accessibilityLabel(tile.kind.spokenName)
+                                        }
+                                    }
+                                    .accessibilityElement(children: .contain)
+                                    .accessibilityIdentifier("inspected-flowers-\(seat.id)")
+                                }
+                            }
+                            if player.melds.isEmpty, !showsFlowers || player.flowerCount == 0 {
+                                Text("还没有亮出的牌")
+                            }
                             ForEach(player.melds) { meld in
                                 MeldTiles(meld: meld, width: 40)
                                     .accessibilityIdentifier("inspected-meld-\(meld.id)")
@@ -178,7 +225,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                         Text(name).font(.caption.weight(.semibold))
                         HStack(spacing: 2) {
                             Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
-                            if !player.melds.isEmpty { Image(systemName: "magnifyingglass") }
+                            if !player.melds.isEmpty || (showsFlowers && player.flowerCount > 0) {
+                                Image(systemName: "magnifyingglass")
+                            }
                         }
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(highlighted ? board.accent : board.muted)
@@ -196,28 +245,36 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
 
                 let counts = OpponentRackCounts(player, at: table, pendingDraw: pendingDraw, reduceMotion: reduceMotion)
                 let rackHeight = max(1, vertical ? height - 40 : height - 6)
+                let hasFlowers = showsFlowers && player.flowerCount > 0
+                let flowerHeight = hasFlowers ? min(19, rackHeight * 0.44) : 0
+                let groupHeight = max(0, rackHeight - (hasFlowers ? flowerHeight + 2 : 0))
                 VStack(alignment: .leading, spacing: 2) {
-                    if player.melds.isEmpty {
-                        if seat != table.viewer, !won {
-                            opponentRack(player, counts: counts)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if player.melds.isEmpty {
+                            if seat != table.viewer, !won {
+                                opponentRack(player, counts: counts)
+                            }
+                        } else {
+                            let showsBacks = seat != table.viewer && !won && counts.total > 0
+                            let backsHeight = min(8, groupHeight * 0.35)
+                            if showsBacks {
+                                smallRack(count: counts.landed, width: meldWidth)
+                                    .frame(height: backsHeight)
+                                    .accessibilityElement(children: .ignore)
+                                    .accessibilityLabel("手牌 \(counts.total) 张")
+                                    .accessibilityIdentifier("concealed-rack-\(seat.id)")
+                            }
+                            meldSummary(player.melds, width: meldWidth, height: groupHeight - (showsBacks ? backsHeight + 2 : 0))
+                                .accessibilityElement(children: .contain)
+                                .accessibilityLabel("\(name)亮出的牌组")
+                                .accessibilityIdentifier("seat-melds-\(seat.id)")
                         }
-                    } else {
-                        let showsBacks = seat != table.viewer && !won && counts.total > 0
-                        if showsBacks {
-                            smallRack(count: counts.landed, width: meldWidth)
-                                .frame(height: 8)
-                                .accessibilityElement(children: .ignore)
-                                .accessibilityLabel("手牌 \(counts.total) 张")
-                                .accessibilityIdentifier("concealed-rack-\(seat.id)")
-                        }
-                        meldSummary(player.melds, width: meldWidth, height: rackHeight - (showsBacks ? 10 : 0))
-                            .accessibilityElement(children: .contain)
-                            .accessibilityLabel("\(name)亮出的牌组")
-                            .accessibilityIdentifier("seat-melds-\(seat.id)")
                     }
+                    .frame(width: meldWidth, height: groupHeight)
+                    .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { $0[.player(seat)] = $1 }
+                    if hasFlowers { flowerStrip(player, width: meldWidth, height: flowerHeight) }
                 }
                 .frame(width: meldWidth, height: rackHeight)
-                .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { $0[.player(seat)] = $1 }
             }
             .frame(width: width, height: height)
             .dynamicTypeSize(...DynamicTypeSize.xLarge)
@@ -231,6 +288,34 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             .onTapGesture { inspectedSeat = seat }
             .accessibilityElement(children: .contain)
         }
+    }
+
+    private func flowerStrip(_ player: TableState.Player, width: CGFloat, height: CGFloat) -> some View {
+        let layout = FlowerStripLayout(player, highlighted: highlightedFlowers, width: width, height: height)
+        return HStack(spacing: layout.spacing) {
+            Text("花").frame(width: layout.labelWidth)
+            ForEach(layout.tiles) { flower in
+                TileFace(kind: flower.kind)
+                    .frame(width: layout.tileWidth, height: layout.tileWidth / TileFace.artworkAspectRatio)
+                    .overlay {
+                        if highlightedFlowers.contains(flower.id) {
+                            RoundedRectangle(cornerRadius: 2).strokeBorder(board.accent, lineWidth: 1.5)
+                        }
+                    }
+            }
+            if layout.hiddenCount > 0 {
+                Text(layout.tiles.isEmpty ? "\(layout.hiddenCount)" : "+\(layout.hiddenCount)")
+                    .frame(width: layout.countWidth)
+            }
+        }
+        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+        .foregroundStyle(board.ink)
+        .frame(width: width, height: height, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name(of: player.seat))，花牌 \(player.flowerCount) 张\(layout.tiles.isEmpty ? "" : "，" + layout.tiles.map { $0.kind.spokenName }.joined(separator: "、"))")
+        .accessibilityIdentifier("seat-flowers-\(player.seat.id)")
     }
 
     private func smallRack(count: Int, width: CGFloat) -> some View {

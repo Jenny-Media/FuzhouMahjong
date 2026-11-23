@@ -10,6 +10,7 @@ final class SoloMatch: MatchSession {
         let slot: SoloSaveSlot
         fileprivate let match: FuzhouMatch
         fileprivate let rackOrder: [Tile.ID]?
+        fileprivate let settledDiscard: Bool
         var id: SoloSaveSlot { slot }
         var table: TableState { match.table(for: FuzhouMatch.player) }
     }
@@ -34,18 +35,21 @@ final class SoloMatch: MatchSession {
         self.access = access
         let savedTables = SoloSaveSlot.allCases.compactMap { slot -> SavedTable? in
             guard let save = access.soloSave(key: slot.rawValue),
-                  let savedMatch = try? JSONDecoder().decode(FuzhouMatch.self, from: save.match) else { return nil }
+                  var savedMatch = try? JSONDecoder().decode(FuzhouMatch.self, from: save.match) else { return nil }
             guard savedMatch.ruleset != .legacy else {
                 access.removeSoloSave(key: slot.rawValue)
                 removedLegacySave = true
                 return nil
             }
-            return SavedTable(slot: slot, match: savedMatch, rackOrder: save.rackOrder)
+            let settledDiscard = savedMatch.settleRestoredDiscard()
+            return SavedTable(slot: slot, match: savedMatch, rackOrder: savedMatch.result == nil ? save.rackOrder : nil,
+                              settledDiscard: settledDiscard)
         }
 
         if savedTables.count == 1, let saved = savedTables.first,
-           saved.slot == .first || access.retainSoloSave(saved.slot) {
+           saved.slot == .first || retain(saved) {
             restore(saved)
+            if saved.slot == .first, saved.settledDiscard { persist() }
         } else {
             savedTableChoices = savedTables
         }
@@ -53,16 +57,22 @@ final class SoloMatch: MatchSession {
 
     func keepSavedTable(_ slot: SoloSaveSlot) -> Bool {
         guard let saved = savedTableChoices.first(where: { $0.slot == slot }),
-              access.retainSoloSave(slot) else { return false }
+              retain(saved) else { return false }
         restore(saved)
         savedTableChoices = []
         revision += 1
         return true
     }
 
+    private func retain(_ saved: SavedTable) -> Bool {
+        guard saved.settledDiscard else { return access.retainSoloSave(saved.slot) }
+        guard let data = try? JSONEncoder().encode(saved.match) else { return false }
+        return access.retainSoloSave(saved.slot, replacingWith: (match: data, rackOrder: saved.rackOrder))
+    }
+
     private func restore(_ saved: SavedTable) {
         match = saved.match
-        storedRackOrder = saved.match.result == nil ? saved.rackOrder : nil
+        storedRackOrder = saved.rackOrder
     }
 
     var table: TableState? { match?.table(for: FuzhouMatch.player) }

@@ -87,6 +87,11 @@ public enum Move: Equatable, Codable, Hashable, Sendable {
     case pass
 }
 
+public enum DiscardClaimFeedback: Equatable, Codable, Sendable {
+    case pending(Move)
+    case overridden(Move, by: Move)
+}
+
 public enum WinKind: String, Codable, Sendable { case selfDraw, discard, robGold }
 
 public enum WinPattern: String, Codable, Identifiable, Sendable {
@@ -171,6 +176,8 @@ public struct TableState: Equatable, Codable, Sendable {
         public var discards: [Tile]
         public var melds: [Meld]
         public var score: Int
+        /// Flowers already shown at this seat. Older hosts supply only the count.
+        public var exposedFlowers: [Tile]? = nil
     }
     public enum Step: String, Codable, Sendable { case opening, turn, claim, finished }
 
@@ -199,6 +206,8 @@ public struct TableState: Equatable, Codable, Sendable {
     public var houseRules: FuzhouHouseRules? = nil
     /// The dealer may trade one of these tiles for the flipped indicator when declaring 抢金.
     public var robGoldDiscardIDs: [Tile.ID]? = nil
+    /// Only the table viewer's own discard claim is reported here.
+    public var discardClaimFeedback: DiscardClaimFeedback? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? .legacy }
 

@@ -91,4 +91,24 @@ final class AccessTests: XCTestCase {
         XCTAssertEqual(reopened.soloSave(key: "solo-match.second.v1")?.rackOrder, [4, 3])
         XCTAssertFalse(reopened.authorizeHosting())
     }
+
+    @MainActor func testRetainingAMigratedSavePreservesItsHandAndAllowance() throws {
+        let name = "FuzhouAccessTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let access = GameAccess(defaults: defaults, keychainService: nil, now: { self.start })
+        XCTAssertTrue(access.beginSoloHand(key: SoloSaveSlot.first.rawValue, match: Data("first".utf8)))
+        XCTAssertTrue(access.beginSoloHand(key: SoloSaveSlot.second.rawValue, match: Data("second".utf8)))
+        let selected = try XCTUnwrap(access.soloSave(key: SoloSaveSlot.second.rawValue))
+        let remaining = access.remainingSoloHands
+        let settled = Data("settled".utf8)
+        XCTAssertTrue(access.retainSoloSave(.second, replacingWith: (match: settled, rackOrder: nil)))
+
+        let reopened = GameAccess(defaults: defaults, keychainService: nil, now: { self.start })
+        let retained = try XCTUnwrap(reopened.soloSave(key: SoloSaveSlot.first.rawValue))
+        XCTAssertEqual(retained.match, settled)
+        XCTAssertEqual(retained.handID, selected.handID)
+        XCTAssertNil(reopened.soloSave(key: SoloSaveSlot.second.rawValue))
+        XCTAssertEqual(reopened.remainingSoloHands, remaining)
+    }
 }

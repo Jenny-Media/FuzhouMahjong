@@ -172,6 +172,24 @@ public final class NearbySession: MatchSession {
             current = table.current
             tile = table.offeredTile
         }
+
+        func matchesSettledDiscard(in table: TableState) -> Bool {
+            guard step == .claim, let tile, table.roundNumber == round,
+                  table.step == .turn || table.step == .finished else { return false }
+            return table.latestDiscard == TableDiscard(seat: current, tile: tile)
+        }
+
+        func overridingMove(in table: TableState) -> Move? {
+            guard let tile, matchesSettledDiscard(in: table) else { return nil }
+            if let result = table.result, result.kind == .discard, result.winningTile == tile,
+               let winner = result.winner, winner != table.viewer { return .win }
+            for player in table.players where player.seat != table.viewer {
+                if let meld = player.melds.first(where: { $0.from == current && $0.tiles.contains(tile) }) {
+                    return .meld(meld.kind, meld.tiles.filter { $0 != tile }.map(\.id).sorted())
+                }
+            }
+            return nil
+        }
     }
 
     private struct Submission {
@@ -203,6 +221,7 @@ public final class NearbySession: MatchSession {
     private var leaveDeadline: Task<Void, Never>?
     private var submission: Submission?
     private var submissionTimeout: Task<Void, Never>?
+    private var overriddenSubmission: (window: ResponseWindow, feedback: DiscardClaimFeedback)?
 
     public private(set) var rooms: [DiscoveredRoom] = []
     public private(set) var update: RoomUpdate?
@@ -214,7 +233,14 @@ public final class NearbySession: MatchSession {
     public private(set) var inviteSearch: InviteSearch?
     public var rackOrder: [Tile.ID]?
 
-    public var table: TableState? { update?.table }
+    public var table: TableState? {
+        guard var table = update?.table else { return nil }
+        if table.discardClaimFeedback == nil, let overriddenSubmission,
+           overriddenSubmission.window.matchesSettledDiscard(in: table) {
+            table.discardClaimFeedback = overriddenSubmission.feedback
+        }
+        return table
+    }
     public var moveStatus: TableMoveStatus? {
         submission.map { $0.acknowledged ? .waitingForResolution : .sending }
     }
@@ -435,8 +461,13 @@ public final class NearbySession: MatchSession {
     }
 
     public func startMatch() {
+        var random = SystemRandomNumberGenerator()
+        startMatch(using: &random)
+    }
+
+    func startMatch(using random: inout some RandomNumberGenerator) {
         guard hostingAllowed() else { notice = "当前无法开局。解锁完整版后可以继续做房主。"; return }
-        guard listener != nil, host?.match.start() == true else { return }
+        guard listener != nil, host?.match.start(using: &random) == true else { return }
         broadcast()
     }
 
@@ -473,11 +504,23 @@ public final class NearbySession: MatchSession {
     }
 
     private func reconcileSubmission(with update: RoomUpdate) {
+        if let previous = overriddenSubmission,
+           update.table.map({ previous.window.matchesSettledDiscard(in: $0) }) != true {
+            overriddenSubmission = nil
+        }
         guard var submission else { return }
         let receipt = update.moveReceipt.flatMap { $0.id == submission.id ? $0 : nil }
+        if let window = submission.window, ResponseWindow(update.table) != window {
+            // A higher-priority claim can settle before this guest's move reaches the host.
+            if let table = update.table, table.discardClaimFeedback == nil, submission.move != .pass,
+               let winner = window.overridingMove(in: table) {
+                overriddenSubmission = (window, .overridden(submission.move, by: winner))
+            }
+            clearSubmission()
+            return
+        }
         if receipt?.accepted == false { clearSubmission(); return }
-        if let window = submission.window {
-            guard ResponseWindow(update.table) == window else { clearSubmission(); return }
+        if submission.window != nil {
             // Older hosts omit receipts. Their projection removes your move once it is recorded.
             let recorded = update.revision > submission.revision && update.table?.canSubmit(submission.move) == false
             if !submission.acknowledged, receipt?.accepted == true || recorded {
@@ -585,6 +628,7 @@ public final class NearbySession: MatchSession {
         target = nil
         update = nil
         clearSubmission()
+        overriddenSubmission = nil
         openingRound = nil
         rackOrder = nil
         cancelInviteSearch()

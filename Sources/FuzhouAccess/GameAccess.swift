@@ -91,8 +91,12 @@ public final class GameAccess {
         persist()
     }
 
-    public func retainSoloSave(_ slot: SoloSaveSlot) -> Bool {
-        guard let saved = archive.saves[slot.rawValue] else { return false }
+    public func retainSoloSave(_ slot: SoloSaveSlot, replacingWith replacement: (match: Data, rackOrder: [Int]?)? = nil) -> Bool {
+        guard var saved = archive.saves[slot.rawValue] else { return false }
+        if let replacement {
+            saved.match = replacement.match
+            saved.rackOrder = replacement.rackOrder
+        }
         var updated = archive
         updated.saves[SoloSaveSlot.first.rawValue] = saved
         updated.saves.removeValue(forKey: SoloSaveSlot.second.rawValue)

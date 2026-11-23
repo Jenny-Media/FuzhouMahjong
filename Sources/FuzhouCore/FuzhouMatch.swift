@@ -25,6 +25,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private var drew = Set<Seat>()
     private var firstDraw = false
     private var responses: [Response] = []
+    private var overriddenClaims: [Seat: DiscardClaimFeedback]?
     private var openingDealerGoldDiscards: [Tile.ID]?
     private var step = TableState.Step.turn
     private var offeredTile: Tile?
@@ -66,6 +67,12 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     public func table(for viewer: Seat) -> TableState {
         let moves = legalMoves(for: viewer)
         let openingDiscards = step == .opening && viewer == dealer && moves.contains(.win) ? openingDealerGoldDiscards : nil
+        let claimFeedback: DiscardClaimFeedback?
+        if step == .claim, case let .chose(_, move)? = responses.first(where: { $0.seat == viewer }), move != .pass {
+            claimFeedback = .pending(move)
+        } else {
+            claimFeedback = overriddenClaims?[viewer]
+        }
         return TableState(viewer: viewer, hand: hands[viewer.id], drawn: current == viewer ? drawn : nil,
                    gold: gold, remaining: wall.count, dealer: dealer, continuation: continuation,
                    roundNumber: roundNumber, wind: Seat.allCases[dealerTurns / 4],
@@ -74,9 +81,11 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                    players: Seat.allCases.map {
                        let count = hands[$0.id].count + ($0 == current && drawn != nil ? 1 : 0)
                        return .init(seat: $0, rackCount: count, flowerCount: flowers[$0.id].count,
-                                    discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id])
+                                    discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id],
+                                    exposedFlowers: flowers[$0.id])
                    }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
-                   matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards)
+                   matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards,
+                   discardClaimFeedback: claimFeedback)
     }
 
     public func legalMoves(for seat: Seat) -> [Move] {
@@ -122,9 +131,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         case .opening, .claim:
             let index = responses.firstIndex(of: .pending(seat))!
             responses[index] = .chose(seat, move)
-            if !responses.contains(where: { if case .pending = $0 { true } else { false } }) {
-                resolveResponses()
-            }
+            resolveResponses()
         case .turn:
             switch move {
             case .discard(let id):
@@ -144,6 +151,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             return false
         }
         return true
+    }
+
+    /// Settles a restored discard window when all remaining claims are already outranked.
+    public mutating func settleRestoredDiscard() -> Bool {
+        guard step == .claim else { return false }
+        resolveResponses()
+        return step != .claim
     }
 
     public func hasComputerMove(excluding humans: Set<Seat>) -> Bool {
@@ -395,6 +409,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         drew = []
         firstDraw = false
         responses = []
+        overriddenClaims = nil
         openingDealerGoldDiscards = nil
         offeredTile = nil
     }
@@ -449,6 +464,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private mutating func discard(_ id: Int, by seat: Seat) {
         let tile = recordDiscard(id, by: seat)
         firstDraw = false
+        overriddenClaims = nil
         offeredTile = tile
         step = .claim
         responses = (1..<4).map { seat.advanced($0) }.filter {
@@ -470,15 +486,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     }
 
     private mutating func resolveResponses() {
-        let choices: [(Seat, Move)] = responses.compactMap {
-            guard case let .chose(seat, move) = $0, move != .pass else { return nil }
-            return (seat, move)
-        }
-        responses = []
         if step == .opening {
+            guard !responses.contains(where: { if case .pending = $0 { true } else { false } }) else { return }
+            let choice = responses.first { if case .chose(_, .pass) = $0 { false } else { true } }
+            responses = []
             let defaultDiscard = openingDealerGoldDiscards?.first
             openingDealerGoldDiscards = nil
-            if let (winner, move) = choices.first, let gold {
+            if case let .chose(winner, move)? = choice, let gold {
                 if winner == dealer {
                     if case .discard(let id) = move { recordDiscard(id, by: dealer) }
                     else if let defaultDiscard { recordDiscard(defaultDiscard, by: dealer) }
@@ -490,12 +504,29 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             return
         }
 
+        guard let tile = offeredTile else { return }
+        // Rank each pending player by their best possible claim. The response order breaks ties.
+        let leader = responses.enumerated().compactMap { index, response -> (rank: Int, order: Int, response: Response)? in
+            switch response {
+            case .pending(let seat):
+                let best = discardClaims(for: seat, tile: tile).map { priority($0, by: seat, claiming: tile) }.max()
+                return best.map { ($0, -index, response) }
+            case .chose(let seat, let move):
+                return move == .pass ? nil : (priority(move, by: seat, claiming: tile), -index, response)
+            }
+        }.max { ($0.rank, $0.order) < ($1.rank, $1.order) }?.response
+        if case .pending? = leader { return }
+
         let source = current
+        let resolvedResponses = responses
+        responses = []
         defer { offeredTile = nil }
-        if let tile = offeredTile, let (seat, move) = choices
-            .map({ (seat: $0.0, move: $0.1, priority: priority($0.1, by: $0.0, claiming: tile)) })
-            .enumerated().max(by: { ($0.element.priority, -$0.offset) < ($1.element.priority, -$1.offset) })
-            .map({ ($0.element.seat, $0.element.move) }) {
+        if case let .chose(seat, move)? = leader {
+            let overridden = resolvedResponses.compactMap { response -> (Seat, DiscardClaimFeedback)? in
+                guard case let .chose(other, attempted) = response, other != seat, attempted != .pass else { return nil }
+                return (other, .overridden(attempted, by: move))
+            }
+            if !overridden.isEmpty { overriddenClaims = Dictionary(uniqueKeysWithValues: overridden) }
             switch move {
             case .win:
                 finishWin(seat, kind: .discard, tile: tile, source: source)

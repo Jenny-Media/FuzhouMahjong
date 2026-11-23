@@ -21,10 +21,17 @@ final class NearbyLoopbackTests: XCTestCase {
         XCTAssertEqual(guest.update?.ruleset, .oldThree)
         XCTAssertEqual(guest.update?.houseRules, houseRules)
         XCTAssertFalse(guest.canAdvance)
-        host.startMatch()
+        var random = FixtureRandom(seed: 341)
+        host.startMatch(using: &random)
         for _ in 0..<100 where guest.table == nil { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(guest.table?.ruleset, .oldThree)
         XCTAssertEqual(guest.table?.houseRules, houseRules)
+        let hostTable = try XCTUnwrap(host.table)
+        let guestTable = try XCTUnwrap(guest.table)
+        XCTAssertEqual(guestTable.players.map(\.exposedFlowers), hostTable.players.map(\.exposedFlowers))
+        let exposed = guestTable.players.flatMap { $0.exposedFlowers ?? [] }
+        XCTAssertFalse(exposed.isEmpty)
+        XCTAssertTrue(exposed.allSatisfy { $0.kind.isFlower && !guestTable.isGold($0) })
     }
 
     @MainActor
@@ -676,22 +683,26 @@ final class NearbyLoopbackTests: XCTestCase {
                 clients.allSatisfy { $0.update?.revision == revision }
             }
             let actor = try XCTUnwrap(clients.first { $0.table?.moves.isEmpty == false })
-            let moves = try XCTUnwrap(actor.table?.moves)
+            let before = try XCTUnwrap(actor.table)
+            let moves = before.moves
             let move = moves.contains(.win) ? Move.win : moves.contains(.pass) ? .pass : try XCTUnwrap(moves.last)
-            let waitsForAnotherPlayer = moves.contains(.pass) && clients.contains {
-                $0 !== actor && $0.table?.moves.contains(.pass) == true
-            }
             XCTAssertTrue(actor.submit(move))
             if actor !== host { XCTAssertEqual(actor.moveStatus, .sending) }
             XCTAssertFalse(actor.submit(move))
             try await until("host accepts a legal move") { host.update?.revision != revision }
+            let after = try XCTUnwrap(host.table)
+            let waitsForAnotherPlayer = moves.contains(.pass) && after.step == before.step &&
+                after.roundNumber == before.roundNumber && after.current == before.current && after.offeredTile == before.offeredTile
+            let resolvedRevision = try XCTUnwrap(host.update?.revision)
             if waitsForAnotherPlayer {
                 try await until("receipt arrives while other players can still respond") {
-                    actor.moveStatus == .waitingForResolution
+                    actor.update?.revision == resolvedRevision && actor.moveStatus == .waitingForResolution
                 }
                 XCTAssertFalse(actor.submit(move))
             } else {
-                try await until("completed move unlocks the controls") { actor.moveStatus == nil }
+                try await until("completed move unlocks the controls") {
+                    actor.update?.revision == resolvedRevision && actor.moveStatus == nil
+                }
             }
         }
         let result = try XCTUnwrap(host.table?.result)
@@ -717,6 +728,81 @@ final class NearbyLoopbackTests: XCTestCase {
         try await until("the host ending the table dismisses the other guests") {
             guests.allSatisfy { !$0.isInRoom }
         }
+    }
+
+    @MainActor
+    func testGuestGetsPrivateFeedbackWhenWinSettlesBeforeChowArrives() async throws {
+        try await assertLateChowFeedback(seed: 341, firstDiscard: true, moves: 2, claimant: .north, winner: .win)
+    }
+
+    @MainActor
+    func testGuestGetsPrivateFeedbackWhenPungSettlesBeforeChowArrives() async throws {
+        try await assertLateChowFeedback(seed: 3, firstDiscard: false, moves: 49,
+                                         claimant: .west, winner: .meld(.pung, [52, 54]))
+    }
+
+    @MainActor
+    private func assertLateChowFeedback(seed: UInt64, firstDiscard: Bool, moves: Int,
+                                       claimant seat: Seat, winner: Move) async throws {
+        let host = NearbySession(loopback: true)
+        let guests = (0..<3).map { _ in NearbySession(loopback: true) }
+        let clients = [host] + guests
+        defer { host.leave(); guests.forEach { $0.setBackgrounded(true); $0.leave() } }
+        host.create(name: "Host", ruleset: .oldThree)
+        try await until("host listens") { host.loopbackRoom != nil }
+        let room = try XCTUnwrap(host.loopbackRoom)
+        for guest in guests {
+            guest.join(room, name: "Guest")
+            try await until("guest joins") { guest.connected }
+        }
+
+        var random = FixtureRandom(seed: seed)
+        host.startMatch(using: &random)
+        try await until("all seats receive the deal") { clients.allSatisfy { $0.table != nil } }
+        clients.forEach { $0.finishOpening(1) }
+        func play(_ move: Move, by actor: NearbySession) async throws {
+            let revision = try XCTUnwrap(host.update?.revision)
+            XCTAssertTrue(actor.submit(move))
+            try await until("all clients receive the next move") {
+                host.update?.revision != revision && clients.allSatisfy { $0.update?.revision == host.update?.revision }
+            }
+        }
+        if firstDiscard {
+            let move = try XCTUnwrap(host.table?.moves.first { if case .discard = $0 { true } else { false } })
+            try await play(move, by: host)
+        }
+        for _ in 0..<moves {
+            let actor = try XCTUnwrap(clients.first { $0.table?.moves.isEmpty == false })
+            let moves = try XCTUnwrap(actor.table?.moves)
+            let move = moves.contains(.win) ? .win : moves.contains(.pass) ? .pass : try XCTUnwrap(moves.last)
+            try await play(move, by: actor)
+        }
+
+        let claimant = clients[seat.id]
+        let offered = try XCTUnwrap(claimant.table)
+        let chow = try XCTUnwrap(offered.moves.first { if case .meld(.chow, _) = $0 { true } else { false } })
+        XCTAssertEqual(offered.viewer, seat)
+        XCTAssertEqual(offered.offeredTile, host.table?.offeredTile)
+        XCTAssertTrue(host.submit(winner))
+        XCTAssertEqual(host.table?.step, winner == .win ? .finished : .turn)
+        // Both calls are synchronous. The guest can still tap the offer before the host update arrives.
+        XCTAssertEqual(claimant.table, offered)
+        XCTAssertTrue(claimant.submit(chow))
+        XCTAssertEqual(claimant.moveStatus, .sending)
+        try await until("late move receipt arrives") { claimant.update?.moveReceipt?.accepted == false }
+        XCTAssertNil(claimant.moveStatus)
+        XCTAssertEqual(claimant.table?.discardClaimFeedback, .overridden(chow, by: winner))
+        XCTAssertTrue(clients.filter { $0 !== claimant }.allSatisfy { $0.table?.discardClaimFeedback == nil })
+
+        if winner == .win {
+            XCTAssertEqual(host.table?.result?.winner, .east)
+            host.nextHand()
+            try await until("claimant opens the next hand") { claimant.table?.roundNumber == 2 }
+        } else {
+            let next = try XCTUnwrap(host.table?.moves.first { if case .discard = $0 { true } else { false } })
+            try await play(next, by: host)
+        }
+        XCTAssertNil(claimant.table?.discardClaimFeedback)
     }
 
     @MainActor
@@ -830,6 +916,18 @@ final class NearbyLoopbackTests: XCTestCase {
     }
 
     private enum Failure: Error { case timeout(String) }
+
+    private struct FixtureRandom: RandomNumberGenerator {
+        var seed: UInt64
+
+        mutating func next() -> UInt64 {
+            seed &+= 0x9E3779B97F4A7C15
+            var value = seed
+            value = (value ^ (value >> 30)) &* 0xBF58476D1CE4E5B9
+            value = (value ^ (value >> 27)) &* 0x94D049BB133111EB
+            return value ^ (value >> 31)
+        }
+    }
 }
 
 /// Drops one direction on the current link while allowing the replacement link to resync normally.

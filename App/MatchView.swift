@@ -3,6 +3,23 @@ import FuzhouCore
 import SwiftUI
 import UIKit
 
+struct FlowerHighlights {
+    private var deadlines: [Tile.ID: ContinuousClock.Instant] = [:]
+
+    var tiles: Set<Tile.ID> { Set(deadlines.keys) }
+    var nextExpiry: ContinuousClock.Instant? { deadlines.values.min() }
+
+    mutating func reveal(_ tiles: Set<Tile.ID>, at time: ContinuousClock.Instant) {
+        expire(at: time)
+        let expiry = time.advanced(by: .milliseconds(900))
+        for tile in tiles { deadlines[tile] = expiry }
+    }
+
+    mutating func expire(at time: ContinuousClock.Instant) {
+        deadlines = deadlines.filter { $0.value > time }
+    }
+}
+
 struct MatchView<Session: MatchSession>: View {
     let session: Session
     @Environment(GameAccess.self) private var access
@@ -29,6 +46,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var observedDiscard: TableDiscard?
     @State private var drawCue: DrawCue?
     @State private var drawFlight: DrawPickup.Flight?
+    @State private var flowerHighlights = FlowerHighlights()
     @State private var pendingThrow: PendingThrow?
     @State private var discardFlight: DiscardFlight.Motion?
     @State private var offeredTileFrame: OfferedTileFrame?
@@ -130,6 +148,14 @@ struct MatchView<Session: MatchSession>: View {
             guard let drawCue else { return }
             await performDraw(drawCue)
         }
+        .task(id: flowerHighlights.nextExpiry) { [expiry = flowerHighlights.nextExpiry] in
+            guard let expiry else { return }
+            let clock = ContinuousClock()
+            do { try await clock.sleep(until: expiry) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            flowerHighlights.expire(at: clock.now)
+        }
         .task(id: pendingThrow) {
             guard let pendingThrow else { return }
             do { try await Task.sleep(for: .seconds(1.5)) }
@@ -179,6 +205,7 @@ struct MatchView<Session: MatchSession>: View {
             if !nowActive {
                 audio.stop()
                 drawCue = nil
+                flowerHighlights = FlowerHighlights()
                 goldDiscard = nil
                 meldPreview = nil
                 robGoldChoice = nil
@@ -189,6 +216,7 @@ struct MatchView<Session: MatchSession>: View {
         .onDisappear {
             audio.stop()
             touch.stop()
+            flowerHighlights = FlowerHighlights()
             resetDiscardMotion()
             if let opening { finishOpening(opening) }
         }
@@ -208,7 +236,8 @@ struct MatchView<Session: MatchSession>: View {
             else {
                 resetArrangement()
                 if before == nil, UIAccessibility.isVoiceOverRunning, let table = session.table {
-                    AccessibilityNotification.Announcement(status(table)).post()
+                    let message = [status(table), table.discardClaimFeedback?.message].compactMap { $0 }.joined(separator: "。")
+                    AccessibilityNotification.Announcement(message).post()
                 }
             }
         }
@@ -417,11 +446,7 @@ struct MatchView<Session: MatchSession>: View {
                 landed = true
                 return
             }
-            if !cue.fromReserve, cue.replacesFlowers {
-                drawFlight = .init(fromReserve: false, duration: DrawPickup.flowerDuration)
-                try await Task.sleep(for: .seconds(DrawPickup.flowerDuration))
-            }
-            drawFlight = .init(fromReserve: cue.fromReserve || cue.replacesFlowers, duration: DrawPickup.duration)
+            drawFlight = .init(fromReserve: cue.fromReserve || cue.replacesFlowers)
             try await Task.sleep(for: .seconds(DrawPickup.duration))
             landed = true
         } catch { return }
@@ -437,6 +462,7 @@ struct MatchView<Session: MatchSession>: View {
         guard active, opening == nil, before.roundNumber == after.roundNumber else {
             observedDiscard = nil
             drawCue = nil
+            flowerHighlights = FlowerHighlights()
             resetDiscardMotion()
             return
         }
@@ -472,6 +498,13 @@ struct MatchView<Session: MatchSession>: View {
             }
         }
         let replacedFlower = pairs.contains { $1.flowerCount > $0.flowerCount }
+        if replacedFlower {
+            let flowers = Set(pairs.flatMap { before, after in
+                let added = max(0, after.flowerCount - before.flowerCount)
+                return (after.exposedFlowers ?? []).suffix(added).map(\.id)
+            })
+            if !flowers.isEmpty { flowerHighlights.reveal(flowers, at: .now) }
+        }
         if before.result == nil, let winner = after.result?.winner {
             play(.win, by: winner)
             if winner == after.viewer { playHaptic(.win) }
@@ -682,6 +715,7 @@ struct MatchView<Session: MatchSession>: View {
         GeometryReader { surface in
             LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
+                      highlightedFlowers: flowerHighlights.tiles,
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,
@@ -754,7 +788,9 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func header(_ table: TableState, showsResultActions: Bool = false) -> some View {
-        HStack(spacing: 6) {
+        let resultFeedback = table.result == nil ? nil : table.discardClaimFeedback?.message
+        let showsStatus = table.result == nil || resultFeedback != nil
+        return HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text("\(table.wind.wind)\(table.handNumber)局 · 连庄 \(table.continuation)")
@@ -765,12 +801,12 @@ struct MatchView<Session: MatchSession>: View {
                 .font(.caption.monospacedDigit())
                 .minimumScaleFactor(0.7)
                 HStack(spacing: 5) {
-                    Text(status(table))
-                        .foregroundStyle(!session.paused && (!table.moves.isEmpty || session.moveStatus != nil) ? TeaTheme.brass : TeaTheme.ink)
-                        .layoutPriority(table.viewerMustSelfDraw ? 0 : 1)
+                    Text(resultFeedback ?? status(table))
+                        .foregroundStyle(!session.paused && (!table.moves.isEmpty || session.moveStatus != nil || table.discardClaimFeedback != nil) ? TeaTheme.brass : TeaTheme.ink)
+                        .layoutPriority(table.result == nil && table.viewerMustSelfDraw ? 0 : 1)
                         .accessibilityIdentifier("table-status")
-                        .opacity(table.result == nil ? 1 : 0)
-                        .accessibilityHidden(table.result != nil)
+                        .opacity(showsStatus ? 1 : 0)
+                        .accessibilityHidden(!showsStatus)
                     if table.viewerMustSelfDraw {
                         Text("本局只能自摸").foregroundStyle(TeaTheme.loss).layoutPriority(1)
                             .opacity(table.result == nil ? 1 : 0)
@@ -1180,6 +1216,7 @@ struct MatchView<Session: MatchSession>: View {
             return result.winner.map { "\(displayName($0, viewer: table.viewer, names: names)) · \(result.winTitle)" } ?? "流局"
         }
         if session.paused { return "等待牌友重新连接" }
+        if let feedback = table.discardClaimFeedback { return feedback.message }
         if let moveStatus = session.moveStatus {
             switch moveStatus {
             case .sending: return "正在提交…"
@@ -1200,7 +1237,8 @@ struct MatchView<Session: MatchSession>: View {
             return table.moves.isEmpty ? "等待牌友要牌或过牌" : "可以要这张牌，也可以过"
         }
         let name = displayName(table.current, viewer: table.viewer, names: names)
-        if let drawFlight, drawCue?.seat == table.current {
+        if let drawFlight, let drawCue, drawCue.seat == table.current {
+            if drawCue.replacesFlowers { return "\(name)正在补花" }
             return drawFlight.fromReserve ? "\(name)正在补牌" : "\(name)正在摸牌"
         }
         if table.current == table.viewer { return "轮到你了" }
@@ -1465,5 +1503,20 @@ private extension Move {
     var meld: (kind: MeldKind, ids: [Tile.ID])? {
         if case .meld(let kind, let ids) = self { return (kind, ids) }
         return nil
+    }
+
+    var discardClaimLabel: String { meld?.kind.actionLabel ?? "胡" }
+}
+
+private extension DiscardClaimFeedback {
+    var message: String {
+        switch self {
+        case .pending(let move):
+            "已选\(move.discardClaimLabel)，等其他玩家回应"
+        case .overridden(.win, _):
+            "其他玩家优先胡牌"
+        case .overridden(let move, let winner):
+            "有人\(winner == .win ? "胡牌" : winner.discardClaimLabel)，这次没\(move.discardClaimLabel)成"
+        }
     }
 }
