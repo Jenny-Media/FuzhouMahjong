@@ -343,7 +343,7 @@ struct NearbyView: View {
 enum NearbyNickname {
     static let storageKey = "nearby.nickname"
     static var storedName: String { UserDefaults.standard.string(forKey: storageKey) ?? "" }
-    private static let suggestions = [
+    private static let simpleNames = [
         "安", "宝", "彬", "晨", "川", "春", "丹", "冬", "东", "芳", "菲", "飞", "峰", "福", "海", "禾",
         "红", "华", "欢", "杰", "晶", "静", "凯", "康", "兰", "岚", "乐", "林", "琳", "龙", "梅", "米",
         "明", "敏", "楠", "宁", "鹏", "平", "萍", "青", "晴", "秋", "蓉", "荣", "松", "涛", "桃", "田",
@@ -351,23 +351,23 @@ enum NearbyNickname {
     ].flatMap { ["阿\($0)", "小\($0)"] } + [
         "安安", "白白", "冰冰", "晨晨", "东东", "朵朵", "果果", "佳佳", "晶晶", "乐乐", "林林", "玲玲",
         "米米", "明明", "宁宁", "妞妞", "平平", "青青", "晴晴", "双双", "甜甜", "星星", "圆圆", "云云",
+    ]
+
+    static let familyTitles = [
         "哥哥", "姐姐", "弟弟", "妹妹", "爸爸", "妈妈", "爷爷", "奶奶", "外公", "外婆", "姥爷", "姥姥",
         "伯伯", "伯母", "叔叔", "婶婶", "阿姨", "姨妈", "姨父", "舅舅", "舅妈", "姑姑", "姑父", "姑妈",
         "表哥", "表姐", "表弟", "表妹", "堂哥", "堂姐", "堂弟", "堂妹",
     ]
+    private static let defaultNames = simpleNames + familyTitles
 
     static func prepareStoredName(in defaults: UserDefaults = .standard) {
         let stored = defaults.string(forKey: storageKey) ?? ""
         guard NearbyMatch.normalizedName(stored, fallback: "").isEmpty else { return }
-        defaults.set(suggestion(), forKey: storageKey)
+        defaults.set(defaultNames[Int.random(in: defaultNames.indices)], forKey: storageKey)
     }
 
-    static func suggestion(excluding current: String = "") -> String {
-        var name: String
-        repeat {
-            name = suggestions[Int.random(in: suggestions.indices)]
-        } while name == current
-        return name
+    static func randomSuggestions(excluding excluded: Set<String>) -> [String] {
+        Array(simpleNames.filter { !excluded.contains($0) }.shuffled().prefix(6))
     }
 }
 
@@ -405,7 +405,9 @@ struct NearbyNicknameEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var nickname: String
     @State private var draft: String
+    @State private var suggestions: [String] = []
     @FocusState private var editing: Bool
+    @ScaledMetric(relativeTo: .body) private var nameWidth: CGFloat = 76
 
     init(nickname: Binding<String>) {
         _nickname = nickname
@@ -425,16 +427,25 @@ struct NearbyNicknameEditor: View {
                         .submitLabel(.done)
                         .onSubmit(save)
                         .accessibilityIdentifier("nearby-nickname-input")
-                    Button("换个随机昵称", systemImage: "shuffle") {
-                        draft = NearbyNickname.suggestion(excluding: cleaned)
-                    }
-                    .accessibilityIdentifier("nearby-nickname-random")
                 } footer: {
                     Text("最多 12 个字符。创建或加入新牌桌时，牌友会看到这个昵称。")
                 }
                 .listRowBackground(TeaTheme.surface)
+
+                Section("随机昵称") {
+                    nameChoices(suggestions, identifierPrefix: "nearby-nickname-suggestion")
+                    Button("换一批", systemImage: "shuffle", action: refreshSuggestions)
+                        .accessibilityIdentifier("nearby-nickname-random")
+                }
+                .listRowBackground(TeaTheme.surface)
+
+                Section("家庭称呼") {
+                    nameChoices(NearbyNickname.familyTitles, identifierPrefix: "nearby-nickname-family")
+                }
+                .listRowBackground(TeaTheme.surface)
             }
             .scrollContentBackground(.hidden)
+            .scrollDismissesKeyboard(.interactively)
             .modifier(HingeSafeContent())
             .teaBackdrop()
             .navigationTitle("更改昵称")
@@ -447,9 +458,40 @@ struct NearbyNicknameEditor: View {
                         .accessibilityIdentifier("nearby-nickname-save")
                 }
             }
-            .onAppear { editing = true }
+            .onAppear {
+                if suggestions.isEmpty { refreshSuggestions() }
+            }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
+    }
+
+    private func nameChoices(_ names: [String], identifierPrefix: String) -> some View {
+        let selectedName = cleaned
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: nameWidth), spacing: 8)], spacing: 8) {
+            ForEach(names, id: \.self) { name in
+                let selected = name == selectedName
+                Button {
+                    draft = name
+                    editing = false
+                } label: {
+                    Text(name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(TeaTheme.ink)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget)
+                        .teaPanel(corner: 8, emphasized: selected)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityIdentifier("\(identifierPrefix)-\(name)")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func refreshSuggestions() {
+        suggestions = NearbyNickname.randomSuggestions(excluding: Set(suggestions).union([cleaned]))
     }
 
     private func save() {
