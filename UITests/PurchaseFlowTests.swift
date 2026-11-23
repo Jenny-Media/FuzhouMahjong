@@ -41,6 +41,7 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         let draft = try XCTUnwrap(field.value as? String)
         XCTAssertEqual(NearbyMatch.normalizedName(draft), original)
+        XCTAssertTrue(app.staticTexts["昵称"].exists)
         XCTAssertTrue(choices.firstMatch.waitForExistence(timeout: 5))
         let firstBatch = Set(choices.allElementsBoundByIndex.map(\.label))
         XCTAssertEqual(firstBatch.count, 6)
@@ -51,6 +52,7 @@ final class PurchaseFlowTests: XCTestCase {
         choice.tap()
         XCTAssertEqual(field.value as? String, chosenName)
         XCTAssertTrue(choice.isSelected)
+        capture("nearby-nickname-selection")
 
         roll.tap()
         let secondBatch = Set(choices.allElementsBoundByIndex.map(\.label))

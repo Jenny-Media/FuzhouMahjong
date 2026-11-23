@@ -427,6 +427,8 @@ struct NearbyNicknameEditor: View {
                         .submitLabel(.done)
                         .onSubmit(save)
                         .accessibilityIdentifier("nearby-nickname-input")
+                } header: {
+                    Text("昵称")
                 } footer: {
                     Text("最多 12 个字符。创建或加入新牌桌时，牌友会看到这个昵称。")
                 }
@@ -480,6 +482,16 @@ struct NearbyNicknameEditor: View {
                         .padding(.vertical, 6)
                         .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget)
                         .teaPanel(corner: 8, emphasized: selected)
+                        .overlay(alignment: .trailing) {
+                            if selected {
+                                Image(systemName: "checkmark")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(TeaTheme.brass)
+                                    .padding(.trailing, 6)
+                                    .accessibilityHidden(true)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
