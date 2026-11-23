@@ -459,7 +459,11 @@ final class TableFlowTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         let first = FuzhouMatch(ruleset: .oldThree)
-        let second = FuzhouMatch(houseRules: .init(name: "Family", goldIndicators: .includeWinds))
+        let second = try olderSaveWithDecidedDiscard(houseRules: .init(name: "Family", discardPayment: .allOpponents))
+        var settled = second
+        XCTAssertTrue(settled.settleRestoredDiscard())
+        let expectedScore = settled.scores[Seat.south.id]
+        XCTAssertLessThan(expectedScore, 0)
         let secondSave = try JSONEncoder().encode(second).map { String(format: "%02x", $0) }.joined()
         app.launchArguments = try savedMatchArguments(first) + ["-solo-match.second.v1", "<\(secondSave)>"]
         app.launch()
@@ -469,6 +473,7 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(keepFirst.waitForExistence(timeout: 5))
         XCTAssertTrue(keepFirst.label.contains("清一色不加分"))
         XCTAssertTrue(keepSecond.label.contains("Family"))
+        XCTAssertTrue(keepSecond.label.contains("\(expectedScore)分"))
         XCTAssertFalse(app.buttons["practice-entry"].exists)
         keepFirst.tap()
         let prompt = app.alerts["保留这张牌桌？"]
@@ -486,6 +491,9 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(resume.label.contains("Family"))
         XCTAssertTrue(app.buttons["new-solo-game"].exists)
         XCTAssertFalse(keepFirst.exists || keepSecond.exists)
+        resume.tap()
+        XCTAssertTrue(app.buttons["view-scorecard"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["table-score-delta"].label, "本局积分变化 \(expectedScore)")
     }
 
     func testThrowKeepsRackInPlaceAndConfirmsGoldBeforeDiscarding() throws {
@@ -727,16 +735,7 @@ final class TableFlowTests: XCTestCase {
     func testResumingAnOlderSaveSettlesTheDiscardWithoutAskingForPung() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        let fixture = try match(seed: 662, after: 24)
-        XCTAssertTrue(fixture.legalMoves(for: .north).contains(.win))
-        let data = try JSONEncoder().encode(fixture)
-        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        // Earlier versions saved the computer's Hu while still waiting for the player's Pung or Pass.
-        saved["responses"] = [
-            ["pending": ["_0": Seat.south.rawValue]],
-            ["chose": ["_0": Seat.north.rawValue, "_1": ["win": [String: String]()]]],
-        ]
-        let oldSave = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: saved))
+        let oldSave = try olderSaveWithDecidedDiscard()
         XCTAssertTrue(oldSave.legalMoves(for: .south).contains(.pass))
         XCTAssertFalse(oldSave.hasComputerMove(excluding: [.south]))
 
@@ -1060,9 +1059,22 @@ final class TableFlowTests: XCTestCase {
         return app
     }
 
-    private func match(seed: UInt64, after moves: Int) throws -> FuzhouMatch {
+    private func olderSaveWithDecidedDiscard(houseRules: FuzhouHouseRules? = nil) throws -> FuzhouMatch {
+        let match = try match(seed: 662, after: 24, houseRules: houseRules)
+        XCTAssertTrue(match.legalMoves(for: .north).contains(.win))
+        let data = try JSONEncoder().encode(match)
+        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // Earlier versions saved the computer's Hu while still waiting for the player's Pung or Pass.
+        saved["responses"] = [
+            ["pending": ["_0": Seat.south.rawValue]],
+            ["chose": ["_0": Seat.north.rawValue, "_1": ["win": [String: String]()]]],
+        ]
+        return try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: saved))
+    }
+
+    private func match(seed: UInt64, after moves: Int, houseRules: FuzhouHouseRules? = nil) throws -> FuzhouMatch {
         var random = FixtureRandom(seed: seed)
-        var match = FuzhouMatch(using: &random, ruleset: .pureSuit)
+        var match = FuzhouMatch(using: &random, ruleset: .pureSuit, houseRules: houseRules)
         for _ in 0..<moves { try playFixtureMove(in: &match) }
         return match
     }

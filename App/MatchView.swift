@@ -3,6 +3,23 @@ import FuzhouCore
 import SwiftUI
 import UIKit
 
+struct FlowerHighlights {
+    private var deadlines: [Tile.ID: ContinuousClock.Instant] = [:]
+
+    var tiles: Set<Tile.ID> { Set(deadlines.keys) }
+    var nextExpiry: ContinuousClock.Instant? { deadlines.values.min() }
+
+    mutating func reveal(_ tiles: Set<Tile.ID>, at time: ContinuousClock.Instant) {
+        expire(at: time)
+        let expiry = time.advanced(by: .milliseconds(900))
+        for tile in tiles { deadlines[tile] = expiry }
+    }
+
+    mutating func expire(at time: ContinuousClock.Instant) {
+        deadlines = deadlines.filter { $0.value > time }
+    }
+}
+
 struct MatchView<Session: MatchSession>: View {
     let session: Session
     @Environment(GameAccess.self) private var access
@@ -29,7 +46,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var observedDiscard: TableDiscard?
     @State private var drawCue: DrawCue?
     @State private var drawFlight: DrawPickup.Flight?
-    @State private var flowerHighlight: FlowerHighlight?
+    @State private var flowerHighlights = FlowerHighlights()
     @State private var pendingThrow: PendingThrow?
     @State private var discardFlight: DiscardFlight.Motion?
     @State private var offeredTileFrame: OfferedTileFrame?
@@ -131,12 +148,13 @@ struct MatchView<Session: MatchSession>: View {
             guard let drawCue else { return }
             await performDraw(drawCue)
         }
-        .task(id: flowerHighlight?.id) { [expiredID = flowerHighlight?.id] in
-            guard let expiredID else { return }
-            do { try await Task.sleep(for: .milliseconds(900)) }
+        .task(id: flowerHighlights.nextExpiry) { [expiry = flowerHighlights.nextExpiry] in
+            guard let expiry else { return }
+            let clock = ContinuousClock()
+            do { try await clock.sleep(until: expiry) }
             catch { return }
-            guard !Task.isCancelled, flowerHighlight?.id == expiredID else { return }
-            flowerHighlight = nil
+            guard !Task.isCancelled else { return }
+            flowerHighlights.expire(at: clock.now)
         }
         .task(id: pendingThrow) {
             guard let pendingThrow else { return }
@@ -187,7 +205,7 @@ struct MatchView<Session: MatchSession>: View {
             if !nowActive {
                 audio.stop()
                 drawCue = nil
-                flowerHighlight = nil
+                flowerHighlights = FlowerHighlights()
                 goldDiscard = nil
                 meldPreview = nil
                 robGoldChoice = nil
@@ -198,7 +216,7 @@ struct MatchView<Session: MatchSession>: View {
         .onDisappear {
             audio.stop()
             touch.stop()
-            flowerHighlight = nil
+            flowerHighlights = FlowerHighlights()
             resetDiscardMotion()
             if let opening { finishOpening(opening) }
         }
@@ -338,11 +356,6 @@ struct MatchView<Session: MatchSession>: View {
         let replacesFlowers: Bool
     }
 
-    private struct FlowerHighlight {
-        let id = UUID()
-        let tiles: Set<Tile.ID>
-    }
-
     private func performOpening(_ round: Int) async {
         let dealsDealerTile = session.table?.lastDraw?.isOpeningDeal == true
         openingAnimationRound = round
@@ -449,7 +462,7 @@ struct MatchView<Session: MatchSession>: View {
         guard active, opening == nil, before.roundNumber == after.roundNumber else {
             observedDiscard = nil
             drawCue = nil
-            flowerHighlight = nil
+            flowerHighlights = FlowerHighlights()
             resetDiscardMotion()
             return
         }
@@ -490,7 +503,7 @@ struct MatchView<Session: MatchSession>: View {
                 let added = max(0, after.flowerCount - before.flowerCount)
                 return (after.exposedFlowers ?? []).suffix(added).map(\.id)
             })
-            if !flowers.isEmpty { flowerHighlight = FlowerHighlight(tiles: flowers) }
+            if !flowers.isEmpty { flowerHighlights.reveal(flowers, at: .now) }
         }
         if before.result == nil, let winner = after.result?.winner {
             play(.win, by: winner)
@@ -702,7 +715,7 @@ struct MatchView<Session: MatchSession>: View {
         GeometryReader { surface in
             LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
-                      highlightedFlowers: flowerHighlight?.tiles ?? [],
+                      highlightedFlowers: flowerHighlights.tiles,
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,

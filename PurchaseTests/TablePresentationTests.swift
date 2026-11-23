@@ -5,6 +5,30 @@ import XCTest
 
 @MainActor
 final class TablePresentationTests: XCTestCase {
+    func testConsecutiveFlowerRevealsKeepTheirOwnExpiry() throws {
+        let start = ContinuousClock.now
+        let flowers = Array(Tile.fullSet.lazy.filter { $0.kind.isFlower }.prefix(10))
+        let west = TableState.Player(seat: .west, rackCount: 16, flowerCount: flowers.count,
+                                     discards: [], melds: [], score: 0, exposedFlowers: flowers)
+        let first = Set(flowers.suffix(4).map(\.id))
+        let next: Set<Tile.ID> = [try XCTUnwrap(Tile.fullSet.last).id]
+        var highlights = FlowerHighlights()
+        highlights.reveal(first, at: start)
+        highlights.reveal(next, at: start + .milliseconds(200))
+
+        XCTAssertEqual(highlights.nextExpiry, start + .milliseconds(900))
+        let row = FlowerStripLayout(west, highlighted: highlights.tiles, width: 75, height: 19)
+        XCTAssertTrue(first.isSubset(of: Set(row.tiles.map(\.id))))
+        XCTAssertEqual(highlights.tiles, first.union(next))
+
+        highlights.expire(at: start + .milliseconds(900))
+        XCTAssertEqual(highlights.tiles, next)
+        XCTAssertEqual(highlights.nextExpiry, start + .milliseconds(1_100))
+        highlights.expire(at: start + .milliseconds(1_100))
+        XCTAssertTrue(highlights.tiles.isEmpty)
+        XCTAssertNil(highlights.nextExpiry)
+    }
+
     func testCompactFlowerRowKeepsTheFullReplacementChainVisible() {
         let flowers = Array(Tile.fullSet.lazy.filter { $0.kind.isFlower }.prefix(10))
         let player = TableState.Player(seat: .west, rackCount: 16, flowerCount: flowers.count,
