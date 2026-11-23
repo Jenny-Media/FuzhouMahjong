@@ -88,8 +88,13 @@ public struct NearbyMatch: Sendable {
     }
 
     public mutating func start() -> Bool {
+        var random = SystemRandomNumberGenerator()
+        return start(using: &random)
+    }
+
+    package mutating func start(using random: inout some RandomNumberGenerator) -> Bool {
         guard canStart else { return false }
-        match = FuzhouMatch(ruleset: ruleset, houseRules: houseRules)
+        match = FuzhouMatch(using: &random, ruleset: ruleset, houseRules: houseRules)
         bump()
         return true
     }
