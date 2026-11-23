@@ -881,6 +881,35 @@ final class TableFlowTests: XCTestCase {
         }
     }
 
+    func testOpeningFeltSkipsBeforeReleaseAndCancelsWhenLeavingEarly() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = XCUIApplication()
+        app.launchArguments = ["-play-access.archive.v1", "", "--ui-test-manual-opening"]
+        app.launch()
+        openFreshSoloGame(app)
+
+        let skip = app.buttons["skip-opening"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 5))
+        let table = element("table-surface", in: app)
+        let felt = table.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.5))
+        let outside = table.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0))
+        felt.tap()
+        XCTAssertTrue(skip.exists)
+        felt.press(forDuration: 0.4)
+        XCTAssertTrue(skip.exists)
+
+        felt.press(forDuration: 0.15, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 1)
+        XCTAssertTrue(skip.exists, "Leaving the felt early should cancel the hold.")
+
+        // Leaving the felt would cancel a hold that was still pending when the drag began.
+        felt.press(forDuration: 1, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.2)
+        XCTAssertTrue(skip.waitForNonExistence(timeout: 2))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
+            .firstMatch.waitForExistence(timeout: 3))
+    }
+
     func testRotationDuringTheDealSettlesOnTheCurrentTable() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
