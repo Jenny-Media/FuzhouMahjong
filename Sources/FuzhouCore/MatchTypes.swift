@@ -176,6 +176,8 @@ public struct TableState: Equatable, Codable, Sendable {
         public var discards: [Tile]
         public var melds: [Meld]
         public var score: Int
+        /// Flowers already shown at this seat. Older hosts supply only the count.
+        public var exposedFlowers: [Tile]? = nil
     }
     public enum Step: String, Codable, Sendable { case opening, turn, claim, finished }
 

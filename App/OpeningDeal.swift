@@ -50,6 +50,8 @@ struct OpeningDeal: View {
             }
         }
 
+        var showsFlowers: Bool { self == .flowers || self == .revealGold }
+
         func landed(for seat: Seat, dealer: Seat, at time: Date) -> Int {
             switch self {
             case .settled, .flowers, .revealGold: return FuzhouMatch.rackSize

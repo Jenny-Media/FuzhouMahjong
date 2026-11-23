@@ -21,10 +21,17 @@ final class NearbyLoopbackTests: XCTestCase {
         XCTAssertEqual(guest.update?.ruleset, .oldThree)
         XCTAssertEqual(guest.update?.houseRules, houseRules)
         XCTAssertFalse(guest.canAdvance)
-        host.startMatch()
+        var random = FixtureRandom(seed: 341)
+        host.startMatch(using: &random)
         for _ in 0..<100 where guest.table == nil { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(guest.table?.ruleset, .oldThree)
         XCTAssertEqual(guest.table?.houseRules, houseRules)
+        let hostTable = try XCTUnwrap(host.table)
+        let guestTable = try XCTUnwrap(guest.table)
+        XCTAssertEqual(guestTable.players.map(\.exposedFlowers), hostTable.players.map(\.exposedFlowers))
+        let exposed = guestTable.players.flatMap { $0.exposedFlowers ?? [] }
+        XCTAssertFalse(exposed.isEmpty)
+        XCTAssertTrue(exposed.allSatisfy { $0.kind.isFlower && !guestTable.isGold($0) })
     }
 
     @MainActor

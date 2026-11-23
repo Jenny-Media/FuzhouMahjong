@@ -2,11 +2,9 @@ import SwiftUI
 
 struct DrawPickup: View {
     static let duration = 0.66
-    static let flowerDuration = 0.23
 
     struct Flight: Equatable {
         let fromReserve: Bool
-        let duration: TimeInterval
         let started = Date.now
     }
 
@@ -18,7 +16,7 @@ struct DrawPickup: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 45)) { time in
             let age = max(0, time.date.timeIntervalSince(flight.started))
-            let t = min(1, age / flight.duration)
+            let t = min(1, age / Self.duration)
             let slide = t * t * (3 - 2 * t)
             let lift = sin(t * .pi)
             let x = source.midX + (destination.midX - source.midX) * slide
@@ -29,7 +27,7 @@ struct DrawPickup: View {
                 .frame(width: width, height: width * 1.4)
                 .rotationEffect(.degrees(lift * 14))
                 .position(x: x, y: y)
-                .opacity(max(0, min(1, (flight.duration - age) * (isLocal ? 45 : 15))))
+                .opacity(max(0, min(1, (Self.duration - age) * (isLocal ? 45 : 15))))
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)

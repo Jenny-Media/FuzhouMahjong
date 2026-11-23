@@ -93,8 +93,18 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(table.gold?.kind, indicator)
         XCTAssertEqual(table.drawn?.kind, replacement)
         XCTAssertEqual(table.players.first?.flowerCount, 2)
+        XCTAssertEqual(table.players.first?.exposedFlowers?.map(\.kind), [.init(.season, 1), .init(.flower, 1)])
+        XCTAssertEqual(match.table(for: .south).players.first?.exposedFlowers, table.players.first?.exposedFlowers)
         XCTAssertEqual(table.lastDraw?.flowersReplaced, 2)
         XCTAssertEqual(table.lastDraw?.fromReserve, true)
+    }
+
+    func testFlowerProjectionAcceptsOlderHostsWithOnlyACount() throws {
+        let player = TableState.Player(seat: .east, rackCount: 17, flowerCount: 2, discards: [], melds: [], score: 0)
+        let data = try JSONEncoder().encode(player)
+        let decoded = try JSONDecoder().decode(TableState.Player.self, from: data)
+        XCTAssertEqual(decoded.flowerCount, 2)
+        XCTAssertNil(decoded.exposedFlowers)
     }
 
     func testGuestRobGoldKeepsDealerExtraAndOldOpeningSavesCanFinish() throws {
@@ -138,6 +148,7 @@ final class MatchTests: XCTestCase {
             let table = match.table(for: .east)
             XCTAssertEqual(table.ruleset, ruleset)
             XCTAssertEqual(table.players.map(\.flowerCount), [3, 0, 0, 0])
+            XCTAssertEqual(table.players.first?.exposedFlowers?.map(\.kind), bonusFlips)
             XCTAssertEqual(table.drawn?.kind, .init(.circles, 9))
             XCTAssertTrue(table.hand.allSatisfy { !$0.kind.isFlower })
         }

@@ -29,6 +29,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var observedDiscard: TableDiscard?
     @State private var drawCue: DrawCue?
     @State private var drawFlight: DrawPickup.Flight?
+    @State private var highlightedFlowers: Set<Tile.ID> = []
     @State private var pendingThrow: PendingThrow?
     @State private var discardFlight: DiscardFlight.Motion?
     @State private var offeredTileFrame: OfferedTileFrame?
@@ -130,6 +131,13 @@ struct MatchView<Session: MatchSession>: View {
             guard let drawCue else { return }
             await performDraw(drawCue)
         }
+        .task(id: highlightedFlowers) {
+            guard !highlightedFlowers.isEmpty else { return }
+            do { try await Task.sleep(for: .milliseconds(900)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            highlightedFlowers = []
+        }
         .task(id: pendingThrow) {
             guard let pendingThrow else { return }
             do { try await Task.sleep(for: .seconds(1.5)) }
@@ -179,6 +187,7 @@ struct MatchView<Session: MatchSession>: View {
             if !nowActive {
                 audio.stop()
                 drawCue = nil
+                highlightedFlowers = []
                 goldDiscard = nil
                 meldPreview = nil
                 robGoldChoice = nil
@@ -418,11 +427,7 @@ struct MatchView<Session: MatchSession>: View {
                 landed = true
                 return
             }
-            if !cue.fromReserve, cue.replacesFlowers {
-                drawFlight = .init(fromReserve: false, duration: DrawPickup.flowerDuration)
-                try await Task.sleep(for: .seconds(DrawPickup.flowerDuration))
-            }
-            drawFlight = .init(fromReserve: cue.fromReserve || cue.replacesFlowers, duration: DrawPickup.duration)
+            drawFlight = .init(fromReserve: cue.fromReserve || cue.replacesFlowers)
             try await Task.sleep(for: .seconds(DrawPickup.duration))
             landed = true
         } catch { return }
@@ -438,6 +443,7 @@ struct MatchView<Session: MatchSession>: View {
         guard active, opening == nil, before.roundNumber == after.roundNumber else {
             observedDiscard = nil
             drawCue = nil
+            highlightedFlowers = []
             resetDiscardMotion()
             return
         }
@@ -473,6 +479,12 @@ struct MatchView<Session: MatchSession>: View {
             }
         }
         let replacedFlower = pairs.contains { $1.flowerCount > $0.flowerCount }
+        if replacedFlower {
+            highlightedFlowers = Set(pairs.flatMap { before, after in
+                let added = max(0, after.flowerCount - before.flowerCount)
+                return (after.exposedFlowers ?? []).suffix(added).map(\.id)
+            })
+        }
         if before.result == nil, let winner = after.result?.winner {
             play(.win, by: winner)
             if winner == after.viewer { playHaptic(.win) }
@@ -683,6 +695,7 @@ struct MatchView<Session: MatchSession>: View {
         GeometryReader { surface in
             LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
+                      highlightedFlowers: highlightedFlowers,
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,
@@ -1204,7 +1217,8 @@ struct MatchView<Session: MatchSession>: View {
             return table.moves.isEmpty ? "等待牌友要牌或过牌" : "可以要这张牌，也可以过"
         }
         let name = displayName(table.current, viewer: table.viewer, names: names)
-        if let drawFlight, drawCue?.seat == table.current {
+        if let drawFlight, let drawCue, drawCue.seat == table.current {
+            if drawCue.replacesFlowers { return "\(name)正在补花" }
             return drawFlight.fromReserve ? "\(name)正在补牌" : "\(name)正在摸牌"
         }
         if table.current == table.viewer { return "轮到你了" }

@@ -796,6 +796,40 @@ final class TableFlowTests: XCTestCase {
         }
     }
 
+    func testDrawnWindJoinsTheVisibleFlowersAndTheReplacementReachesTheRack() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 12, after: 12)
+        let before = fixture.table(for: .south)
+        var resolved = fixture
+        XCTAssertTrue(resolved.apply(.pass, by: .south))
+        let after = resolved.table(for: .south)
+        let tile = try XCTUnwrap(after.drawn)
+        XCTAssertEqual(after.lastDraw?.flowersReplaced, 1)
+        XCTAssertEqual(after.players[Seat.south.id].exposedFlowers?.last?.kind, TileKind(.wind, 3))
+
+        let app = try launchSavedMatch(fixture)
+        let flowers = element("seat-flowers-\(Seat.south.id)", in: app)
+        XCTAssertTrue(flowers.waitForExistence(timeout: 5))
+        XCTAssertTrue(flowers.label.contains("花牌 \(before.players[Seat.south.id].flowerCount) 张"))
+        let pass = app.buttons["table-move-过"]
+        XCTAssertTrue(pass.waitForExistence(timeout: 3))
+        pass.tap()
+
+        let received = app.buttons["tile-\(tile.id)"]
+        XCTAssertTrue(received.waitForExistence(timeout: 5))
+        XCTAssertTrue(received.isHittable)
+        XCTAssertTrue(flowers.label.contains("花牌 \(after.players[Seat.south.id].flowerCount) 张"))
+        XCTAssertTrue(flowers.label.hasSuffix("、西"))
+        capture("flowers-after-draw")
+
+        element("seat-score-\(Seat.south.id)", in: app).tap()
+        let inspected = element("inspected-flowers-\(Seat.south.id)", in: app)
+        XCTAssertTrue(inspected.waitForExistence(timeout: 5))
+        XCTAssertTrue(inspected.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "西")).firstMatch.exists)
+        capture("flowers-inspector")
+    }
+
     func testOpeningAndSkippingKeepTheBoardAndRackInPlace() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
