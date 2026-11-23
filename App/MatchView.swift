@@ -208,7 +208,8 @@ struct MatchView<Session: MatchSession>: View {
             else {
                 resetArrangement()
                 if before == nil, UIAccessibility.isVoiceOverRunning, let table = session.table {
-                    AccessibilityNotification.Announcement(status(table)).post()
+                    let message = [status(table), table.discardClaimFeedback?.message].compactMap { $0 }.joined(separator: "。")
+                    AccessibilityNotification.Announcement(message).post()
                 }
             }
         }
@@ -754,7 +755,9 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func header(_ table: TableState, showsResultActions: Bool = false) -> some View {
-        HStack(spacing: 6) {
+        let resultFeedback = table.result == nil ? nil : table.discardClaimFeedback?.message
+        let showsStatus = table.result == nil || resultFeedback != nil
+        return HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text("\(table.wind.wind)\(table.handNumber)局 · 连庄 \(table.continuation)")
@@ -765,12 +768,12 @@ struct MatchView<Session: MatchSession>: View {
                 .font(.caption.monospacedDigit())
                 .minimumScaleFactor(0.7)
                 HStack(spacing: 5) {
-                    Text(status(table))
-                        .foregroundStyle(!session.paused && (!table.moves.isEmpty || session.moveStatus != nil) ? TeaTheme.brass : TeaTheme.ink)
-                        .layoutPriority(table.viewerMustSelfDraw ? 0 : 1)
+                    Text(resultFeedback ?? status(table))
+                        .foregroundStyle(!session.paused && (!table.moves.isEmpty || session.moveStatus != nil || table.discardClaimFeedback != nil) ? TeaTheme.brass : TeaTheme.ink)
+                        .layoutPriority(table.result == nil && table.viewerMustSelfDraw ? 0 : 1)
                         .accessibilityIdentifier("table-status")
-                        .opacity(table.result == nil ? 1 : 0)
-                        .accessibilityHidden(table.result != nil)
+                        .opacity(showsStatus ? 1 : 0)
+                        .accessibilityHidden(!showsStatus)
                     if table.viewerMustSelfDraw {
                         Text("本局只能自摸").foregroundStyle(TeaTheme.loss).layoutPriority(1)
                             .opacity(table.result == nil ? 1 : 0)
@@ -1180,6 +1183,7 @@ struct MatchView<Session: MatchSession>: View {
             return result.winner.map { "\(displayName($0, viewer: table.viewer, names: names)) · \(result.winTitle)" } ?? "流局"
         }
         if session.paused { return "等待牌友重新连接" }
+        if let feedback = table.discardClaimFeedback { return feedback.message }
         if let moveStatus = session.moveStatus {
             switch moveStatus {
             case .sending: return "正在提交…"
@@ -1465,5 +1469,20 @@ private extension Move {
     var meld: (kind: MeldKind, ids: [Tile.ID])? {
         if case .meld(let kind, let ids) = self { return (kind, ids) }
         return nil
+    }
+
+    var discardClaimLabel: String { meld?.kind.actionLabel ?? "胡" }
+}
+
+private extension DiscardClaimFeedback {
+    var message: String {
+        switch self {
+        case .pending(let move):
+            "已选\(move.discardClaimLabel)，等其他玩家回应"
+        case .overridden(.win, _):
+            "其他玩家优先胡牌"
+        case .overridden(let move, let winner):
+            "有人\(winner == .win ? "胡牌" : winner.discardClaimLabel)，这次没\(move.discardClaimLabel)成"
+        }
     }
 }

@@ -701,6 +701,29 @@ final class TableFlowTests: XCTestCase {
         }
     }
 
+    func testOverriddenPungExplainsTheResultOnTheTable() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        var match = try match(seed: 662, after: 24)
+        let pung = try XCTUnwrap(match.legalMoves(for: .south).first {
+            if case .meld(.pung, _) = $0 { true } else { false }
+        })
+        XCTAssertTrue(match.apply(pung, by: .south))
+        for seat in Seat.allCases where seat != .south {
+            let moves = match.legalMoves(for: seat)
+            if moves.contains(.win) { XCTAssertTrue(match.apply(.win, by: seat)) }
+            else if moves.contains(.pass) { XCTAssertTrue(match.apply(.pass, by: seat)) }
+        }
+        XCTAssertEqual(match.result?.kind, .discard)
+
+        let app = try launchSavedMatch(match)
+        let status = app.staticTexts["table-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertEqual(status.label, "有人胡牌，这次没碰成")
+        XCTAssertTrue(app.buttons["view-scorecard"].isHittable)
+        capture("overridden-pung-feedback")
+    }
+
     func testClaimThenDiscardInBothOrientations() throws {
         continueAfterFailure = false
         defer { XCUIDevice.shared.orientation = .portrait }
