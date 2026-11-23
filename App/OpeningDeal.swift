@@ -3,7 +3,8 @@ import SwiftUI
 
 struct TableAnchors: PreferenceKey {
     enum Marker: Hashable {
-        case center, wall, reserve, wallStack(Int), player(Seat), rack(Int), drawn, latestDiscard, meldTile(Tile.ID)
+        case center, felt, wall, reserve, wallStack(Int)
+        case player(Seat), seatCard(Seat), rack(Int), drawn, openingDrawDock, latestDiscard, meldTile(Tile.ID)
     }
 
     static let defaultValue: [Marker: Anchor<CGRect>] = [:]
@@ -107,7 +108,7 @@ struct OpeningDeal: View {
     private func drawPile(in context: GraphicsContext, back: GraphicsContext.ResolvedImage,
                           elapsed: TimeInterval, stacking: Double = 0) {
         guard let center = anchors[.center] else { return }
-        // Leave room for the rotated tile backs and their depth inside the felt's hold target.
+        // Leave room for the rotated tile backs and their depth inside the shuffle area.
         let spread = min(center.width * 0.95, center.height * 1.28, 300)
         let width = max(0, spread * 0.077)
         let wall = (0..<7).compactMap { anchors[.wallStack($0)] }

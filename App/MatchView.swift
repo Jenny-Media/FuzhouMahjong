@@ -630,10 +630,13 @@ struct MatchView<Session: MatchSession>: View {
                 }
             }
             .overlayPreferenceValue(TableAnchors.self) { anchors in
-                if let opening, active, !showsScorecard, let center = anchors[.center] {
+                if let opening, active, !showsScorecard, let felt = anchors[.felt] {
                     GeometryReader { overlay in
-                        let target = overlay[center]
-                        OpeningSkipTarget(size: target.size, isHolding: $openingSkipHeld) {
+                        let target = overlay[felt]
+                        let controls = Seat.allCases.map(TableAnchors.Marker.seatCard) + [.openingDrawDock]
+                        let exclusions = controls.compactMap { anchors[$0].map { overlay[$0] } }
+                        OpeningSkipTarget(size: target.size, region: exposedFelt(in: target, excluding: exclusions),
+                                          isHolding: $openingSkipHeld) {
                             guard active, self.opening == opening else { return }
                             playHaptic(.selection)
                             finishOpening(opening)
@@ -667,6 +670,15 @@ struct MatchView<Session: MatchSession>: View {
                                                    alreadyRestricted: goldDiscard.alreadyRestricted, source: nil)
                 }
             }
+        }
+    }
+
+    private func exposedFelt(in frame: CGRect, excluding controls: [CGRect]) -> Path {
+        let bounds = CGRect(origin: .zero, size: frame.size).insetBy(dx: 1, dy: 1)
+        let felt = RoundedRectangle(cornerRadius: TeaTheme.tableRailCorner, style: .circular).path(in: bounds)
+        return controls.reduce(felt) { region, control in
+            let localFrame = control.offsetBy(dx: -frame.minX, dy: -frame.minY)
+            return region.subtracting(Path(localFrame))
         }
     }
 
@@ -978,6 +990,9 @@ struct MatchView<Session: MatchSession>: View {
             .anchorPreference(key: TableAnchors.self, value: .bounds) { [.drawn: $0] }
         }
         .frame(width: cellWidth)
+        .transformAnchorPreference(key: TableAnchors.self, value: .bounds) {
+            if opening != nil, visible { $0[.openingDrawDock] = $1 }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("drawn-tile-dock")
     }
@@ -1477,6 +1492,7 @@ private struct OpeningSkipTarget: View {
     static let duration: TimeInterval = 0.8
 
     let size: CGSize
+    let region: Path
     @Binding var isHolding: Bool
     let skip: () -> Void
     @GestureState private var press = Press.idle
@@ -1486,11 +1502,10 @@ private struct OpeningSkipTarget: View {
     var body: some View {
         Color.clear
             .frame(width: size.width, height: size.height)
-            .contentShape(Rectangle())
+            .contentShape(region)
             .gesture(DragGesture(minimumDistance: 0).updating($press) { value, press, _ in
                 guard press != .cancelled else { return }
-                let bounds = CGRect(origin: .zero, size: size)
-                press = bounds.contains(value.location) ? .holding : .cancelled
+                press = region.contains(value.location) ? .holding : .cancelled
             })
             .accessibilityHidden(true)
             .onChange(of: press == .holding) { _, holding in isHolding = holding }
