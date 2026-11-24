@@ -180,7 +180,6 @@ struct AppearanceSettings: View {
 
 private struct SwipeChoicePicker<Option: CaseIterable & Hashable>: View {
     @Environment(\.layoutDirection) private var layoutDirection
-    @State private var rowWidth: CGFloat = 0
     let label: LocalizedStringKey
     let id: String
     @Binding var selection: Option
@@ -194,31 +193,83 @@ private struct SwipeChoicePicker<Option: CaseIterable & Hashable>: View {
             }
         }
         .pickerStyle(.menu)
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { rowWidth = $0 }
-        .simultaneousGesture(DragGesture(minimumDistance: 14, coordinateSpace: .global)
-            .onEnded(selectBySwipe))
         .accessibilityValue(Text(selection[keyPath: title]))
         .accessibilityIdentifier(id)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .background { HorizontalChoiceSwipe(onSwipe: selectBySwipe).accessibilityHidden(true) }
         .onChange(of: selection) {
             if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
         }
     }
 
-    private func selectBySwipe(_ value: DragGesture.Value) {
-        let horizontal = value.translation.width
-        guard abs(horizontal) >= 24, abs(horizontal) > abs(value.translation.height) * 1.2 else { return }
+    private func selectBySwipe(horizontal: CGFloat, velocity: CGFloat, rowWidth: CGFloat) {
         let options = Array(Option.allCases)
         guard options.count > 1, let current = options.firstIndex(of: selection) else { return }
 
-        let projected = value.predictedEndTranslation.width
-        let distance = horizontal * projected > 0 ? max(abs(horizontal), abs(projected)) : abs(horizontal)
+        let glide = horizontal * velocity > 0 ? abs(velocity) * 0.20 : 0
+        let distance = abs(horizontal) + glide
         let stepWidth = min(110, max(66, rowWidth * 0.32))
         let steps = Int(min(CGFloat(options.count - 1), max(1, (distance / stepWidth).rounded())))
         let forward = layoutDirection == .leftToRight ? horizontal < 0 : horizontal > 0
         let destination = current + (forward ? steps : -steps) + options.count
         selection = options[destination % options.count]
+    }
+}
+
+private struct HorizontalChoiceSwipe: UIViewRepresentable {
+    let onSwipe: (CGFloat, CGFloat, CGFloat) -> Void
+
+    func makeUIView(context: Context) -> SwipeArea {
+        let view = SwipeArea()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: SwipeArea, context: Context) {
+        view.onSwipe = onSwipe
+    }
+
+    final class SwipeArea: UIView, UIGestureRecognizerDelegate {
+        var onSwipe: ((CGFloat, CGFloat, CGFloat) -> Void)?
+        private lazy var pan: UIPanGestureRecognizer = {
+            let recognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+            recognizer.delegate = self
+            recognizer.maximumNumberOfTouches = 1
+            return recognizer
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            pan.view?.removeGestureRecognizer(pan)
+            guard window != nil else { return }
+
+            // Let the Form scroll view arbitrate before a menu row takes over the drag.
+            var ancestor = superview
+            while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
+            ancestor?.addGestureRecognizer(pan)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            bounds.contains(touch.location(in: self))
+        }
+
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.x) > abs(velocity.y) * 1.2
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            other === (pan.view as? UIScrollView)?.panGestureRecognizer
+        }
+
+        @objc private func handlePan() {
+            guard pan.state == .ended else { return }
+            let movement = pan.translation(in: pan.view)
+            guard abs(movement.x) >= 24, abs(movement.x) > abs(movement.y) * 1.2 else { return }
+            onSwipe?(movement.x, pan.velocity(in: pan.view).x, bounds.width)
+        }
     }
 }
 
