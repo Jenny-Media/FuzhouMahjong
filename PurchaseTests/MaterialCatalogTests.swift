@@ -44,13 +44,12 @@ final class MaterialCatalogTests: XCTestCase {
         let boards = BoardStyle.allCases.filter { $0 != .automatic }
         let tiles = TileMaterialStyle.allCases.filter { $0 != .automatic }
         XCTAssertEqual(boards.count, 5)
-        XCTAssertEqual(tiles.count, 6)
+        XCTAssertEqual(tiles.count, 9)
         XCTAssertEqual(BoardStyle.automatic.resolved(for: .light), .snowWhite)
         XCTAssertEqual(BoardStyle.automatic.resolved(for: .dark), .jadeWalnut)
         XCTAssertEqual(TileMaterialStyle.automatic.resolved(for: .light), .porcelain)
         XCTAssertEqual(TileMaterialStyle.automatic.resolved(for: .dark), .classic)
         XCTAssertEqual(TileMaterialStyle(storedValue: "modern"), .porcelain)
-        XCTAssertEqual(TileMaterialStyle(storedValue: "redwood"), .redwood)
         XCTAssertEqual(TileMaterialStyle.redwood.material, .ivoryRedwood)
 
         let audio = TableAudio()
@@ -63,6 +62,7 @@ final class MaterialCatalogTests: XCTestCase {
             XCTAssertNotNil(UIImage(named: board.railArtwork), board.rawValue)
             XCTAssertNotNil(UIImage(named: board.surface.artwork), board.rawValue)
             for tile in tiles {
+                XCTAssertEqual(TileMaterialStyle(storedValue: tile.rawValue), tile)
                 XCTAssertEqual(board.resolved(for: .light), board)
                 XCTAssertEqual(tile.resolved(for: .dark), tile)
                 XCTAssertNotNil(UIImage(named: tile.backArtwork), tile.rawValue)

@@ -112,6 +112,42 @@ The back received a second ImageGen pass after play-size review.
 
 Use case: precise-object-edit. This is a single tile-back sprite for a premium original mahjong game. Keep exactly the existing full-frame vertical 5:7 silhouette, overhead view, dimensions, clipping corners, shape of the bevel and genuinely transparent negative space. Recolor the entire homogeneous blank tile from bright honey-orange to muted dark roasted chestnut vintage phenolic resin, subdued satin surface, espresso-brown darker bevel and one soft toasted cream-colored reflection on upper left, low saturation, a warm dark tea color with caramel only in the specular, not yellow or orange plastic. Shadows integrated within the tile shape. No text, inset rectangle, letters, patterns, markings, added objects, or background. This should sit quietly against dark espresso saddle leather while remaining identifiable near a warm cream front.
 
+### Frosted glass tile body
+
+[Tile front](App/Assets.xcassets/FrostedGlassFront.imageset/art.png) · [Tile back](App/Assets.xcassets/FrostedGlassBack.imageset/art.png)
+
+冰蓝琉璃 uses a frosted ice-blue face and deeper slate-blue glass on the reverse. It uses the porcelain contact profile.
+
+Built-in ImageGen prompt
+
+```text
+Use case: product-mockup. Production sprite sheet for the 冰蓝琉璃 material in an original iPhone mahjong game. Image 1 is the exact upright shape and orthographic reference. Show one horizontal row of exactly two isolated blank 5:7 tiles with the same exterior size, slim round bevels, large uniform playing centers, wide transparent gutter and outer margins. Both face straight up under soft overhead studio light. Left is the playing face, porcelain-pale tightly frosted ice-blue glass (center near #D9EAF6), softly translucent and distinctly blue only through the glass bevel and side. Right is the reverse of the same tile, clear muted slate-blue glass with restrained internal depth, a deeper blue center near #3D698A and narrow softly polished border. Both have flush, clean surfaces and a true transparent background around and between tiles. No tint towards sage or jade, no crackling, ripples, air bubbles, shine patches on the playing center, neon, text, letter, graphic mark, pips, graphic outlines, floor, extra object, shadow outside the silhouettes, or perspective.
+```
+
+### Bamboo-backed porcelain tile body
+
+[Tile front](App/Assets.xcassets/PorcelainTile.imageset/porcelain.png) · [Tile back](App/Assets.xcassets/BambooPorcelainBack.imageset/art.png)
+
+竹背瓷面 pairs the existing warm white face with a bamboo reverse and uses the wood-backed contact profile.
+
+Built-in ImageGen prompt
+
+```text
+Use case: precise-object-edit. Single production tile-back sprite for the 竹背瓷面 material in an original iPhone mahjong app. Image 1 gives the flat top-down framing, exact upright 5:7 footprint, exterior radius and narrow bevel. Show the reverse of a warm white porcelain mahjong tile backed with golden pale natural bamboo. The broad surface is real bamboo, warm subdued honey-straw around #BA915E, with fine mostly vertical fibers, a faint horizontal bamboo node low in the composition, softly hand-burnished satin finish and subtle dimensional bevel. A narrow ivory ceramic layer may show near the bottom edge. Strict top-down orthographic camera with the tile centered almost edge to edge, complete and isolated on genuinely transparent alpha. Avoid orange wood stain, redwood, contrasting strips or planks, heavy texture, grain drawn like typography, decorative inlay, shadow outside the object, environment, marks or pips. Exactly one tile back.
+```
+
+### Black lacquer tile body
+
+[Tile front](App/Assets.xcassets/BlackLacquerFront.imageset/art.png) · [Tile back](App/Assets.xcassets/BlackLacquerBack.imageset/art.png)
+
+黑漆 uses a satin charcoal face, a darker reverse, lighter markings, and high-contrast selection and gold-tile borders. It uses the bakelite contact profile.
+
+Built-in ImageGen prompt
+
+```text
+Use case: product-mockup. Production sprite sheet for the 黑漆 material in an original iPhone mahjong game. Image 1 is the true vertical 5:7 shape and straight top-down registration reference. Exactly two separate unmarked identical-size tiles in one row with a wide transparent gutter and uniform slim gently rounded bevel. Left is the blank playing face: soft satin charcoal-black artisan lacquer, center near #222429, cool neutral black with one restrained studio edge highlight and a broad quiet dark field for later separately drawn pale colored markings. Right is its reverse, deeper charcoal-black lacquer, slightly more polished with a narrow smoke-gray scale of reflected light along the curved bevel. A refined dense solid tactile object, with the front flatter and softer in sheen than the reverse and the body cool neutral in both cases. No wood grain, glitter, metallic gold edges, textures that look like labels, graphic inset stripes, letters, markings, pips, floor, cast shadows outside silhouettes, or extra tiles. True transparent alpha around and between both tiles.
+```
+
 ## Shuffle hand
 
 [Asset](App/Assets.xcassets/ShuffleHand.imageset/art.png)

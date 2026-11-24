@@ -4,6 +4,7 @@ import UIKit
 
 enum TileMaterialStyle: String, CaseIterable {
     case automatic, classic, porcelain, ivoryRedwood, redwood, paleJade, creamBakelite
+    case frostedGlass, bambooPorcelain, blackLacquer
 
     init(storedValue: String) {
         // The old Modern option bundled different markings with a cool porcelain face.
@@ -19,6 +20,9 @@ enum TileMaterialStyle: String, CaseIterable {
         case .redwood: "紫檀"
         case .paleJade: "青白玉"
         case .creamBakelite: "奶油电木"
+        case .frostedGlass: "冰蓝琉璃"
+        case .bambooPorcelain: "竹背瓷面"
+        case .blackLacquer: "黑漆"
         }
     }
 
@@ -29,10 +33,10 @@ enum TileMaterialStyle: String, CaseIterable {
     var material: TableTileMaterial {
         switch self {
         case .automatic, .classic: .classic
-        case .porcelain: .porcelain
-        case .ivoryRedwood, .redwood: .ivoryRedwood
+        case .porcelain, .frostedGlass: .porcelain
+        case .ivoryRedwood, .redwood, .bambooPorcelain: .ivoryRedwood
         case .paleJade: .paleJade
-        case .creamBakelite: .creamBakelite
+        case .creamBakelite, .blackLacquer: .creamBakelite
         }
     }
 
@@ -42,7 +46,9 @@ enum TileMaterialStyle: String, CaseIterable {
         case .redwood: "RedwoodTileFront"
         case .paleJade: "PaleJadeFront"
         case .creamBakelite: "CreamBakeliteFront"
-        case .automatic, .classic, .porcelain: "PorcelainTile"
+        case .frostedGlass: "FrostedGlassFront"
+        case .blackLacquer: "BlackLacquerFront"
+        case .automatic, .classic, .porcelain, .bambooPorcelain: "PorcelainTile"
         }
     }
 
@@ -53,8 +59,13 @@ enum TileMaterialStyle: String, CaseIterable {
         case .ivoryRedwood, .redwood: "IvoryRedwoodBack"
         case .paleJade: "PaleJadeBack"
         case .creamBakelite: "CreamBakeliteBack"
+        case .frostedGlass: "FrostedGlassBack"
+        case .bambooPorcelain: "BambooPorcelainBack"
+        case .blackLacquer: "BlackLacquerBack"
         }
     }
+
+    fileprivate var usesLightInk: Bool { self == .redwood || self == .blackLacquer }
 }
 
 enum TileFaceStyle: String, CaseIterable {
@@ -98,7 +109,12 @@ struct TileFace: View {
             let shape = RoundedRectangle(cornerRadius: width * 0.13)
             let crispIndicators = tileMaterial != .classic
             let selectionWidth: CGFloat = crispIndicators ? 2.5 : 2
-            let goldEdge = tileMaterial == .redwood ? TeaTheme.modernTileGoldBadge : TeaTheme.modernTileGoldEdge
+            let goldEdge = tileMaterial.usesLightInk ? TeaTheme.modernTileGoldBadge : TeaTheme.modernTileGoldEdge
+            let selectionEdge = switch tileMaterial {
+            case .classic: TeaTheme.color(0xF0D29A)
+            case .blackLacquer: TeaTheme.color(0x86CCD1)
+            default: TeaTheme.modernTileSelection
+            }
 
             ZStack {
                 artwork
@@ -112,8 +128,7 @@ struct TileFace: View {
                         .strokeBorder(goldEdge, lineWidth: min(2, width * 0.085))
                 }
                 if selected {
-                    shape.strokeBorder(crispIndicators ? TeaTheme.modernTileSelection : TeaTheme.color(0xF0D29A),
-                                       lineWidth: selectionWidth)
+                    shape.strokeBorder(selectionEdge, lineWidth: selectionWidth)
                 }
             }
             .overlay(alignment: .topTrailing) {
@@ -144,7 +159,7 @@ struct TileFace: View {
                 if let markings = TileMarkings.image(for: kind, style: faceStyle) {
                     Image(uiImage: markings)
                         .resizable()
-                        .brightness(tileMaterial == .redwood ? 0.52 : 0)
+                        .brightness(tileMaterial.usesLightInk ? 0.52 : 0)
                         .accessibilityHidden(true)
                 }
             }

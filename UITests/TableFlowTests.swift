@@ -16,6 +16,9 @@ final class TableFlowTests: XCTestCase {
             (board: "redwoodSuede", material: "redwood", face: "photoMatched"),
             (board: "snowWhite", material: "redwood", face: "minimal"),
             (board: "jadeWalnut", material: "redwood", face: "traditional"),
+            (board: "jadeWalnut", material: "frostedGlass", face: "photoMatched"),
+            (board: "jadeWalnut", material: "bambooPorcelain", face: "photoMatched"),
+            (board: "jadeWalnut", material: "blackLacquer", face: "photoMatched"),
         ]
         for combination in combinations {
             app.launchArguments = base + [
@@ -156,7 +159,8 @@ final class TableFlowTests: XCTestCase {
             (id: "appearance-picker", options: ["跟随系统", "浅色", "深色"]),
             (id: "board-style-picker", options: ["自动", "碧玉胡桃木", "雪白 · 白瓷", "墨蓝 · 枪灰金属",
                                                 "紫檀 · 烟灰绒", "古铜 · 马鞍革"]),
-            (id: "tile-material-picker", options: ["自动", "暖白", "白釉瓷", "牙白 · 紫檀拼", "紫檀", "青白玉", "奶油电木"]),
+            (id: "tile-material-picker", options: ["自动", "暖白", "白釉瓷", "牙白 · 紫檀拼", "紫檀", "青白玉",
+                                                  "奶油电木", "冰蓝琉璃", "竹背瓷面", "黑漆"]),
             (id: "tile-face-style-picker", options: ["实物经典", "极简", "传统雕花"]),
         ]
         for (id, options) in pickers {
