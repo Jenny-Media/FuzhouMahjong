@@ -79,6 +79,14 @@ struct MatchView<Session: MatchSession>: View {
             }
         }
         .teaBackdrop()
+        .background {
+            if #available(iOS 26.0, *) {
+                TableEdgeBackSwipe()
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .navigationTitle("牌桌")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1491,6 +1499,68 @@ struct MatchView<Session: MatchSession>: View {
         discardFlight = nil
         claimFlight = nil
         presentedClaimFlightID = nil
+    }
+}
+
+@available(iOS 26.0, *)
+private struct TableEdgeBackSwipe: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {}
+
+    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) {
+        controller.restoreContentSwipe()
+    }
+
+    final class Controller: UIViewController {
+        private weak var contentSwipe: UIGestureRecognizer?
+        private let edgeOnly = EdgeOnlyDelegate()
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            guard let swipe = navigationController?.interactiveContentPopGestureRecognizer,
+                  swipe.delegate !== edgeOnly else { return }
+            restoreContentSwipe()
+            contentSwipe = swipe
+            edgeOnly.original = swipe.delegate
+            // UIKit can also use the content recognizer for a swipe from the edge.
+            swipe.delegate = edgeOnly
+        }
+
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            restoreContentSwipe()
+        }
+
+        func restoreContentSwipe() {
+            if let contentSwipe, contentSwipe.delegate === edgeOnly {
+                contentSwipe.delegate = edgeOnly.original
+            }
+            contentSwipe = nil
+            edgeOnly.original = nil
+        }
+    }
+
+    final class EdgeOnlyDelegate: NSObject, UIGestureRecognizerDelegate {
+        nonisolated(unsafe) weak var original: (any UIGestureRecognizerDelegate)?
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let view = gesture.view else { return false }
+            let x = touch.location(in: view).x
+            let distance = view.effectiveUserInterfaceLayoutDirection == .leftToRight
+                ? x - view.bounds.minX : view.bounds.maxX - x
+            guard (0...20).contains(distance) else { return false }
+            return original?.gestureRecognizer?(gesture, shouldReceive: touch) ?? true
+        }
+
+        override func responds(to selector: Selector!) -> Bool {
+            super.responds(to: selector) || original?.responds(to: selector) == true
+        }
+
+        override func forwardingTarget(for selector: Selector!) -> Any? {
+            if let original, original.responds(to: selector) { return original }
+            return super.forwardingTarget(for: selector)
+        }
     }
 }
 
