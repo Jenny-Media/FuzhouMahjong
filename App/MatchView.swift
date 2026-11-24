@@ -1495,7 +1495,7 @@ struct MatchView<Session: MatchSession>: View {
 }
 
 private struct OpeningSkipTarget: UIViewRepresentable {
-    static let duration = Duration.milliseconds(800)
+    static let duration = Duration.milliseconds(500)
 
     let region: Path
     @Binding var started: ContinuousClock.Instant?
