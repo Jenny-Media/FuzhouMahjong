@@ -199,15 +199,13 @@ struct BambooArtwork {
                                    cornerWidth: 13, cornerHeight: 13, transform: nil))
             context.fillPath()
             greenStalk = context.makeImage()!
-            redStalk = greenStalk
-            blueStalk = greenStalk
         } else {
             // Isolate the upper stalk from the approved 三條.
             let artwork = extractInk(board, rect: CGRect(x: 449, y: 701, width: 70, height: 128))
             greenStalk = artwork.cropping(to: inkBounds(artwork).insetBy(dx: -1, dy: -1))!
-            redStalk = recolor(greenStalk, to: red)
-            blueStalk = recolor(greenStalk, to: blue)
         }
+        redStalk = recolor(greenStalk, to: red)
+        blueStalk = recolor(greenStalk, to: blue)
     }
 
     func draw(_ rank: Int, on context: CGContext) {
@@ -297,11 +295,22 @@ func drawMinimalCircles(_ rank: Int, on context: CGContext) {
     case 7: (dots, diameter) = ([(52, 211), (96, 191), (140, 171),
                                  (65, 124), (127, 124), (65, 76), (127, 76)], 36)
     case 8: (dots, diameter) = ([56, 108, 160, 212].flatMap { y in [(62, y), (130, y)] }, 36)
-    case 9: (dots, diameter) = ([72, 134, 196].flatMap { y in [(44, y), (96, y), (148, y)] }, 36)
+    case 9: (dots, diameter) = ([196, 134, 72].flatMap { y in [(44, y), (96, y), (148, y)] }, 36)
     default: preconditionFailure("Unexpected circle rank")
     }
-    context.setFillColor(blue)
-    for (x, y) in dots {
+    // Use the familiar color groupings on the flat dots.
+    let colors = switch rank {
+    case 2: [green, blue]
+    case 3: [green, red, blue]
+    case 4: [blue, green, green, blue]
+    case 5: [blue, green, green, blue, red]
+    case 6: [green, green, red, red, red, red]
+    case 7: [green, green, green, red, red, red, red]
+    case 9: [green, green, green, red, red, red, blue, blue, blue]
+    default: Array(repeating: blue, count: dots.count)
+    }
+    for ((x, y), color) in zip(dots, colors) {
+        context.setFillColor(color)
         context.fillEllipse(in: CGRect(x: x - diameter / 2, y: y - diameter / 2,
                                        width: diameter, height: diameter))
     }

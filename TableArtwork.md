@@ -138,7 +138,7 @@ The built-in ImageGen prompts used the same layout with solid pips and plain gly
 
 [Marking atlases](App/Assets.xcassets/TileMarkings/) · [Atlas generator](Artwork/TileFaces/render-markings.swift)
 
-Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. Classic and Ornate Traditional use the approved markings to complete the character and bamboo suits. Minimal uses solid navy circles, plain green bamboo strokes and the simplified 万 glyph, with the bird and white dragon frame from its approved sheet. The two joined 八條 groups follow the physical layout in all three sets.
+Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. Classic and Ornate Traditional use the approved markings to complete the character and bamboo suits. Minimal uses solid circles and plain bamboo strokes with blue, green, and red groupings by rank. It uses the simplified 万 glyph, with the bird and white dragon frame from its approved sheet. The two joined 八條 groups follow the physical layout in all three sets.
 
 The remaining Chinese glyphs use a common scale and stroke weight within each style. Classic and Ornate Traditional use an artwork-only subset of [LXGW WenKai TC Medium v1.530](https://github.com/lxgw/LxgwWenkaiTC/releases/tag/v1.530), included with its [font license](Artwork/TileFaces/TileCalligraphy-OFL.txt). Minimal uses PingFang TC Semibold.
 
