@@ -132,13 +132,17 @@ The built-in ImageGen brief used the physical set photo as the reference for lay
 
 [Minimal reference](Artwork/TileFaces/approved-minimal.png) · [Ornate Traditional reference](Artwork/TileFaces/approved-traditional.png)
 
-The built-in ImageGen prompts used the same layout with solid pips and plain glyphs for Minimal, and carved rosettes, a peony medallion and a pheasant for Ornate Traditional. The production artwork uses a simpler five-petal center and wider gaps on the ornate 八饼 and 九饼 for the 17-point discard strip.
+The built-in ImageGen prompts used the same layout with solid pips and plain glyphs for Minimal, and carved rosettes, a peony medallion and a pheasant for Ornate Traditional. The production artwork carries over the approved rosettes, including 八饼 and 九饼.
 
 ### Production artwork
 
 [Marking atlases](App/Assets.xcassets/TileMarkings/) · [Atlas generator](Artwork/TileFaces/render-markings.swift)
 
-Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. The generator extracts ink from the approved references and completes the remaining 42-face layouts with bamboo shapes and Traditional Chinese glyphs. Each atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
+Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. The generator extracts the ink from all 15 faces on each approved sheet. It corrects the slight oval in Minimal 一筒 and uses the approved 萬 and 三條 markings to complete the character and bamboo suits. The joined 八條 groups follow the physical set.
+
+The remaining Chinese glyphs use a common scale and stroke weight within each style. Classic and Ornate Traditional use an artwork-only subset of [LXGW WenKai TC Medium v1.530](https://github.com/lxgw/LxgwWenkaiTC/releases/tag/v1.530), included with its [font license](Artwork/TileFaces/TileCalligraphy-OFL.txt). Minimal uses PingFang TC Semibold.
+
+Each atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
 
 ### Original full-tile sprites
 

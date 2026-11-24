@@ -17,7 +17,8 @@ final class SoloMatch: MatchSession {
 
     private let storageKey = SoloSaveSlot.first.rawValue
     private let access: GameAccess
-    private var match: FuzhouMatch?
+    @ObservationIgnored private var match: FuzhouMatch?
+    private(set) var table: TableState?
     private(set) var removedLegacySave = false
     private(set) var savedTableChoices: [SavedTable] = []
     private(set) var revision = 0
@@ -71,12 +72,11 @@ final class SoloMatch: MatchSession {
     }
 
     private func restore(_ saved: SavedTable) {
-        match = saved.match
+        updateMatch(saved.match)
         storedRackOrder = saved.rackOrder
     }
 
-    var table: TableState? { match?.table(for: FuzhouMatch.player) }
-    var canResume: Bool { match != nil }
+    var canResume: Bool { table != nil }
     var players: [RoomPlayer] { [] }
     var paused: Bool { false }
     var canAdvance: Bool { true }
@@ -93,7 +93,7 @@ final class SoloMatch: MatchSession {
     private func begin(_ updated: FuzhouMatch) -> Bool {
         guard let data = try? JSONEncoder().encode(updated),
               access.beginSoloHand(key: storageKey, match: data) else { return false }
-        match = updated
+        updateMatch(updated)
         storedRackOrder = nil
         openingRound = updated.roundNumber
         revision += 1
@@ -107,9 +107,22 @@ final class SoloMatch: MatchSession {
         commit(updated)
         return true
     }
-    func advanceComputer() {
-        guard var updated = match, let (seat, move) = updated.nextComputerMove(excluding: [FuzhouMatch.player]),
-              updated.apply(move, by: seat) else { return }
+    func advanceComputer() async {
+        guard let match, !Task.isCancelled else { return }
+        let expectedRevision = revision
+        let worker = Task.detached(priority: .userInitiated) { () -> FuzhouMatch? in
+            var updated = match
+            guard !Task.isCancelled,
+                  let (seat, move) = updated.nextComputerMove(excluding: [FuzhouMatch.player]),
+                  !Task.isCancelled, updated.apply(move, by: seat) else { return nil }
+            return updated
+        }
+        let updated = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard let updated, !Task.isCancelled, revision == expectedRevision else { return }
         commit(updated)
     }
     func nextHand() {
@@ -118,9 +131,13 @@ final class SoloMatch: MatchSession {
         _ = begin(updated)
     }
     private func commit(_ updated: FuzhouMatch) {
-        match = updated
+        updateMatch(updated)
         revision += 1
         persist()
+    }
+    private func updateMatch(_ updated: FuzhouMatch) {
+        match = updated
+        table = updated.table(for: FuzhouMatch.player)
     }
     private func persist() {
         guard let match, let data = try? JSONEncoder().encode(match) else { return }

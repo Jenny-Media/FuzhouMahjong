@@ -199,21 +199,23 @@ public enum WinningHand {
 
         // A sequence can start below the first remaining tile if a gold fills the lower rank.
         let suitStart = first / 9 * 9
-        for start in max(suitStart, first - 2)...min(first, suitStart + 6) {
-            let other = (start..<(start + 3)).filter { $0 != first }
-            for mask in 0..<4 {
+        let earliest = max(suitStart, first - min(wild, 2))
+        let latest = min(first, suitStart + 6)
+        guard earliest <= latest else { return false }
+        for start in earliest...latest {
+            let left = start < first ? start : start + 1
+            let right = start + 2 == first ? start + 1 : start + 2
+            // With no golds, every rank must come from the hand. Check before copying counts.
+            for mask in 0..<(wild == 0 ? 1 : 4) {
+                let takesLeft = mask & 1 == 0 && counts[left] > 0
+                let takesRight = mask & 2 == 0 && counts[right] > 0
+                let missing = (takesLeft ? 0 : 1) + (takesRight ? 0 : 1)
+                guard missing <= wild else { continue }
                 var remainder = counts
                 remainder[first] -= 1
-                var missing = 0
-                for (offset, index) in other.enumerated() {
-                    if (mask & (1 << offset)) == 0, remainder[index] > 0 {
-                        remainder[index] -= 1
-                    } else {
-                        missing += 1
-                    }
-                }
-                if missing <= wild,
-                   findSets(remainder, wild: wild - missing, sequencesOnly: sequencesOnly,
+                if takesLeft { remainder[left] -= 1 }
+                if takesRight { remainder[right] -= 1 }
+                if findSets(remainder, wild: wild - missing, sequencesOnly: sequencesOnly,
                             seen: &seen, path: &path) {
                     path?.append(Pattern(kind: .sequence, slots: (start..<(start + 3)).map { index in
                         counts[index] > remainder[index] ? .natural(index) : .gold(index)

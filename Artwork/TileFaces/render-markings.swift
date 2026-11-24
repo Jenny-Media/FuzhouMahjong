@@ -33,10 +33,27 @@ enum Style: String, CaseIterable {
         }
     }
 
-    var font: String {
+    var numeralBox: CGRect {
         switch self {
-        case .photoMatched, .traditional: "STSongti-TC-Bold"
-        case .minimal: "PingFangTC-Semibold"
+        case .photoMatched: CGRect(x: 36, y: 143, width: 120, height: 86)
+        case .minimal: CGRect(x: 42, y: 143, width: 108, height: 84)
+        case .traditional: CGRect(x: 33, y: 140, width: 126, height: 90)
+        }
+    }
+
+    var honorBox: CGRect {
+        switch self {
+        case .photoMatched: CGRect(x: 25, y: 51, width: 142, height: 166)
+        case .minimal: CGRect(x: 31, y: 59, width: 130, height: 150)
+        case .traditional: CGRect(x: 21, y: 48, width: 150, height: 172)
+        }
+    }
+
+    var addedStroke: CGFloat {
+        switch self {
+        case .photoMatched: 3.5
+        case .minimal: 0
+        case .traditional: 5
         }
     }
 }
@@ -79,19 +96,23 @@ func extractInk(_ source: CGImage, rect: CGRect, redOnly: Bool = false) -> CGIma
     return context.makeImage()!
 }
 
-func tileSample(_ source: CGImage, column: Int, row: Int) -> CGImage {
+func tileSample(_ source: CGImage, column: Int, row: Int, redOnly: Bool = false,
+                verticalScale: CGFloat = 1) -> CGImage {
     let left = [83, 368, 650, 933, 1217][column]
     let top = [33, 351, 676][row]
     let height = [291, 297, 303][row]
     let insetX = 13
     let insetY = 12
     let ink = extractInk(source, rect: CGRect(x: left + insetX, y: top + insetY,
-                                             width: 235 - 2 * insetX, height: height - 2 * insetY))
+                                             width: 235 - 2 * insetX, height: height - 2 * insetY),
+                         redOnly: redOnly)
     let context = bitmap(cellWidth, cellHeight)
-    let marginX = CGFloat(insetX * cellWidth) / 235
-    let marginY = CGFloat(insetY * cellHeight) / CGFloat(height)
-    context.draw(ink, in: CGRect(x: marginX, y: marginY, width: CGFloat(cellWidth) - 2 * marginX,
-                                 height: CGFloat(cellHeight) - 2 * marginY))
+    let scale = min(CGFloat(cellWidth) / 235, CGFloat(cellHeight) / CGFloat(height))
+    let width = CGFloat(ink.width) * scale
+    let fittedHeight = CGFloat(ink.height) * scale * verticalScale
+    context.draw(ink, in: CGRect(x: (CGFloat(cellWidth) - width) / 2,
+                                 y: (CGFloat(cellHeight) - fittedHeight) / 2,
+                                 width: width, height: fittedHeight))
     return context.makeImage()!
 }
 
@@ -100,176 +121,201 @@ func ink(_ hex: UInt32) -> CGColor {
             blue: Double(hex & 255) / 255, alpha: 1)
 }
 
-let blue = ink(0x102471)
-let green = ink(0x14552C)
-let red = ink(0xA11E18)
+let blue = ink(0x102371)
+let green = ink(0x145321)
+let red = ink(0x9D2018)
 
-func glyph(_ text: String, style: Style, color: CGColor, in box: CGRect, on context: CGContext) {
-    let font = CTFontCreateWithName(style.font as CFString, 128, nil)
-    let char = Array(text.utf16)
+func markingFont(for style: Style) -> CTFont {
+    if style == .minimal {
+        return CTFontCreateWithName("PingFangTC-Semibold" as CFString, 128, nil)
+    }
+    // The artwork-only subset keeps regeneration independent of installed fonts.
+    let url = references.appending(path: "TileCalligraphy.ttf")
+    let provider = CGDataProvider(url: url as CFURL)!
+    let font = CGFont(provider)!
+    return CTFontCreateWithGraphicsFont(font, 128, nil, nil)
+}
+
+func glyphPath(_ text: String, font: CTFont) -> CGPath {
+    var character = text.utf16.first!
     var index = CGGlyph()
-    precondition(CTFontGetGlyphsForCharacters(font, char, &index, 1), "Missing glyph: \(text)")
-    let outline = CTFontCreatePathForGlyph(font, index, nil)!
+    precondition(CTFontGetGlyphsForCharacters(font, &character, &index, 1), "Missing glyph: \(text)")
+    return CTFontCreatePathForGlyph(font, index, nil)!
+}
+
+func drawGlyph(_ outline: CGPath, color: CGColor, in box: CGRect, scale: CGFloat,
+               addedStroke: CGFloat, on context: CGContext) {
     let bounds = outline.boundingBoxOfPath
-    let scale = min(box.width / bounds.width, box.height / bounds.height)
     context.saveGState()
     context.translateBy(x: box.midX - bounds.midX * scale, y: box.midY - bounds.midY * scale)
     context.scaleBy(x: scale, y: scale)
     context.setFillColor(color)
+    context.setStrokeColor(color)
+    context.setLineWidth(addedStroke / scale)
+    context.setLineJoin(.round)
     context.addPath(outline)
-    context.fillPath()
+    context.drawPath(using: addedStroke > 0 ? .fillStroke : .fill)
     context.restoreGState()
 }
 
-func denseRosettes(rank: Int, on context: CGContext) {
-    let rowCount = rank == 8 ? 4 : 3
-    let columnCount = rank == 8 ? 2 : 3
-    let stepX: CGFloat = rank == 8 ? 58 : 52
-    let stepY: CGFloat = rank == 8 ? 49 : 63
-    let radius: CGFloat = rank == 8 ? 18 : 20
-    let colors = rank == 8 ? Array(repeating: blue, count: 4) : [green, red, blue]
-    for row in 0..<rowCount {
-        for column in 0..<columnCount {
-            let x = 96 + (CGFloat(column) - CGFloat(columnCount - 1) / 2) * stepX
-            let y = 134 + (CGFloat(rowCount - 1) / 2 - CGFloat(row)) * stepY
-            context.setFillColor(colors[row])
-            context.fillEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
-            context.saveGState()
-            context.setBlendMode(.clear)
-            let petals = CGMutablePath()
-            for petal in 0..<5 {
-                let angle = Double(petal) * 2 * .pi / 5 + .pi / 2
-                let center = CGPoint(x: x + radius * 0.29 * cos(angle), y: y + radius * 0.29 * sin(angle))
-                let petalRadius = radius * 0.23
-                petals.addEllipse(in: CGRect(x: center.x - petalRadius, y: center.y - petalRadius,
-                                             width: petalRadius * 2, height: petalRadius * 2))
-            }
-            context.addPath(petals)
-            context.fillPath()
-            context.restoreGState()
-        }
-    }
+func sharedScale(for outlines: [CGPath], in box: CGRect, addedStroke: CGFloat) -> CGFloat {
+    let bounds = outlines.map(\.boundingBoxOfPath)
+    return min((box.width - addedStroke) / bounds.map(\.width).max()!,
+               (box.height - addedStroke) / bounds.map(\.height).max()!)
 }
 
-struct Stalk {
-    var x: CGFloat
-    var y: CGFloat
-    var color: CGColor = green
+func inkBounds(_ image: CGImage) -> CGRect {
+    let context = bitmap(image.width, image.height)
+    context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    let pixels = context.data!.assumingMemoryBound(to: UInt8.self)
+    var bounds = CGRect.null
+    for y in 0..<image.height {
+        for x in 0..<image.width where pixels[(y * image.width + x) * 4 + 3] > 32 {
+            bounds = bounds.union(CGRect(x: x, y: y, width: 1, height: 1))
+        }
+    }
+    return bounds
 }
 
-func bamboo(_ rank: Int, style: Style, on context: CGContext) {
-    let stalks: [Stalk]
-    switch rank {
-    case 2: stalks = [Stalk(x: 96, y: 183), Stalk(x: 96, y: 85)]
-    case 4: stalks = [Stalk(x: 65, y: 183), Stalk(x: 127, y: 183), Stalk(x: 65, y: 85), Stalk(x: 127, y: 85)]
-    case 5: stalks = [Stalk(x: 58, y: 192), Stalk(x: 134, y: 192), Stalk(x: 96, y: 134, color: red),
-                      Stalk(x: 58, y: 76), Stalk(x: 134, y: 76)]
-    case 6: stalks = [56, 96, 136].flatMap { x in [Stalk(x: x, y: 183), Stalk(x: x, y: 85)] }
-    case 7: stalks = [Stalk(x: 96, y: 202, color: red), Stalk(x: 96, y: 134, color: blue),
-                      Stalk(x: 96, y: 66, color: blue)] +
-        [50, 142].flatMap { x in [Stalk(x: x, y: 134), Stalk(x: x, y: 66)] }
-    case 8:
-        // The physical set carries four slanted stalks in each of the W/M groups.
-        for (y, mirrored) in [(180.0, false), (89.0, true)] {
-            for (index, angle) in [0.29, -0.47, 0.47, -0.29].enumerated() {
-                context.saveGState()
-                context.translateBy(x: CGFloat(44 + index * 34), y: y)
-                context.rotate(by: mirrored ? -angle : angle)
-                drawStalk(width: 17, height: 59, color: green, style: style, on: context)
-                context.restoreGState()
+func recolor(_ image: CGImage, to color: CGColor) -> CGImage {
+    let context = bitmap(image.width, image.height)
+    let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+    context.draw(image, in: rect)
+    context.setBlendMode(.sourceIn)
+    context.setFillColor(color)
+    context.fill(rect)
+    return context.makeImage()!
+}
+
+struct BambooArtwork {
+    let greenStalk: CGImage
+    let redStalk: CGImage
+    let blueStalk: CGImage
+
+    init(from board: CGImage) {
+        // Isolate the upper stalk from the approved 三條.
+        let artwork = extractInk(board, rect: CGRect(x: 449, y: 701, width: 70, height: 128))
+        greenStalk = artwork.cropping(to: inkBounds(artwork).insetBy(dx: -1, dy: -1))!
+        redStalk = recolor(greenStalk, to: red)
+        blueStalk = recolor(greenStalk, to: blue)
+    }
+
+    func draw(_ rank: Int, on context: CGContext) {
+        let regularHeight: CGFloat = 81
+        let compactHeight: CGFloat = 57
+        switch rank {
+        case 2, 4, 6:
+            let columns: [CGFloat] = switch rank {
+            case 2: [96]
+            case 4: [64, 128]
+            default: [53, 96, 139]
             }
+            for x in columns {
+                for y in [85.0, 183.0] {
+                    stalk(greenStalk, x: x, y: y, height: regularHeight, on: context)
+                }
+            }
+        case 5:
+            for x in [58.0, 134.0] {
+                for y in [76.0, 192.0] {
+                    stalk(greenStalk, x: x, y: y, height: compactHeight, on: context)
+                }
+            }
+            stalk(redStalk, x: 96, y: 134, height: compactHeight, on: context)
+        case 7:
+            stalk(redStalk, x: 96, y: 202, height: compactHeight, on: context)
+            for y in [66.0, 134.0] {
+                stalk(blueStalk, x: 96, y: y, height: compactHeight, on: context)
+                for x in [50.0, 142.0] {
+                    stalk(greenStalk, x: x, y: y, height: compactHeight, on: context)
+                }
+            }
+        case 8:
+            eightBamboo(on: context)
+        case 9:
+            for x in [50.0, 96.0, 142.0] {
+                for y in [66.0, 134.0, 202.0] {
+                    stalk(x == 96 ? redStalk : greenStalk, x: x, y: y, height: compactHeight, on: context)
+                }
+            }
+        default:
+            preconditionFailure("Unexpected bamboo rank")
         }
-        return
-    case 9: stalks = [50, 96, 142].flatMap { x in
-        [202, 134, 66].map { y in Stalk(x: x, y: y, color: x == 96 ? red : green) }
     }
-    default: preconditionFailure("Unexpected bamboo rank")
-    }
-    let height: CGFloat = rank == 2 || rank == 4 || rank == 6 ? 76 : 54
-    for stalk in stalks {
+
+    private func stalk(_ image: CGImage, x: CGFloat, y: CGFloat, height: CGFloat, angle: CGFloat = 0,
+                       on context: CGContext) {
+        let width = CGFloat(image.width) * 0.76
         context.saveGState()
-        context.translateBy(x: stalk.x, y: stalk.y)
-        drawStalk(width: 22, height: height, color: stalk.color, style: style, on: context)
+        context.translateBy(x: x, y: y)
+        context.rotate(by: angle)
+        context.draw(image, in: CGRect(x: -width / 2, y: -height / 2, width: width, height: height))
         context.restoreGState()
     }
-}
 
-func drawStalk(width: CGFloat, height: CGFloat, color: CGColor, style: Style, on context: CGContext) {
-    context.setFillColor(color)
-    let shoulders = CGMutablePath()
-    let end = width / 2
-    let middle = end * 0.69
-    let half = height / 2
-    shoulders.move(to: CGPoint(x: -middle, y: -half))
-    shoulders.addQuadCurve(to: CGPoint(x: -middle, y: -half + width / 2),
-                           control: CGPoint(x: -end * 1.45, y: -half + width / 4))
-    shoulders.addQuadCurve(to: CGPoint(x: -middle, y: half - width / 2),
-                           control: CGPoint(x: -middle * 0.75, y: 0))
-    shoulders.addQuadCurve(to: CGPoint(x: -middle, y: half),
-                           control: CGPoint(x: -end * 1.45, y: half - width / 4))
-    shoulders.addLine(to: CGPoint(x: middle, y: half))
-    shoulders.addQuadCurve(to: CGPoint(x: middle, y: half - width / 2),
-                           control: CGPoint(x: end * 1.45, y: half - width / 4))
-    shoulders.addQuadCurve(to: CGPoint(x: middle, y: -half + width / 2),
-                           control: CGPoint(x: middle * 0.75, y: 0))
-    shoulders.addQuadCurve(to: CGPoint(x: middle, y: -half),
-                           control: CGPoint(x: end * 1.45, y: -half + width / 4))
-    shoulders.closeSubpath()
-    context.addPath(shoulders)
-    context.fillPath()
-    context.fillEllipse(in: CGRect(x: -end, y: -width * 0.22, width: width, height: width * 0.44))
-    if style != .minimal {
-        context.setStrokeColor(color.copy(alpha: 0.58)!)
-        context.setLineWidth(style == .traditional ? 3 : 4)
-        context.setLineCap(.round)
-        context.move(to: CGPoint(x: 0, y: -half + 9))
-        context.addLine(to: CGPoint(x: 0, y: half - 9))
-        context.setBlendMode(.destinationOut)
-        context.strokePath()
+    private func eightBamboo(on context: CGContext) {
+        // Four joined stalks in each of the mirrored groups on the physical set.
+        let points = [(51.0, 24.0), (51, -23), (96, 21), (141, -23), (141, 24)]
+        for (center, direction) in [(181.0, 1.0), (87.0, -1.0)] {
+            let group = points.map { x, y in CGPoint(x: x, y: center + direction * y) }
+            for (start, end) in zip(group, group.dropFirst()) {
+                let dx = end.x - start.x
+                let dy = end.y - start.y
+                stalk(greenStalk, x: (start.x + end.x) / 2, y: (start.y + end.y) / 2,
+                      height: hypot(dx, dy) + 14, angle: atan2(dy, dx) - .pi / 2, on: context)
+            }
+        }
     }
 }
 
 func render(_ style: Style) throws {
     let board = load(references.appending(path: "\(style.sheet).png"))
     let atlas = bitmap(cellWidth * columns, cellHeight * rows)
-    let samples = [
-        (9, 0, 0), (10, 1, 0), (11, 2, 0), (12, 3, 0), (13, 4, 0),
-        (14, 0, 1), (15, 1, 1), (16, 2, 1), (17, 3, 1), (33, 4, 1),
-        (18, 0, 2), (20, 1, 2), (4, 2, 2), (5, 3, 2), (27, 4, 2),
-    ]
-    let approved = Dictionary(uniqueKeysWithValues: samples.map { index, column, row in
-        (index, tileSample(board, column: column, row: row))
+    // The approved boards have five tiles per row, in this order.
+    let sampleIndices = [9, 10, 11, 12, 13, 14, 15, 16, 17, 33, 18, 20, 4, 5, 27]
+    let approved = Dictionary(uniqueKeysWithValues: sampleIndices.enumerated().map { position, index in
+        // Compensate for the slight vertical oval in the Minimal sheet's single pip.
+        let scale = style == .minimal && index == 9 ? 0.95 : 1.0
+        return (index, tileSample(board, column: position % 5, row: position / 5, verticalScale: scale))
     })
-    let wan = extractInk(board, rect: CGRect(x: 679, y: 811, width: 176, height: 149), redOnly: true)
+    let wan = tileSample(board, column: 2, row: 2, redOnly: true)
+    // Convert image rows to the drawing context's bottom-left origin.
+    let minimumNumeralBottom = CGFloat(cellHeight) - inkBounds(wan).minY + 6
+    let bamboo = BambooArtwork(from: board)
+    let font = markingFont(for: style)
+    let numerals = ["一", "二", "三", "四", "伍", "六", "七", "八", "九"].map { glyphPath($0, font: font) }
+    let honors = ["東", "南", "西", "北", "中", "發", "白", "梅", "蘭", "菊", "竹", "春", "夏", "秋", "冬"]
+        .map { glyphPath($0, font: font) }
+    let numeralScale = sharedScale(for: numerals, in: style.numeralBox, addedStroke: style.addedStroke)
+    let honorScale = sharedScale(for: honors, in: style.honorBox, addedStroke: style.addedStroke)
+
     for index in 0..<(columns * rows) {
         let rect = CGRect(x: index % columns * cellWidth, y: (rows - 1 - index / columns) * cellHeight,
                           width: cellWidth, height: cellHeight)
-        if style == .traditional && (16...17).contains(index) {
-            let tile = bitmap(cellWidth, cellHeight)
-            denseRosettes(rank: index - 8, on: tile)
-            atlas.draw(tile.makeImage()!, in: rect)
-        } else if let sample = approved[index] {
+        if let sample = approved[index] {
             atlas.draw(sample, in: rect)
-        } else {
-            let tile = bitmap(cellWidth, cellHeight)
-            switch index {
-            case 0...8:
-                let numerals = ["一", "二", "三", "四", "伍", "六", "七", "八", "九"]
-                glyph(numerals[index], style: style, color: blue,
-                      in: CGRect(x: 34, y: 145, width: 124, height: 88), on: tile)
-                tile.draw(wan, in: CGRect(x: 24, y: 16, width: 144, height: 125))
-            case 18...26:
-                bamboo(index - 17, style: style, on: tile)
-            case 28...32, 34...41:
-                let symbols = ["東", "南", "西", "北", "中", "發", "白", "梅", "蘭", "菊", "竹", "春", "夏", "秋", "冬"]
-                let color = index == 31 || index >= 38 ? red : index >= 32 ? green : blue
-                glyph(symbols[index - 27], style: style, color: color,
-                      in: CGRect(x: 24, y: 49, width: 144, height: 170), on: tile)
-            default:
-                preconditionFailure("Missing tile \(index)")
-            }
-            atlas.draw(tile.makeImage()!, in: rect)
+            continue
         }
+        let tile = bitmap(cellWidth, cellHeight)
+        switch index {
+        case 0...8:
+            let numeral = numerals[index]
+            let height = numeral.boundingBoxOfPath.height * numeralScale + style.addedStroke
+            let bottom = style.numeralBox.midY - height / 2
+            let box = style.numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
+            drawGlyph(numeral, color: blue, in: box, scale: numeralScale,
+                      addedStroke: style.addedStroke, on: tile)
+            tile.draw(wan, in: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight))
+        case 18...26:
+            bamboo.draw(index - 17, on: tile)
+        case 28...32, 34...41:
+            let color = index == 31 || index >= 38 ? red : index >= 32 ? green : blue
+            drawGlyph(honors[index - 27], color: color, in: style.honorBox, scale: honorScale,
+                      addedStroke: style.addedStroke, on: tile)
+        default:
+            preconditionFailure("Missing tile \(index)")
+        }
+        atlas.draw(tile.makeImage()!, in: rect)
     }
 
     let imageset = catalog.appending(path: "\(style.asset).imageset")

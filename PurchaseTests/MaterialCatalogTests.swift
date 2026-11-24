@@ -100,4 +100,63 @@ final class MaterialCatalogTests: XCTestCase {
             }
         }
     }
+
+    func testOneCircleMarkingsStayRound() throws {
+        for style in TileFaceStyle.allCases {
+            let context = try markingBitmap(for: TileKind(.circles, 1), style: style)
+            let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            var bounds = CGRect.null
+            for y in 0..<context.height {
+                for x in 0..<context.width where pixels[(y * context.width + x) * 4 + 3] > 180 {
+                    bounds = bounds.union(CGRect(x: x, y: y, width: 1, height: 1))
+                }
+            }
+            XCTAssertFalse(bounds.isNull, style.rawValue)
+            XCTAssertEqual(bounds.width, bounds.height, accuracy: 4, style.rawValue)
+        }
+    }
+
+    func testCharacterNumeralsStayClearOfWan() throws {
+        let nearbyPixels = (-4...4).flatMap { y in
+            (-4...4).filter { $0 * $0 + y * y < 25 }.map { (x: $0, y: y) }
+        }
+        for style in TileFaceStyle.allCases {
+            for rank in 1...9 {
+                let context = try markingBitmap(for: TileKind(.characters, rank), style: style)
+                let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+                let width = context.width
+                var numeralPixels: [Int] = []
+                var wanPixels: Set<Int> = []
+                for index in 0..<(width * context.height) {
+                    let pixel = pixels.advanced(by: index * 4)
+                    guard pixel[3] > 80 else { continue }
+                    let red = Int(pixel[0]), green = Int(pixel[1]), blue = Int(pixel[2])
+                    if blue > max(red, green) + 15 { numeralPixels.append(index) }
+                    if red > max(blue, green) + 15 { wanPixels.insert(index) }
+                }
+                let face = "\(style.rawValue) rank \(rank)"
+                XCTAssertFalse(numeralPixels.isEmpty, face)
+                XCTAssertFalse(wanPixels.isEmpty, face)
+                let crowded = numeralPixels.contains { index in
+                    nearbyPixels.contains { offset in
+                        let column = index % width + offset.x
+                        let row = index / width + offset.y
+                        return (0..<width).contains(column) && wanPixels.contains(row * width + column)
+                    }
+                }
+                XCTAssertFalse(crowded, "\(face) has less than five pixels between the numeral and 萬")
+            }
+        }
+    }
+
+    private func markingBitmap(for kind: TileKind, style: TileFaceStyle) throws -> CGContext {
+        let marking = try XCTUnwrap(TileMarkings.image(for: kind, style: style)?.cgImage)
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: marking.width, height: marking.height, bitsPerComponent: 8,
+            bytesPerRow: marking.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        ))
+        context.draw(marking, in: CGRect(x: 0, y: 0, width: marking.width, height: marking.height))
+        return context
+    }
 }
