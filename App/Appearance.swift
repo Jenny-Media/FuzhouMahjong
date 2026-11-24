@@ -150,185 +150,453 @@ struct AppearanceSettings: View {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var appearance: GameAppearance
     @Binding var boardStyle: BoardStyle
-    @Binding var tileStyle: TileStyle
-    let hapticsEnabled: Binding<Bool>
+    @Binding var tileMaterial: TileMaterialStyle
+    @Binding var tileFaceStyle: TileFaceStyle
+    let hapticsEnabled: Bool
 
     var body: some View {
         Section {
-            Picker("显示模式", selection: $appearance) {
-                ForEach(GameAppearance.allCases, id: \.self) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.menu)
-            .accessibilityValue(Text(appearance.title))
-            .accessibilityIdentifier("appearance-picker")
-            MaterialPicker("牌桌", id: "board-style-picker", options: BoardStyle.allCases,
-                           selection: $boardStyle, hapticsEnabled: hapticsEnabled, name: \.title) { style in
-                Color.clear
-                    .modifier(Felt(gameTable: true))
-                    .environment(\.boardStyle, style.resolved(for: colorScheme))
-            }
-            MaterialPicker("牌面", id: "tile-style-picker", options: TileStyle.allCases,
-                           selection: $tileStyle, hapticsEnabled: hapticsEnabled, name: \.title) { style in
-                HStack(spacing: 5) {
-                    TileFace(kind: TileKind(.characters, 6)).frame(width: 28, height: 39)
-                    TileFace(kind: TileKind(.circles, 5), gold: true).frame(width: 28, height: 39)
-                    TileFace(kind: TileKind(.bamboo, 1)).frame(width: 28, height: 39)
-                    TileBack().frame(width: 28, height: 39)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .modifier(Felt(gameTable: true))
+            TableAppearancePreview()
                 .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
-                .environment(\.tileStyle, style.resolved(for: colorScheme))
+                .environment(\.tileMaterial, tileMaterial.resolved(for: colorScheme))
+                .environment(\.tileFaceStyle, tileFaceStyle)
+                .listRowInsets(EdgeInsets(top: 9, leading: 9, bottom: 9, trailing: 9))
+
+            ArcChoicePicker(label: "牌桌", id: "board-style-picker", selection: $boardStyle,
+                            title: \.title, hapticsEnabled: hapticsEnabled) { option in
+                AppearanceSwatch(corner: true) { Color.clear }
+                    .environment(\.boardStyle, option.resolved(for: colorScheme))
             }
+            .listRowInsets(turntableInsets)
+
+            ArcChoicePicker(label: "材质", id: "tile-material-picker", selection: $tileMaterial,
+                            title: \.title, hapticsEnabled: hapticsEnabled) { option in
+                AppearanceSwatch {
+                    TileFace(kind: TileKind(.characters, 6)).frame(width: 24, height: 34)
+                    TileBack().frame(width: 24, height: 34)
+                }
+                .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
+                .environment(\.tileMaterial, option.resolved(for: colorScheme))
+                .environment(\.tileFaceStyle, tileFaceStyle)
+            }
+            .listRowInsets(turntableInsets)
+
+            ArcChoicePicker(label: "牌面", id: "tile-face-style-picker", selection: $tileFaceStyle,
+                            title: \.title, hapticsEnabled: hapticsEnabled) { option in
+                AppearanceSwatch {
+                    TileFace(kind: TileKind(.circles, 1)).frame(width: 24, height: 34)
+                    TileFace(kind: TileKind(.circles, 8)).frame(width: 24, height: 34)
+                    TileFace(kind: TileKind(.bamboo, 1)).frame(width: 24, height: 34)
+                }
+                .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
+                .environment(\.tileMaterial, tileMaterial.resolved(for: colorScheme))
+                .environment(\.tileFaceStyle, option)
+            }
+            .listRowInsets(turntableInsets)
         } header: {
-            Text("外观")
-        } footer: {
-            Text("左右滑动更换牌桌和牌面。自动选项随显示模式变化，手动选择会保留。")
+            HStack {
+                Text("外观")
+                Spacer(minLength: 8)
+                SwipeChoicePicker(label: "显示模式", id: "appearance-picker", selection: $appearance,
+                                  title: \.title, hapticsEnabled: hapticsEnabled)
+            }
         }
         .listRowBackground(TeaTheme.surface)
     }
+
+    private var turntableInsets: EdgeInsets {
+        EdgeInsets(top: 7, leading: 9, bottom: 5, trailing: 9)
+    }
 }
 
-private struct MaterialPicker<Option: Hashable, Preview: View>: View {
+private struct SwipeChoicePicker<Option: CaseIterable & Hashable>: View {
+    @Environment(\.layoutDirection) private var layoutDirection
     let label: LocalizedStringKey
     let id: String
-    let options: [Option]
     @Binding var selection: Option
-    let hapticsEnabled: Binding<Bool>
-    let name: KeyPath<Option, LocalizedStringKey>
-    let preview: (Option) -> Preview
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.layoutDirection) private var layoutDirection
-    @GestureState private var drag: CGFloat = 0
-    @State private var position = 0
-    @State private var selectionChangeID: UUID?
-
-    private var selectedPosition: Int {
-        if !options.isEmpty, option(at: position) == selection { return position }
-        return options.firstIndex(of: selection) ?? 0
-    }
-    private var readingDirection: CGFloat { layoutDirection == .leftToRight ? 1 : -1 }
-    private var snapAnimation: Animation? { reduceMotion ? nil : .easeOut(duration: 0.24) }
-
-    init(_ label: LocalizedStringKey, id: String, options: [Option], selection: Binding<Option>,
-         hapticsEnabled: Binding<Bool>, name: KeyPath<Option, LocalizedStringKey>,
-         @ViewBuilder preview: @escaping (Option) -> Preview) {
-        self.label = label
-        self.id = id
-        self.options = options
-        _selection = selection
-        self.hapticsEnabled = hapticsEnabled
-        self.name = name
-        self.preview = preview
-    }
+    let title: KeyPath<Option, LocalizedStringKey>
+    let hapticsEnabled: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(label)
-                Spacer()
-                Text(selection[keyPath: name])
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(TeaTheme.brass)
-                    .multilineTextAlignment(.trailing)
-            }
-            HStack(spacing: 4) {
-                arrow("chevron.backward", by: -1)
-                GeometryReader { geometry in
-                    let width = min(geometry.size.width, min(270, max(132, geometry.size.width * 0.78)))
-                    materialStrip(width: width, viewport: geometry.size.width)
+        HStack(spacing: 5) {
+            Text(label)
+                .lineLimit(1)
+                .foregroundStyle(TeaTheme.muted)
+                .accessibilityHidden(true)
+            Picker(label, selection: $selection) {
+                ForEach(Array(Option.allCases), id: \.self) { option in
+                    Text(option[keyPath: title]).tag(option)
                 }
-                .frame(height: 62)
-                arrow("chevron.forward", by: 1)
             }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityLabel(Text(label))
+            .accessibilityValue(Text(selection[keyPath: title]))
+            .accessibilityIdentifier(id)
         }
-        .padding(.vertical, 3)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(label))
-        .accessibilityValue(Text(selection[keyPath: name]))
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: move(by: 1)
-            case .decrement: move(by: -1)
-            @unknown default: break
-            }
-        }
-        .accessibilityIdentifier(id)
-        .onDisappear { selectionChangeID = nil }
-    }
-
-    private func materialStrip(width: CGFloat, viewport: CGFloat) -> some View {
-        let stride = width + 8
-        let center = selectedPosition
-        let nearest = center - Int((drag * readingDirection / stride).rounded())
-        // Keep a full cycle on either side of the viewport so previews keep their identities during a snap.
-        let radius = options.count + Int(ceil(viewport / (2 * stride)))
-        let positions = options.count > 1 ? (nearest - radius)..<(nearest + radius + 1) : options.indices
-        return ZStack {
-            ForEach(positions, id: \.self) { index in
-                preview(option(at: index))
-                    .frame(width: width, height: 62)
-                    .clipShape(RoundedRectangle(cornerRadius: TeaTheme.tableRailCorner))
-                    .offset(x: CGFloat(index - center) * stride * readingDirection + drag)
-                    .transition(.identity)
-            }
-        }
-        .frame(width: viewport, height: 62)
-        .clipped()
+        .frame(minWidth: 144, minHeight: TeaTheme.hitTarget, alignment: .trailing)
         .contentShape(Rectangle())
-        .animation(drag == 0 ? snapAnimation : nil, value: drag == 0)
-        .simultaneousGesture(DragGesture(minimumDistance: 12, coordinateSpace: .global)
-            .updating($drag) { value, drag, _ in
-                guard options.count > 1 else { return }
-                let translation = value.translation
-                drag = abs(translation.width) > abs(translation.height) ? translation.width : 0
-            }
-            .onEnded { value in
-                let horizontal = value.translation.width
-                guard options.count > 1, abs(horizontal) > abs(value.translation.height), abs(horizontal) >= 24 else { return }
-                let projected = value.predictedEndTranslation.width
-                let distance = horizontal * projected > 0 ? max(abs(horizontal), abs(projected)) : abs(horizontal)
-                // A fling can skip materials, up to one fewer than a full lap.
-                let stepDistance = max(1, min(stride * 0.62, viewport * 0.42))
-                let steps = Int(min(CGFloat(options.count - 1), max(1, (distance / stepDistance).rounded())))
-                move(by: horizontal * readingDirection < 0 ? steps : -steps)
-            })
+        .background {
+            HorizontalChoiceSwipe(minimumDistance: 18, onSwipe: selectBySwipe).accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(id)-swipe")
+        .onChange(of: selection) {
+            if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
+        }
     }
 
-    private func arrow(_ icon: String, by offset: Int) -> some View {
-        let enabled = options.count > 1
-        return Button { move(by: offset) } label: {
-            Image(systemName: icon)
+    private func selectBySwipe(horizontal: CGFloat, velocity: CGFloat, rowWidth: CGFloat) {
+        let options = Array(Option.allCases)
+        guard options.count > 1, let current = options.firstIndex(of: selection) else { return }
+
+        let glide = horizontal * velocity > 0 ? abs(velocity) * 0.20 : 0
+        let distance = abs(horizontal) + glide
+        let stepWidth = min(110, max(66, rowWidth * 0.32))
+        let steps = Int(min(CGFloat(options.count - 1), max(1, (distance / stepWidth).rounded())))
+        let forward = layoutDirection == .leftToRight ? horizontal < 0 : horizontal > 0
+        let destination = current + (forward ? steps : -steps) + options.count
+        selection = options[destination % options.count]
+    }
+}
+
+private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drag: RotationDrag?
+    @State private var turn: Turn?
+
+    let label: LocalizedStringKey
+    let id: String
+    @Binding var selection: Option
+    let title: KeyPath<Option, LocalizedStringKey>
+    let hapticsEnabled: Bool
+    @ViewBuilder var swatch: (Option) -> Swatch
+
+    private let options = Array(Option.allCases)
+    private var selectedIndex: Int { options.firstIndex(of: selection) ?? 0 }
+    private var readingDirection: CGFloat { layoutDirection == .leftToRight ? 1 : -1 }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(label).font(.subheadline)
+                Spacer(minLength: 8)
+                Picker(label, selection: Binding(get: { selection }, set: selectFromMenu)) {
+                    ForEach(options, id: \.self) { option in
+                        Text(option[keyPath: title]).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityLabel(Text(label))
+                .accessibilityValue(Text(selection[keyPath: title]))
+                .accessibilityIdentifier(id)
+            }
+            .padding(.horizontal, 7)
+
+            HStack(spacing: 2) {
+                arrow("chevron.backward", label: "上一项", by: -1)
+                TimelineView(.animation(paused: turn == nil)) { context in
+                    track(at: displayedPosition(on: context.date))
+                }
+                .frame(height: 66)
+                .background {
+                    HorizontalChoiceSwipe(onChange: followDrag, onCancel: cancelDrag, onSwipe: finishSwipe)
+                        .accessibilityHidden(true)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(label))
+                .accessibilityValue(Text(selection[keyPath: title]))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: step(by: 1)
+                    case .decrement: step(by: -1)
+                    @unknown default: break
+                    }
+                }
+                .accessibilityIdentifier("\(id)-arc")
+                arrow("chevron.forward", label: "下一项", by: 1)
+            }
+        }
+        .task(id: turn) {
+            guard let pending = turn else { return }
+            do { try await Task.sleep(for: .seconds(pending.duration)) }
+            catch { return }
+            guard turn == pending else { return }
+            commit(pending.destination)
+        }
+        .onDisappear {
+            if let turn { commit(turn.destination) }
+            drag = nil
+        }
+        .onChange(of: selection) {
+            if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
+        }
+    }
+
+    private func track(at position: CGFloat) -> some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let anchor = Int(position.rounded(.down))
+            ZStack {
+                ForEach((anchor - 2)...(anchor + 2), id: \.self) { index in
+                    let offset = CGFloat(index) - position
+                    if abs(offset) < 1.7 {
+                        let angle = offset * 0.74
+                        let rise = 1 - cos(angle)
+                        let tilt = offset * readingDirection
+                        swatch(option(at: index))
+                            .frame(width: width * 0.62, height: 50)
+                            .scaleEffect(1 - rise * 0.34)
+                            .rotation3DEffect(.degrees(tilt * 20), axis: (x: 0, y: 1, z: 0))
+                            .rotationEffect(.degrees(-tilt * 4))
+                            .offset(x: sin(angle) * width * 0.61 * readingDirection, y: 4 - rise * 36)
+                            .opacity(min(1, 1.1 - abs(offset) * 0.24))
+                            .zIndex(2 - abs(offset))
+                            .onTapGesture { move(to: index) }
+                    }
+                }
+            }
+            .frame(width: width, height: geometry.size.height)
+            .contentShape(Rectangle())
+            .clipped()
+        }
+    }
+
+    private func arrow(_ symbol: String, label: LocalizedStringKey, by offset: Int) -> some View {
+        Button { step(by: offset) } label: {
+            Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(enabled ? TeaTheme.brass : TeaTheme.line)
+                .foregroundStyle(TeaTheme.brass)
                 .frame(width: TeaTheme.hitTarget, height: TeaTheme.hitTarget)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!enabled)
+        .accessibilityLabel(Text(label))
+        .accessibilityIdentifier("\(id)-\(offset < 0 ? "previous" : "next")")
     }
 
-    private func option(at position: Int) -> Option {
-        let index = position % options.count
-        return options[index < 0 ? index + options.count : index]
+    private func option(at index: Int) -> Option {
+        let remainder = index % options.count
+        return options[remainder < 0 ? remainder + options.count : remainder]
     }
 
-    private func move(by offset: Int) {
-        guard options.count > 1 else { return }
-        let destination = selectedPosition + offset
-        let material = option(at: destination)
-        guard material != selection else { return }
+    private func displayedPosition(on date: Date) -> CGFloat {
+        turn?.position(on: date) ?? drag?.position ?? CGFloat(selectedIndex)
+    }
 
-        let changeID = UUID()
-        selectionChangeID = changeID
-        withAnimation(snapAnimation) {
-            position = destination
-            selection = material
-        } completion: {
-            guard selectionChangeID == changeID, selection == material, hapticsEnabled.wrappedValue else { return }
-            UISelectionFeedbackGenerator().selectionChanged()
+    private func step(by offset: Int) {
+        move(to: (turn?.destination ?? selectedIndex) + offset)
+    }
+
+    private func stride(for width: CGFloat) -> CGFloat { max(38, width * 0.56) }
+
+    private func followDrag(horizontal: CGFloat, width: CGFloat) {
+        guard !reduceMotion else { return }
+        let origin = drag?.origin ?? displayedPosition(on: .now)
+        turn = nil
+        drag = RotationDrag(origin: origin, position: origin - horizontal * readingDirection / stride(for: width))
+    }
+
+    private func finishSwipe(horizontal: CGFloat, velocity: CGFloat, width: CGFloat) {
+        let origin = Int((drag?.origin ?? displayedPosition(on: .now)).rounded())
+        let glide = horizontal * velocity > 0 ? abs(velocity) * 0.115 : 0
+        let travel = (abs(horizontal) + glide) / stride(for: width)
+        let steps = Int(min(CGFloat(options.count - 1), max(1, travel.rounded())))
+        move(to: origin + (horizontal * readingDirection < 0 ? steps : -steps))
+    }
+
+    private func cancelDrag() {
+        if let drag { move(to: Int(drag.origin.rounded())) }
+    }
+
+    private func move(to destination: Int) {
+        let now = Date.now
+        let origin = displayedPosition(on: now)
+        drag = nil
+        let distance = abs(CGFloat(destination) - origin)
+        if reduceMotion || distance < 0.001 {
+            commit(destination)
+        } else {
+            turn = Turn(origin: origin, destination: destination, startedAt: now,
+                        duration: min(0.46, 0.25 + 0.058 * distance))
+        }
+    }
+
+    private func commit(_ destination: Int) {
+        selectFromMenu(option(at: destination))
+    }
+
+    private func selectFromMenu(_ option: Option) {
+        turn = nil
+        drag = nil
+        selection = option
+    }
+
+    private struct RotationDrag {
+        let origin: CGFloat
+        let position: CGFloat
+    }
+
+    private struct Turn: Equatable {
+        let origin: CGFloat
+        let destination: Int
+        let startedAt: Date
+        let duration: TimeInterval
+
+        func position(on date: Date) -> CGFloat {
+            let progress = min(1, max(0, date.timeIntervalSince(startedAt) / duration))
+            return origin + (CGFloat(destination) - origin) * (1 - pow(1 - progress, 3))
+        }
+    }
+}
+
+private struct AppearanceSwatch<Content: View>: View {
+    var corner = false
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        GeometryReader { geometry in
+            if corner {
+                content
+                    .frame(width: geometry.size.width + 14, height: geometry.size.height + 14)
+                    .modifier(Felt(gameTable: true))
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            } else {
+                HStack(spacing: 5) { content }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .modifier(Felt(gameTable: true))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .contentShape(Rectangle())
+    }
+}
+
+private struct HorizontalChoiceSwipe: UIViewRepresentable {
+    var onChange: ((CGFloat, CGFloat) -> Void)?
+    var onCancel: (() -> Void)?
+    var minimumDistance: CGFloat = 24
+    let onSwipe: (CGFloat, CGFloat, CGFloat) -> Void
+
+    func makeUIView(context: Context) -> SwipeArea {
+        let view = SwipeArea()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: SwipeArea, context: Context) {
+        view.onChange = onChange
+        view.onCancel = onCancel
+        view.minimumDistance = minimumDistance
+        view.onSwipe = onSwipe
+    }
+
+    final class SwipeArea: UIView, UIGestureRecognizerDelegate {
+        var onChange: ((CGFloat, CGFloat) -> Void)?
+        var onCancel: (() -> Void)?
+        var minimumDistance: CGFloat = 24
+        var onSwipe: ((CGFloat, CGFloat, CGFloat) -> Void)?
+        private lazy var pan: UIPanGestureRecognizer = {
+            let recognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+            recognizer.delegate = self
+            recognizer.maximumNumberOfTouches = 1
+            return recognizer
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            attachToScrollView()
+        }
+
+        override func didMoveToSuperview() {
+            super.didMoveToSuperview()
+            attachToScrollView()
+        }
+
+        private func attachToScrollView() {
+            // Let the Form scroll view arbitrate before a menu row takes over the drag.
+            var ancestor = window == nil ? nil : superview
+            while let view = ancestor, !(view is UIScrollView) { ancestor = view.superview }
+            guard pan.view !== ancestor else { return }
+            pan.view?.removeGestureRecognizer(pan)
+            ancestor?.addGestureRecognizer(pan)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            bounds.contains(touch.location(in: self))
+        }
+
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.x) > abs(velocity.y) * 1.2
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            other === (pan.view as? UIScrollView)?.panGestureRecognizer
+        }
+
+        @objc private func handlePan() {
+            let movement = pan.translation(in: pan.view)
+            switch pan.state {
+            case .began, .changed:
+                onChange?(movement.x, bounds.width)
+            case .ended:
+                if abs(movement.x) >= minimumDistance, abs(movement.x) > abs(movement.y) * 1.2 {
+                    onSwipe?(movement.x, pan.velocity(in: pan.view).x, bounds.width)
+                } else {
+                    onCancel?()
+                }
+            case .cancelled, .failed:
+                onCancel?()
+            default:
+                break
+            }
+        }
+    }
+}
+
+private struct TableAppearancePreview: View {
+    private let samples = ([2, 5, 6, 9].map { TileKind(.characters, $0) }
+                           + [1, 6, 8, 9].map { TileKind(.circles, $0) }
+                           + [1, 3, 7].map { TileKind(.bamboo, $0) }).sorted()
+    private let columnCount = 6
+    private let maximumTileWidth: CGFloat = 48
+    private let spacing: CGFloat = 5
+
+    var body: some View {
+        GeometryReader { geometry in
+            let columns = CGFloat(columnCount)
+            let tileWidth = min(maximumTileWidth, max(0, (geometry.size.width - (columns - 1) * spacing) / columns))
+            let tileHeight = tileWidth / TileFace.artworkAspectRatio
+            VStack(spacing: spacing) {
+                HStack(spacing: spacing) {
+                    faces(samples.prefix(columnCount), width: tileWidth, height: tileHeight)
+                }
+                HStack(spacing: spacing) {
+                    faces(samples.dropFirst(columnCount), width: tileWidth, height: tileHeight)
+                    TileBack()
+                        .frame(width: tileWidth, height: tileHeight)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: 2 * maximumTileWidth / TileFace.artworkAspectRatio + spacing)
+        .padding(24)
+        .modifier(Felt(gameTable: true))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("牌桌和麻将预览")
+        .accessibilityIdentifier("table-appearance-preview")
+    }
+
+    private func faces(_ samples: ArraySlice<TileKind>, width: CGFloat, height: CGFloat) -> some View {
+        ForEach(samples, id: \.self) { kind in
+            TileFace(kind: kind)
+                .frame(width: width, height: height)
         }
     }
 }

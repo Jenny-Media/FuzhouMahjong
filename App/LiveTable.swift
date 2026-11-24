@@ -63,7 +63,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.boardStyle) private var board
-    @Environment(\.tileStyle) private var tileStyle
+    @Environment(\.tileMaterial) private var tileMaterial
 
 
     private let inset: CGFloat = 10
@@ -326,7 +326,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
 
     private func smallRack(count: Int, width: CGFloat) -> some View {
         Canvas { context, size in
-            let back = context.resolve(Image(decorative: tileStyle.backArtwork))
+            let back = context.resolve(Image(decorative: tileMaterial.backArtwork))
             let tileWidth = min(size.height / 1.4, width / CGFloat(max(count, 1)))
             for index in 0..<count {
                 OpeningDeal.drawBack(back, in: context,
@@ -340,7 +340,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: opening?.isDealing != true)) { time in
             let landed = opening?.landed(for: player.seat, dealer: table.dealer, at: time.date) ?? counts.landed
             Canvas { context, size in
-                let back = context.resolve(Image(decorative: tileStyle.backArtwork))
+                let back = context.resolve(Image(decorative: tileMaterial.backArtwork))
                 for index in 0..<min(FuzhouMatch.rackSize, landed) {
                     let slot = OpeningDeal.opponentSlot(index, in: CGRect(origin: .zero, size: size))
                     OpeningDeal.drawBack(back, in: context, at: slot.center, width: slot.width)

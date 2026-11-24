@@ -35,7 +35,8 @@ private struct HomeView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("table.tileStyle") private var tileStyle = TileStyle.automatic
+    @AppStorage("table.tileStyle") private var storedTileMaterial = TileMaterialStyle.automatic.rawValue
+    @AppStorage("table.tileFaceStyle") private var tileFaceStyle = TileFaceStyle.photoMatched
     @AppStorage("table.boardStyle") private var boardStyle = BoardStyle.automatic
     @Binding var appearance: GameAppearance
     @AppStorage("solo.ruleset") private var ruleset = FuzhouRuleset.pureSuit
@@ -59,6 +60,11 @@ private struct HomeView: View {
     @State private var soloPrompt: SoloPrompt?
     @State private var saveChoiceFailed = false
     @State private var opensSoloAfterSetup = false
+
+    private var tileMaterial: Binding<TileMaterialStyle> {
+        Binding(get: { TileMaterialStyle(storedValue: storedTileMaterial) },
+                set: { storedTileMaterial = $0.rawValue })
+    }
 
     init(appearance: Binding<GameAppearance>) {
         _appearance = appearance
@@ -91,7 +97,9 @@ private struct HomeView: View {
             }
             .sheet(item: $sheet, onDismiss: openPreparedSoloGame) { destination in
                 switch destination {
-                case .settings: SettingsView(appearance: $appearance, boardStyle: $boardStyle, tileStyle: $tileStyle)
+                case .settings:
+                    SettingsView(appearance: $appearance, boardStyle: $boardStyle,
+                                 tileMaterial: tileMaterial, tileFaceStyle: $tileFaceStyle)
                 case .soloSetup:
                     SoloSetup(ruleset: ruleset, customID: customRulesetID,
                               replacesUnfinishedGame: session.table?.matchFinished == false,
@@ -132,7 +140,8 @@ private struct HomeView: View {
         .environment(access)
         .environment(rulesetLibrary)
         .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
-        .environment(\.tileStyle, tileStyle.resolved(for: colorScheme))
+        .environment(\.tileMaterial, tileMaterial.wrappedValue.resolved(for: colorScheme))
+        .environment(\.tileFaceStyle, tileFaceStyle)
         .tint(TeaTheme.brass)
         .foregroundStyle(TeaTheme.ink)
         .task {
@@ -409,7 +418,8 @@ private struct SettingsView: View {
     @State private var showsNicknameEditor = false
     @Binding var appearance: GameAppearance
     @Binding var boardStyle: BoardStyle
-    @Binding var tileStyle: TileStyle
+    @Binding var tileMaterial: TileMaterialStyle
+    @Binding var tileFaceStyle: TileFaceStyle
 
     var body: some View {
         NavigationStack {
@@ -426,8 +436,9 @@ private struct SettingsView: View {
                     .accessibilityIdentifier("access-entry")
                 }
                 .listRowBackground(TeaTheme.surface)
-                AppearanceSettings(appearance: $appearance, boardStyle: $boardStyle, tileStyle: $tileStyle,
-                                   hapticsEnabled: $hapticsEnabled)
+                AppearanceSettings(appearance: $appearance, boardStyle: $boardStyle,
+                                   tileMaterial: $tileMaterial, tileFaceStyle: $tileFaceStyle,
+                                   hapticsEnabled: hapticsEnabled)
 
                 Section("操作反馈") {
                     Toggle("触感", isOn: $hapticsEnabled)

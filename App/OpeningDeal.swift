@@ -81,13 +81,13 @@ struct OpeningDeal: View {
     let dealsDealerTile: Bool
     let stage: Stage
     let anchors: [TableAnchors.Marker: CGRect]
-    @Environment(\.tileStyle) private var tileStyle
+    @Environment(\.tileMaterial) private var tileMaterial
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30,
                                 paused: stage == .shuffle(nil) || (stage.showsWall && !stage.isDealing))) { time in
             Canvas { context, _ in
-                let back = context.resolve(Image(decorative: tileStyle.backArtwork))
+                let back = context.resolve(Image(decorative: tileMaterial.backArtwork))
                 switch stage {
                 case .shuffle(let start):
                     drawPile(in: context, back: back,
