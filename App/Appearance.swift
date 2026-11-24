@@ -483,18 +483,14 @@ private enum AppearanceSwatch: View, Equatable {
                     .modifier(Felt(gameTable: true))
                     .environment(\.boardStyle, board)
             case .material(let material):
-                tileSamples {
-                    tile(.characters, 6)
-                    TileBack().frame(width: 24, height: 34)
-                }
+                tileSamples([TileKind(.characters, 6), TileKind(.circles, 1),
+                             TileKind(.circles, 6), TileKind(.bamboo, 8)], showsBack: true)
                 .environment(\.tileMaterial, material)
                 .environment(\.tileFaceStyle, .photoMatched)
             case .face(let face):
-                tileSamples {
-                    tile(.characters, 6)
-                    tile(.circles, 8)
-                    tile(.bamboo, 8)
-                }
+                tileSamples([TileKind(.characters, 5), TileKind(.characters, 6),
+                             TileKind(.circles, 1), TileKind(.circles, 8),
+                             TileKind(.bamboo, 1), TileKind(.bamboo, 8)])
                 .environment(\.tileMaterial, .porcelain)
                 .environment(\.tileFaceStyle, face)
             }
@@ -503,15 +499,25 @@ private enum AppearanceSwatch: View, Equatable {
         .contentShape(Rectangle())
     }
 
-    private func tileSamples<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 5, content: content)
+    private func tileSamples(_ samples: [TileKind], showsBack: Bool = false) -> some View {
+        let spacing: CGFloat = 4
+        let count = CGFloat(samples.count + (showsBack ? 1 : 0))
+        return GeometryReader { geometry in
+            let tileWidth = min(24, max(0, (geometry.size.width - (count - 1) * spacing) / count))
+            let tileHeight = tileWidth / TileFace.artworkAspectRatio
+            HStack(spacing: spacing) {
+                ForEach(samples, id: \.self) { kind in
+                    TileFace(kind: kind).frame(width: tileWidth, height: tileHeight)
+                }
+                if showsBack {
+                    TileBack().frame(width: tileWidth, height: tileHeight)
+                }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(TeaTheme.panelFinish)
-            .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(TeaTheme.line) }
-    }
-
-    private func tile(_ suit: Suit, _ rank: Int) -> some View {
-        TileFace(kind: TileKind(suit, rank)).frame(width: 24, height: 34)
+        }
+        .padding(.horizontal, 8)
+        .background(TeaTheme.panelFinish)
+        .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(TeaTheme.line) }
     }
 }
 
