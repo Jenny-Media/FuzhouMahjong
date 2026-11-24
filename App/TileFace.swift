@@ -107,9 +107,8 @@ struct TileFace: View {
             let width = min(geometry.size.width, geometry.size.height * Self.artworkAspectRatio)
             let height = width / Self.artworkAspectRatio
             let shape = RoundedRectangle(cornerRadius: width * 0.13)
-            let crispIndicators = tileMaterial != .classic
             // Keep the nested gold and selection outlines within the unprinted margin.
-            let selectionWidth = min(crispIndicators ? 2.5 : 2, width * (gold ? 0.045 : 0.075))
+            let selectionWidth = min(tileMaterial == .classic ? 2 : 2.5, width * (gold ? 0.045 : 0.075))
             let goldWidth = min(2, width * (selected ? 0.03 : 0.06))
             let goldEdge = tileMaterial.usesLightInk ? TeaTheme.modernTileGoldBadge : TeaTheme.modernTileGoldEdge
             let selectionEdge = switch tileMaterial {
@@ -118,13 +117,11 @@ struct TileFace: View {
             case .blackLacquer: TeaTheme.color(0x86CCD1)
             default: TeaTheme.modernTileSelection
             }
-            let showsGoldBadge = gold && width >= 50
-            let badgeHeight: CGFloat = 15
-            let badgeInset: CGFloat = 2
-
             ZStack {
-                artwork(topInset: showsGoldBadge ? badgeHeight + badgeInset : 0)
-                if gold && !crispIndicators { shape.fill(TeaTheme.goldShade.opacity(0.46)).blendMode(.multiply) }
+                artwork
+                if gold && tileMaterial == .classic {
+                    shape.fill(TeaTheme.goldShade.opacity(0.46)).blendMode(.multiply)
+                }
             }
             .frame(width: width, height: height)
             .clipShape(shape)
@@ -135,30 +132,16 @@ struct TileFace: View {
                     let cornerSize = min(8, width * 0.19)
                     goldShape.strokeBorder(goldEdge, lineWidth: goldWidth)
                         .overlay(alignment: .topTrailing) {
-                            if !showsGoldBadge {
-                                GoldTileCorner()
-                                    .fill(goldEdge)
-                                    .frame(width: cornerSize, height: cornerSize)
-                                    .padding(inset)
-                                    .flipsForRightToLeftLayoutDirection(true)
-                            }
+                            GoldTileCorner()
+                                .fill(goldEdge)
+                                .frame(width: cornerSize, height: cornerSize)
+                                .padding(inset)
+                                .flipsForRightToLeftLayoutDirection(true)
                         }
                         .clipShape(goldShape)
                 }
                 if selected {
                     shape.strokeBorder(selectionEdge, lineWidth: selectionWidth)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                if showsGoldBadge {
-                    Text("金")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(crispIndicators ? TeaTheme.color(0x292115) : TeaTheme.porcelain)
-                        .frame(width: 18, height: badgeHeight)
-                        .background(crispIndicators ? TeaTheme.modernTileGoldBadge : TeaTheme.wood,
-                                    in: RoundedRectangle(cornerRadius: 3))
-                        .padding(badgeInset)
-                        .accessibilityHidden(true)
                 }
             }
             .shadow(color: .black.opacity(0.24), radius: selected ? 3 : 1, y: selected ? 3 : 1)
@@ -167,7 +150,7 @@ struct TileFace: View {
         .accessibilityLabel(gold ? "\(kind.spokenName)，金牌" : kind.spokenName)
     }
 
-    private func artwork(topInset: CGFloat) -> some View {
+    private var artwork: some View {
         Image(decorative: tileMaterial.frontArtwork)
             .resizable()
             .saturation(tileMaterial == .porcelain ? 0.28 : 1)
@@ -178,7 +161,6 @@ struct TileFace: View {
                         .resizable()
                         .aspectRatio(Self.artworkAspectRatio, contentMode: .fit)
                         .brightness(tileMaterial.usesLightInk ? 0.52 : 0)
-                        .padding(.top, topInset)
                         .accessibilityHidden(true)
                 }
             }

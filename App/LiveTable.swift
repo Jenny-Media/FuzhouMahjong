@@ -489,7 +489,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 let isGold = table.isGold(latest.tile)
                 let owner = "\(name(of: latest.seat))打出"
                 let tileName = latest.tile.kind.spokenName
-                let detail = claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" } ?? (isGold ? "金牌" : nil)
+                let claimDetail = claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" }
+                let detail = claimDetail ?? (isGold ? "金牌" : nil)
                 let compact = !stacked && height < 54
                 let singleLine = !stacked && height < 38
                 let visibleTitle = if compact, let detail { "\(tileName) · \(detail)" } else { tileName }
@@ -509,9 +510,20 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                         if !singleLine {
                             Text(owner).font(.caption2.weight(.semibold)).foregroundStyle(board.accent)
                         }
-                        Text(singleLine ? "\(owner) · \(visibleTitle)" : visibleTitle)
-                            .font(.system(compact ? .caption : .subheadline, design: .serif, weight: .bold))
-                        if !compact, let detail { Text(detail).font(.caption2).foregroundStyle(board.muted) }
+                        HStack(spacing: 4) {
+                            Text(singleLine ? "\(owner) · \(visibleTitle)" : visibleTitle)
+                                .font(.system(compact ? .caption : .subheadline, design: .serif, weight: .bold))
+                            if isGold && !compact {
+                                Text("金牌")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(TeaTheme.color(0x292115))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(TeaTheme.modernTileGoldBadge, in: RoundedRectangle(cornerRadius: 3))
+                                    .fixedSize()
+                            }
+                        }
+                        if !compact, let claimDetail { Text(claimDetail).font(.caption2).foregroundStyle(board.muted) }
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
