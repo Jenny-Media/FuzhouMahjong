@@ -883,31 +883,51 @@ final class TableFlowTests: XCTestCase {
 
     func testOpeningFeltSkipsBeforeReleaseAndCancelsWhenLeavingEarly() {
         continueAfterFailure = false
-        XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
         app.launchArguments = ["-play-access.archive.v1", "", "--ui-test-manual-opening"]
-        app.launch()
-        openFreshSoloGame(app)
 
-        let skip = app.buttons["skip-opening"]
-        XCTAssertTrue(skip.waitForExistence(timeout: 5))
-        let table = element("table-surface", in: app)
-        let felt = table.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.5))
-        let outside = table.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0))
-        felt.tap()
-        XCTAssertTrue(skip.exists)
-        felt.press(forDuration: 0.4)
-        XCTAssertTrue(skip.exists)
+        // Use exposed felt away from the shuffle pile in both layouts.
+        let layouts: [(UIDeviceOrientation, CGVector)] = [
+            (.portrait, CGVector(dx: 0.16, dy: 0.23)),
+            (.landscapeLeft, CGVector(dx: 0.24, dy: 0.86)),
+        ]
+        for (orientation, point) in layouts {
+            XCUIDevice.shared.orientation = orientation
+            app.launch()
+            openFreshSoloGame(app)
 
-        felt.press(forDuration: 0.15, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 1)
-        XCTAssertTrue(skip.exists, "Leaving the felt early should cancel the hold.")
+            let skip = app.buttons["skip-opening"]
+            XCTAssertTrue(skip.waitForExistence(timeout: 5))
+            let table = element("table-surface", in: app)
+            let felt = table.coordinate(withNormalizedOffset: point)
+            let outside = table.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: point.dy))
+            let seat = element("seat-score-\(Seat.north.id)", in: app)
+            XCTAssertTrue(seat.exists)
+            let seatCenter = seat.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            felt.tap()
+            XCTAssertTrue(skip.exists)
+            felt.press(forDuration: 0.4)
+            XCTAssertTrue(skip.exists)
 
-        // Leaving the felt would cancel a hold that was still pending when the drag began.
-        felt.press(forDuration: 1, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.2)
-        XCTAssertTrue(skip.waitForNonExistence(timeout: 2))
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
-            .firstMatch.waitForExistence(timeout: 3))
+            felt.press(forDuration: 0.15, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 1)
+            XCTAssertTrue(skip.exists, "Leaving the board early should cancel the hold.")
+            felt.press(forDuration: 0.15, thenDragTo: seatCenter, withVelocity: .fast, thenHoldForDuration: 1)
+            XCTAssertTrue(skip.exists, "Entering a seat early should cancel the hold.")
+
+            seat.tap()
+            let closeInspector = app.buttons["完成"]
+            XCTAssertTrue(closeInspector.waitForExistence(timeout: 3))
+            closeInspector.tap()
+            XCTAssertTrue(closeInspector.waitForNonExistence(timeout: 3))
+
+            felt.tap()
+            felt.press(forDuration: 1, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.2)
+            XCTAssertTrue(skip.waitForNonExistence(timeout: 2))
+            XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
+                .firstMatch.waitForExistence(timeout: 3))
+            app.terminate()
+        }
     }
 
     func testRotationDuringTheDealSettlesOnTheCurrentTable() {

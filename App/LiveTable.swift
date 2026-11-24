@@ -85,6 +85,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         .frame(width: size.width, height: size.height)
         .foregroundStyle(board.ink)
         .modifier(Felt(gameTable: true))
+        .transformAnchorPreference(key: TableAnchors.self, value: .bounds) {
+            if opening != nil { $0[.felt] = $1 }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("table-surface")
         .onChange(of: table.roundNumber) { inspectedSeat = nil }
@@ -286,6 +289,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { inspectedSeat = seat }
+            .transformAnchorPreference(key: TableAnchors.self, value: .bounds) {
+                if opening != nil { $0[.seatCard(seat)] = $1 }
+            }
             .accessibilityElement(children: .contain)
         }
     }
