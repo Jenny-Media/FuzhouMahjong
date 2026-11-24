@@ -164,33 +164,21 @@ struct AppearanceSettings: View {
 
             ArcChoicePicker(label: "牌桌", id: "board-style-picker", selection: $boardStyle,
                             title: \.title, hapticsEnabled: hapticsEnabled) { option in
-                AppearanceSwatch(corner: true) { Color.clear }
-                    .environment(\.boardStyle, option.resolved(for: colorScheme))
+                AppearanceSwatch(board: option.resolved(for: colorScheme), subject: .table)
             }
             .listRowInsets(turntableInsets)
 
             ArcChoicePicker(label: "材质", id: "tile-material-picker", selection: $tileMaterial,
                             title: \.title, hapticsEnabled: hapticsEnabled) { option in
-                AppearanceSwatch {
-                    TileFace(kind: TileKind(.characters, 6)).frame(width: 24, height: 34)
-                    TileBack().frame(width: 24, height: 34)
-                }
-                .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
-                .environment(\.tileMaterial, option.resolved(for: colorScheme))
-                .environment(\.tileFaceStyle, tileFaceStyle)
+                AppearanceSwatch(board: boardStyle.resolved(for: colorScheme), subject: .material,
+                                 material: option.resolved(for: colorScheme), face: tileFaceStyle)
             }
             .listRowInsets(turntableInsets)
 
             ArcChoicePicker(label: "牌面", id: "tile-face-style-picker", selection: $tileFaceStyle,
                             title: \.title, hapticsEnabled: hapticsEnabled) { option in
-                AppearanceSwatch {
-                    TileFace(kind: TileKind(.circles, 1)).frame(width: 24, height: 34)
-                    TileFace(kind: TileKind(.circles, 8)).frame(width: 24, height: 34)
-                    TileFace(kind: TileKind(.bamboo, 1)).frame(width: 24, height: 34)
-                }
-                .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
-                .environment(\.tileMaterial, tileMaterial.resolved(for: colorScheme))
-                .environment(\.tileFaceStyle, option)
+                AppearanceSwatch(board: boardStyle.resolved(for: colorScheme), subject: .face,
+                                 material: tileMaterial.resolved(for: colorScheme), face: option)
             }
             .listRowInsets(turntableInsets)
         } header: {
@@ -262,24 +250,28 @@ private struct SwipeChoicePicker<Option: CaseIterable & Hashable>: View {
     }
 }
 
-private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: View {
+private struct ArcChoicePicker<Option: CaseIterable & Hashable>: View {
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
     @State private var drag: RotationDrag?
     @State private var turn: Turn?
+    @State private var preparedSwatches: PreparedSwatches?
 
     let label: LocalizedStringKey
     let id: String
     @Binding var selection: Option
     let title: KeyPath<Option, LocalizedStringKey>
     let hapticsEnabled: Bool
-    @ViewBuilder var swatch: (Option) -> Swatch
+    let swatch: (Option) -> AppearanceSwatch
 
     private let options = Array(Option.allCases)
     private var selectedIndex: Int { options.firstIndex(of: selection) ?? 0 }
     private var readingDirection: CGFloat { layoutDirection == .leftToRight ? 1 : -1 }
 
     var body: some View {
+        let swatches = options.map(swatch)
         VStack(spacing: 3) {
             HStack {
                 Text(label).font(.subheadline)
@@ -300,7 +292,7 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
             HStack(spacing: 2) {
                 arrow("chevron.backward", label: "上一项", by: -1)
                 TimelineView(.animation(paused: turn == nil)) { context in
-                    track(at: displayedPosition(on: context.date))
+                    track(at: displayedPosition(on: context.date), swatches: swatches)
                 }
                 .frame(height: 66)
                 .background {
@@ -337,10 +329,13 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
         }
     }
 
-    private func track(at position: CGFloat) -> some View {
+    private func track(at position: CGFloat, swatches: [AppearanceSwatch]) -> some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let anchor = Int(position.rounded(.down))
+            let swatchWidth = (width * 0.62 * displayScale).rounded(.down) / displayScale
+            let request = SwatchRequest(swatches: swatches, width: swatchWidth,
+                                        scale: displayScale, scheme: colorScheme)
             ZStack {
                 ForEach((anchor - 2)...(anchor + 2), id: \.self) { index in
                     let offset = CGFloat(index) - position
@@ -348,8 +343,8 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
                         let angle = offset * 0.74
                         let rise = 1 - cos(angle)
                         let tilt = offset * readingDirection
-                        swatch(option(at: index))
-                            .frame(width: width * 0.62, height: 50)
+                        swatchView(at: wrappedIndex(index), request: request)
+                            .frame(width: swatchWidth, height: 50)
                             .scaleEffect(1 - rise * 0.34)
                             .rotation3DEffect(.degrees(tilt * 20), axis: (x: 0, y: 1, z: 0))
                             .rotationEffect(.degrees(-tilt * 4))
@@ -363,7 +358,33 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
             .frame(width: width, height: geometry.size.height)
             .contentShape(Rectangle())
             .clipped()
+            .task(id: request) { await prepareSwatches(for: request) }
         }
+    }
+
+    @ViewBuilder
+    private func swatchView(at index: Int, request: SwatchRequest) -> some View {
+        if let preparedSwatches, preparedSwatches.request == request, let image = preparedSwatches.images[index] {
+            Image(uiImage: image).resizable().accessibilityHidden(true)
+        } else {
+            request.swatches[index].equatable()
+        }
+    }
+
+    private func prepareSwatches(for request: SwatchRequest) async {
+        guard request.width > 0, preparedSwatches?.request != request else { return }
+        // Bake the board, rail and tile layers once for this size and appearance.
+        var images: [UIImage?] = []
+        for swatch in request.swatches {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            let renderer = ImageRenderer(content: swatch
+                .frame(width: request.width, height: 50)
+                .environment(\.colorScheme, request.scheme))
+            renderer.scale = request.scale
+            images.append(renderer.uiImage)
+        }
+        preparedSwatches = PreparedSwatches(request: request, images: images)
     }
 
     private func arrow(_ symbol: String, label: LocalizedStringKey, by offset: Int) -> some View {
@@ -379,9 +400,9 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
         .accessibilityIdentifier("\(id)-\(offset < 0 ? "previous" : "next")")
     }
 
-    private func option(at index: Int) -> Option {
+    private func wrappedIndex(_ index: Int) -> Int {
         let remainder = index % options.count
-        return options[remainder < 0 ? remainder + options.count : remainder]
+        return remainder < 0 ? remainder + options.count : remainder
     }
 
     private func displayedPosition(on date: Date) -> CGFloat {
@@ -396,8 +417,13 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
 
     private func followDrag(horizontal: CGFloat, width: CGFloat) {
         guard !reduceMotion else { return }
-        let origin = drag?.origin ?? displayedPosition(on: .now)
-        turn = nil
+        let origin: CGFloat
+        if let drag {
+            origin = drag.origin
+        } else {
+            origin = displayedPosition(on: .now)
+            turn = nil
+        }
         drag = RotationDrag(origin: origin, position: origin - horizontal * readingDirection / stride(for: width))
     }
 
@@ -422,12 +448,12 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
             commit(destination)
         } else {
             turn = Turn(origin: origin, destination: destination, startedAt: now,
-                        duration: min(0.46, 0.25 + 0.058 * distance))
+                        duration: min(0.29, 0.16 + 0.045 * distance))
         }
     }
 
     private func commit(_ destination: Int) {
-        selectFromMenu(option(at: destination))
+        selectFromMenu(options[wrappedIndex(destination)])
     }
 
     private func selectFromMenu(_ option: Option) {
@@ -439,6 +465,18 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
     private struct RotationDrag {
         let origin: CGFloat
         let position: CGFloat
+    }
+
+    private struct SwatchRequest: Equatable {
+        let swatches: [AppearanceSwatch]
+        let width: CGFloat
+        let scale: CGFloat
+        let scheme: ColorScheme
+    }
+
+    private struct PreparedSwatches {
+        let request: SwatchRequest
+        let images: [UIImage?]
     }
 
     private struct Turn: Equatable {
@@ -454,25 +492,39 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable, Swatch: View>: V
     }
 }
 
-private struct AppearanceSwatch<Content: View>: View {
-    var corner = false
-    @ViewBuilder var content: Content
+private struct AppearanceSwatch: View, Equatable {
+    enum Subject { case table, material, face }
+
+    let board: BoardStyle
+    let subject: Subject
+    var material: TileMaterialStyle = .classic
+    var face: TileFaceStyle = .photoMatched
 
     var body: some View {
-        GeometryReader { geometry in
-            if corner {
-                content
-                    .frame(width: geometry.size.width + 14, height: geometry.size.height + 14)
-                    .modifier(Felt(gameTable: true))
-                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-            } else {
-                HStack(spacing: 5) { content }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .modifier(Felt(gameTable: true))
+        HStack(spacing: 5) {
+            switch subject {
+            case .table:
+                Color.clear
+            case .material:
+                tile(.characters, 6)
+                TileBack().frame(width: 24, height: 34)
+            case .face:
+                tile(.circles, 1)
+                tile(.circles, 8)
+                tile(.bamboo, 1)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(Felt(gameTable: true))
+        .environment(\.boardStyle, board)
+        .environment(\.tileMaterial, material)
+        .environment(\.tileFaceStyle, face)
         .clipShape(RoundedRectangle(cornerRadius: 9))
         .contentShape(Rectangle())
+    }
+
+    private func tile(_ suit: Suit, _ rank: Int) -> some View {
+        TileFace(kind: TileKind(suit, rank)).frame(width: 24, height: 34)
     }
 }
 

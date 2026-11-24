@@ -100,4 +100,25 @@ final class MaterialCatalogTests: XCTestCase {
             }
         }
     }
+
+    func testOneCircleMarkingsStayRound() throws {
+        for style in TileFaceStyle.allCases {
+            let marking = try XCTUnwrap(TileMarkings.image(for: TileKind(.circles, 1), style: style)?.cgImage)
+            let context = try XCTUnwrap(CGContext(
+                data: nil, width: marking.width, height: marking.height, bitsPerComponent: 8,
+                bytesPerRow: marking.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            ))
+            context.draw(marking, in: CGRect(x: 0, y: 0, width: marking.width, height: marking.height))
+            let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            var bounds = CGRect.null
+            for y in 0..<marking.height {
+                for x in 0..<marking.width where pixels[(y * marking.width + x) * 4 + 3] > 180 {
+                    bounds = bounds.union(CGRect(x: x, y: y, width: 1, height: 1))
+                }
+            }
+            XCTAssertFalse(bounds.isNull, style.rawValue)
+            XCTAssertEqual(bounds.width, bounds.height, accuracy: 4, style.rawValue)
+        }
+    }
 }
