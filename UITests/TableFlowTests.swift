@@ -50,6 +50,7 @@ final class TableFlowTests: XCTestCase {
             let picker = element(id, in: app)
             XCTAssertTrue(picker.waitForExistence(timeout: 5))
             if picker.value as? String != option {
+                reveal(picker, in: app)
                 picker.tap()
                 let selection = app.buttons[option]
                 XCTAssertTrue(selection.waitForExistence(timeout: 5))
@@ -144,6 +145,7 @@ final class TableFlowTests: XCTestCase {
         let preview = element("table-appearance-preview", in: app)
         XCTAssertTrue(preview.waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(preview.frame.height, 150)
+        capture("turntables-ready")
 
         let pickers = [
             (id: "appearance-picker", options: ["跟随系统", "浅色", "深色"]),
@@ -155,30 +157,67 @@ final class TableFlowTests: XCTestCase {
         for (id, options) in pickers {
             let picker = element(id, in: app)
             XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            reveal(picker, in: app)
             if picker.value as? String != options[0] {
                 picker.tap()
                 app.buttons[options[0]].tap()
             }
             XCTAssertEqual(picker.value as? String, options[0])
 
-            swipeChoice(picker, forward: false, span: 0.21, velocity: .slow)
-            XCTAssertEqual(picker.value as? String, options.last, "\(id) should wrap backward.")
-            swipeChoice(picker, forward: true, span: 0.21, velocity: .slow)
-            XCTAssertEqual(picker.value as? String, options[0], "\(id) should wrap forward.")
-            swipeChoice(picker, forward: true, span: 0.21, velocity: .slow)
-            XCTAssertEqual(picker.value as? String, options[1], "\(id) should advance one choice.")
-            swipeChoice(picker, forward: false, span: 0.72, velocity: .fast)
-            XCTAssertTrue(options.dropFirst(2).contains(picker.value as? String ?? ""),
-                          "\(id) should skip more than one choice from \(options[1]).")
+            let hasArc = id != "appearance-picker"
+            let swipeArea = element("\(id)-\(hasArc ? "arc" : "swipe")", in: app)
+            reveal(swipeArea, in: app)
+            let previewFrame = preview.frame
+            let span: CGFloat = hasArc ? 0.24 : 0.28
+            swipeChoice(swipeArea, forward: false, span: span, velocity: .slow)
+            expectValue(of: picker, in: [options[options.count - 1]])
+            swipeChoice(swipeArea, forward: true, span: span, velocity: .slow)
+            expectValue(of: picker, in: [options[0]])
+            swipeChoice(swipeArea, forward: true, span: span, velocity: .slow)
+            expectValue(of: picker, in: [options[1]])
+            swipeChoice(swipeArea, forward: false, span: 0.72, velocity: .fast)
+            expectValue(of: picker, in: Array(options.dropFirst(2)))
+            XCTAssertEqual(preview.frame, previewFrame, "Turning \(id) should keep the preview in place.")
+
+            if hasArc {
+                guard let current = options.firstIndex(of: picker.value as? String ?? "") else {
+                    XCTFail("Unknown selection for \(id).")
+                    return
+                }
+                app.buttons["\(id)-next"].tap()
+                expectValue(of: picker, in: [options[(current + 1) % options.count]])
+            }
         }
 
-        let facePicker = element("tile-face-style-picker", in: app)
-        let faceValue = facePicker.value as? String
-        let startY = facePicker.frame.midY
-        let start = facePicker.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let faceArc = element("tile-face-style-picker-arc", in: app)
+        capture("turntables-selected")
+        let faceValue = faceArc.value as? String
+        let startY = faceArc.frame.midY
+        let start = faceArc.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -150)))
-        XCTAssertLessThan(facePicker.frame.midY, startY - 30, "Vertical swipes should scroll settings.")
-        XCTAssertEqual(facePicker.value as? String, faceValue)
+        XCTAssertLessThan(faceArc.frame.midY, startY - 30, "Vertical swipes should scroll settings.")
+        XCTAssertEqual(faceArc.value as? String, faceValue)
+    }
+
+    private func reveal(_ control: XCUIElement, in app: XCUIApplication) {
+        let top = app.frame.minY + 95
+        let bottom = app.frame.maxY - 40
+        for _ in 0..<4 {
+            let y = control.frame.midY
+            if control.isHittable && (top...bottom).contains(y) { return }
+            let below = y > (top + bottom) / 2
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.77 : 0.30))
+            start.press(forDuration: 0.05,
+                        thenDragTo: start.withOffset(CGVector(dx: 0, dy: below ? -120 : 120)),
+                        withVelocity: .slow, thenHoldForDuration: 0)
+        }
+        XCTAssertTrue(control.isHittable && (top...bottom).contains(control.frame.midY))
+    }
+
+    private func expectValue(of picker: XCUIElement, in values: [String]) {
+        let selected = expectation(for: NSPredicate(format: "value IN %@", values), evaluatedWith: picker)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed,
+                       "Expected \(picker.identifier) to select one of \(values), got \(picker.value ?? "none").")
     }
 
     private func swipeChoice(_ picker: XCUIElement, forward: Bool, span: CGFloat, velocity: XCUIGestureVelocity) {
