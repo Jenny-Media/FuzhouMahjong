@@ -331,8 +331,8 @@ func render(_ style: Style) throws {
         let tile = bitmap(cellWidth, cellHeight)
         let glyph = glyphPath("万", font: font)
         let box = CGRect(x: 41, y: 42, width: 110, height: 91)
-        drawGlyph(glyph, color: red, in: box, scale: sharedScale(for: [glyph], in: box, addedStroke: 0),
-                  addedStroke: 0, on: tile)
+        let scale = sharedScale(for: [glyph], in: box, addedStroke: 0) * 0.85
+        drawGlyph(glyph, color: red, in: box, scale: scale, addedStroke: 0, on: tile)
         wan = tile.makeImage()!
     } else {
         wan = tileSample(board, column: 2, row: 2, redOnly: true)
