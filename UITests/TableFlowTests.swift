@@ -930,6 +930,53 @@ final class TableFlowTests: XCTestCase {
         }
     }
 
+    func testTableBackSwipeStartsOnlyAtScreenEdge() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Content-area Back swipes require iOS 26.") }
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = try savedMatchArguments(match(seed: 29, after: 0))
+        app.launch()
+        let table = element("table-surface", in: app)
+        let resume = app.buttons["practice-entry"]
+        let back = app.buttons["BackButton"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        let inside = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.5))
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+            .withOffset(CGVector(dx: 8, dy: 0))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5))
+
+        func tryRulesContentSwipe() -> Bool {
+            app.buttons["home-more"].tap()
+            app.buttons["rules-entry"].tap()
+            let lesson = app.staticTexts["rule-lesson-title"]
+            XCTAssertTrue(lesson.waitForExistence(timeout: 5))
+            inside.press(forDuration: 0.02, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+            if resume.waitForExistence(timeout: 2) { return true }
+            XCTAssertTrue(lesson.exists)
+            back.tap()
+            XCTAssertTrue(resume.waitForExistence(timeout: 5))
+            return false
+        }
+
+        let rulesContentSwipePops = tryRulesContentSwipe()
+        resume.tap()
+        XCTAssertTrue(table.waitForExistence(timeout: 5))
+        XCTAssertTrue(back.isHittable)
+
+        inside.press(forDuration: 0.02, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertTrue(table.exists, "A swipe inside the table should keep the game open.")
+
+        edge.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0)
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        resume.tap()
+        XCTAssertTrue(table.waitForExistence(timeout: 5))
+        back.tap()
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+
+        XCTAssertEqual(tryRulesContentSwipe(), rulesContentSwipePops)
+    }
+
     func testRotationDuringTheDealSettlesOnTheCurrentTable() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
