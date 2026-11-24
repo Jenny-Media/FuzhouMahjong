@@ -140,12 +140,18 @@ Use case: precise-object-edit. Single production tile-back sprite for the 竹背
 
 [Tile front](App/Assets.xcassets/BlackLacquerFront.imageset/art.png) · [Tile back](App/Assets.xcassets/BlackLacquerBack.imageset/art.png)
 
-缎面黑漆 uses a satin charcoal face, a darker reverse, lighter markings, and high-contrast selection and gold-tile borders. It uses the bakelite contact profile.
+缎面黑漆 uses a satin charcoal face, a darker reverse with a continuous smoke-gray bevel, lighter markings, and high-contrast selection and gold-tile borders. It uses the bakelite contact profile.
 
 Built-in ImageGen prompt
 
 ```text
 Use case: product-mockup. Production sprite sheet for the 黑漆 material in an original iPhone mahjong game. Image 1 is the true vertical 5:7 shape and straight top-down registration reference. Exactly two separate unmarked identical-size tiles in one row with a wide transparent gutter and uniform slim gently rounded bevel. Left is the blank playing face: soft satin charcoal-black artisan lacquer, center near #222429, cool neutral black with one restrained studio edge highlight and a broad quiet dark field for later separately drawn pale colored markings. Right is its reverse, deeper charcoal-black lacquer, slightly more polished with a narrow smoke-gray scale of reflected light along the curved bevel. A refined dense solid tactile object, with the front flatter and softer in sheen than the reverse and the body cool neutral in both cases. No wood grain, glitter, metallic gold edges, textures that look like labels, graphic inset stripes, letters, markings, pips, floor, cast shadows outside silhouettes, or extra tiles. True transparent alpha around and between both tiles.
+```
+
+The built-in ImageGen edit widened the bevel for the small wall and opponent racks.
+
+```text
+Use case: precise-object-edit. Edit Image 1, the single tile-back game sprite. Change only the existing rounded bevel to a continuous satin smoke-gray lacquer highlight (roughly #808791 at the sides, with a soft variation in light), about 7–9% of the tile width thick so neighboring backs are countable when drawn 8 points wide. Keep the broad interior satin black (#080B10), the exact upright 5:7 footprint, corner radius, centered full-frame alignment, true overhead view and transparent exterior. The bevel should follow the existing curved surface and read as reflected light, with visible sides and bottom as well as top, with no second outline, metal trim, symbols, outside shadow, or added objects.
 ```
 
 ## Shuffle hand

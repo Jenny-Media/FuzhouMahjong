@@ -302,15 +302,6 @@ private struct WinningGroups: View {
         let gold = table.isGold(tile)
         return TileFace(kind: tile.kind, gold: gold, selected: winning)
             .frame(width: width, height: width / TileFace.artworkAspectRatio)
-            .overlay(alignment: .topTrailing) {
-                if gold && width < 26 {
-                    Text("金")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(TeaTheme.porcelain)
-                        .padding(.horizontal, 1)
-                        .background(TeaTheme.wood, in: RoundedRectangle(cornerRadius: 2))
-                }
-            }
             .overlay(alignment: .bottomTrailing) {
                 if winning {
                     Text(compact ? "胡" : "胡牌")

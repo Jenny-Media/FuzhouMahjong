@@ -118,6 +118,24 @@ final class MaterialCatalogTests: XCTestCase {
         }
     }
 
+    func testCompactGoldIndicatorsKeepCirclePipsUncovered() throws {
+        for style in TileFaceStyle.allCases {
+            for width: CGFloat in [35, 43] {
+                for rank in 8...9 {
+                    let kind = TileKind(.circles, rank)
+                    for selected in [false, true] {
+                        let ordinary = try upperPipInkCount(kind, style: style, width: width, selected: selected)
+                        let gold = try upperPipInkCount(kind, style: style, width: width, gold: true, selected: selected)
+                        let sample = "\(style.rawValue) \(kind.spokenName) at \(width) pt, selected \(selected)"
+                        XCTAssertGreaterThan(ordinary, 32, sample)
+                        // Allow small changes in the number of antialiased pixels.
+                        XCTAssertGreaterThanOrEqual(gold, ordinary - ordinary / 20, sample)
+                    }
+                }
+            }
+        }
+    }
+
     func testCharacterNumeralsStayClearOfWan() throws {
         let nearbyPixels = (-4...4).flatMap { y in
             (-4...4).filter { $0 * $0 + y * y < 25 }.map { (x: $0, y: y) }
@@ -152,13 +170,42 @@ final class MaterialCatalogTests: XCTestCase {
     }
 
     private func markingBitmap(for kind: TileKind, style: TileFaceStyle) throws -> CGContext {
-        let marking = try XCTUnwrap(TileMarkings.image(for: kind, style: style)?.cgImage)
+        try bitmap(for: XCTUnwrap(TileMarkings.image(for: kind, style: style)?.cgImage))
+    }
+
+    private func upperPipInkCount(_ kind: TileKind, style: TileFaceStyle, width: CGFloat,
+                                  gold: Bool = false, selected: Bool = false) throws -> Int {
+        let renderer = ImageRenderer(content:
+            TileFace(kind: kind, gold: gold, selected: selected)
+                .frame(width: width, height: width / TileFace.artworkAspectRatio)
+                .environment(\.tileMaterial, .porcelain)
+                .environment(\.tileFaceStyle, style)
+        )
+        renderer.scale = 3
+        let image = try XCTUnwrap(renderer.cgImage)
+        // Sample the row closest to the gold marker, away from the outlines.
+        let side = ceil(CGFloat(image.width) * 0.13)
+        let top = ceil(CGFloat(image.width) * 0.20)
+        let crop = CGRect(x: side, y: top, width: CGFloat(image.width) - 2 * side,
+                          height: ceil(CGFloat(image.width) * 0.32))
+        let context = try bitmap(for: XCTUnwrap(image.cropping(to: crop)))
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        return stride(from: 0, to: context.bytesPerRow * context.height, by: 4).count { index in
+            let red = Int(pixels[index])
+            let green = Int(pixels[index + 1])
+            let blue = Int(pixels[index + 2])
+            let contrast = kind.rank == 8 ? blue - max(red, green) : green - max(red, blue)
+            return contrast > 24
+        }
+    }
+
+    private func bitmap(for image: CGImage) throws -> CGContext {
         let context = try XCTUnwrap(CGContext(
-            data: nil, width: marking.width, height: marking.height, bitsPerComponent: 8,
-            bytesPerRow: marking.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+            bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
         ))
-        context.draw(marking, in: CGRect(x: 0, y: 0, width: marking.width, height: marking.height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return context
     }
 }

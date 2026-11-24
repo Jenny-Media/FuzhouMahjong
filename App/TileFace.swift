@@ -108,39 +108,56 @@ struct TileFace: View {
             let height = width / Self.artworkAspectRatio
             let shape = RoundedRectangle(cornerRadius: width * 0.13)
             let crispIndicators = tileMaterial != .classic
-            let selectionWidth: CGFloat = crispIndicators ? 2.5 : 2
+            // Keep the nested gold and selection outlines within the unprinted margin.
+            let selectionWidth = min(crispIndicators ? 2.5 : 2, width * (gold ? 0.045 : 0.075))
+            let goldWidth = min(2, width * (selected ? 0.03 : 0.06))
             let goldEdge = tileMaterial.usesLightInk ? TeaTheme.modernTileGoldBadge : TeaTheme.modernTileGoldEdge
             let selectionEdge = switch tileMaterial {
             case .classic: TeaTheme.color(0xF0D29A)
+            case .redwood: TeaTheme.color(0x94D5F2)
             case .blackLacquer: TeaTheme.color(0x86CCD1)
             default: TeaTheme.modernTileSelection
             }
+            let showsGoldBadge = gold && width >= 50
+            let badgeHeight: CGFloat = 15
+            let badgeInset: CGFloat = 2
 
             ZStack {
-                artwork
+                artwork(topInset: showsGoldBadge ? badgeHeight + badgeInset : 0)
                 if gold && !crispIndicators { shape.fill(TeaTheme.goldShade.opacity(0.46)).blendMode(.multiply) }
             }
             .frame(width: width, height: height)
             .clipShape(shape)
             .overlay {
-                if gold && crispIndicators {
-                    shape.inset(by: selected ? selectionWidth : 0)
-                        .strokeBorder(goldEdge, lineWidth: min(2, width * 0.085))
+                if gold {
+                    let inset = selected ? selectionWidth : 0
+                    let goldShape = shape.inset(by: inset)
+                    let cornerSize = min(8, width * 0.19)
+                    goldShape.strokeBorder(goldEdge, lineWidth: goldWidth)
+                        .overlay(alignment: .topTrailing) {
+                            if !showsGoldBadge {
+                                GoldTileCorner()
+                                    .fill(goldEdge)
+                                    .frame(width: cornerSize, height: cornerSize)
+                                    .padding(inset)
+                                    .flipsForRightToLeftLayoutDirection(true)
+                            }
+                        }
+                        .clipShape(goldShape)
                 }
                 if selected {
                     shape.strokeBorder(selectionEdge, lineWidth: selectionWidth)
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if gold, width >= 26 {
+                if showsGoldBadge {
                     Text("金")
-                        .font(.system(size: min(11, width * 0.27), weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(crispIndicators ? TeaTheme.color(0x292115) : TeaTheme.porcelain)
-                        .padding(.horizontal, crispIndicators ? 3 : 2)
-                        .padding(.vertical, crispIndicators ? 1 : 2)
+                        .frame(width: 18, height: badgeHeight)
                         .background(crispIndicators ? TeaTheme.modernTileGoldBadge : TeaTheme.wood,
                                     in: RoundedRectangle(cornerRadius: 3))
-                        .offset(x: crispIndicators ? 0 : 1, y: crispIndicators ? 0 : -2)
+                        .padding(badgeInset)
                         .accessibilityHidden(true)
                 }
             }
@@ -150,7 +167,7 @@ struct TileFace: View {
         .accessibilityLabel(gold ? "\(kind.spokenName)，金牌" : kind.spokenName)
     }
 
-    private var artwork: some View {
+    private func artwork(topInset: CGFloat) -> some View {
         Image(decorative: tileMaterial.frontArtwork)
             .resizable()
             .saturation(tileMaterial == .porcelain ? 0.28 : 1)
@@ -159,10 +176,23 @@ struct TileFace: View {
                 if let markings = TileMarkings.image(for: kind, style: faceStyle) {
                     Image(uiImage: markings)
                         .resizable()
+                        .aspectRatio(Self.artworkAspectRatio, contentMode: .fit)
                         .brightness(tileMaterial.usesLightInk ? 0.52 : 0)
+                        .padding(.top, topInset)
                         .accessibilityHidden(true)
                 }
             }
+    }
+}
+
+private struct GoldTileCorner: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.closeSubpath()
+        }
     }
 }
 
