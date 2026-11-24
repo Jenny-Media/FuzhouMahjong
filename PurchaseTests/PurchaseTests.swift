@@ -305,7 +305,7 @@ final class PurchaseTests: XCTestCase {
             if let move = table.moves.first {
                 let selected = table.moves.first { if case .discard = $0 { true } else { false } } ?? move
                 XCTAssertTrue(solo.submit(selected))
-            } else { solo.advanceComputer() }
+            } else { await solo.advanceComputer() }
         }
         XCTAssertNotNil(solo.table?.result)
         let result = solo.table

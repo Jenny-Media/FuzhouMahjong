@@ -146,11 +146,16 @@ struct MatchView<Session: MatchSession>: View {
         }
         .task(id: TurnState(revision: session.revision, ready: active && opening == nil)) {
             guard !session.managesComputerTurns, active, opening == nil, session.computerHasMove else { return }
-            let delay = session.table?.step == .turn ? Int.random(in: 1150...1420) : Int.random(in: 220...360)
+            let delay = switch (session.table?.step, reduceMotion) {
+            // Leave room for a claim landing and the following draw animation.
+            case (.turn, false): Int.random(in: 950...1050)
+            case (.turn, true): Int.random(in: 430...600)
+            default: Int.random(in: 220...360)
+            }
             do { try await Task.sleep(for: .milliseconds(delay)) }
             catch { return }
             guard !Task.isCancelled, opening == nil, active else { return }
-            session.advanceComputer()
+            await session.advanceComputer()
         }
         .task(id: drawCue?.id) {
             drawFlight = nil

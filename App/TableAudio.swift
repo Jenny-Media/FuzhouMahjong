@@ -1,7 +1,7 @@
 import AVFAudio
 import Foundation
 
-enum TableTileMaterial: String {
+enum TableTileMaterial: String, Sendable {
     case classic, porcelain
     case ivoryRedwood = "ivory-redwood"
     case paleJade = "pale-jade"
@@ -18,7 +18,7 @@ enum TableTileMaterial: String {
     }
 }
 
-enum TablePlayingSurface: String {
+enum TablePlayingSurface: String, Sendable {
     case wool, suede, leather
 
     var artwork: String {
@@ -38,7 +38,7 @@ enum TablePlayingSurface: String {
     }
 }
 
-struct TableFeedbackProfile: Equatable {
+struct TableFeedbackProfile: Equatable, Sendable {
     let tile: TableTileMaterial
     let surface: TablePlayingSurface
 
@@ -46,9 +46,8 @@ struct TableFeedbackProfile: Equatable {
     var recordingsFolder: String { "MaterialSounds/\(tile.rawValue)/\(surface.rawValue)" }
 }
 
-@MainActor
-final class TableAudio {
-    enum Cue: String, CaseIterable {
+final class TableAudio: @unchecked Sendable {
+    enum Cue: String, CaseIterable, Sendable {
         case shuffle, deal, discard, meld, kong, win
 
         var hasMaterialRecording: Bool {
@@ -68,13 +67,19 @@ final class TableAudio {
         }
     }
 
+    // The serial queue owns the players and keeps play, prepare, and stop in order.
+    private let queue = DispatchQueue(label: "media.jenny.FuzhouMahjong.table-audio", qos: .userInitiated)
     private var players: [Cue: AVAudioPlayer] = [:]
     private var playing: Cue?
     private var preparedProfile: TableFeedbackProfile?
 
     func prepare(for profile: TableFeedbackProfile) {
+        queue.async { self.preparePlayback(for: profile) }
+    }
+
+    private func preparePlayback(for profile: TableFeedbackProfile) {
         guard preparedProfile != profile else { return }
-        stop()
+        stopPlayback()
         players.removeAll()
         preparedProfile = profile
         try? AVAudioSession.sharedInstance().setCategory(.ambient)
@@ -102,23 +107,29 @@ final class TableAudio {
     }
 
     func play(_ cue: Cue, profile: TableFeedbackProfile, volume: Float) {
-        prepare(for: profile)
-        guard let player = players[cue] else { return }
-        if let playing, playing != cue {
-            // A quick discard can follow a claim before its short landing sound has finished.
-            let followsClaim = cue == .discard && (playing == .meld || playing == .kong)
-            if !followsClaim { players[playing]?.stop() }
+        queue.async {
+            self.preparePlayback(for: profile)
+            guard let player = self.players[cue] else { return }
+            if let playing = self.playing, playing != cue {
+                // A quick discard can follow a claim before its short landing sound has finished.
+                let followsClaim = cue == .discard && (playing == .meld || playing == .kong)
+                if !followsClaim { self.players[playing]?.stop() }
+            }
+            player.volume = volume
+            player.currentTime = 0
+            if player.play() { self.playing = cue }
         }
-        player.volume = volume
-        player.currentTime = 0
-        if player.play() { playing = cue }
     }
 
     func stop(_ cue: Cue) {
-        players[cue]?.stop()
+        queue.async { self.players[cue]?.stop() }
     }
 
     func stop() {
+        queue.async { self.stopPlayback() }
+    }
+
+    private func stopPlayback() {
         for player in players.values { player.stop() }
         playing = nil
     }

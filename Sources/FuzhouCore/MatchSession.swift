@@ -18,7 +18,7 @@ public protocol MatchSession: AnyObject, Observable {
     var rackOrder: [Tile.ID]? { get set }
     func finishOpening(_ round: Int)
     func submit(_ move: Move) -> Bool
-    func advanceComputer()
+    func advanceComputer() async
     func nextHand()
 }
 
