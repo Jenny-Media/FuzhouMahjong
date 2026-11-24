@@ -140,7 +140,7 @@ Use case: precise-object-edit. Single production tile-back sprite for the 竹背
 
 [Tile front](App/Assets.xcassets/BlackLacquerFront.imageset/art.png) · [Tile back](App/Assets.xcassets/BlackLacquerBack.imageset/art.png)
 
-黑漆 uses a satin charcoal face, a darker reverse, lighter markings, and high-contrast selection and gold-tile borders. It uses the bakelite contact profile.
+缎面黑漆 uses a satin charcoal face, a darker reverse, lighter markings, and high-contrast selection and gold-tile borders. It uses the bakelite contact profile.
 
 Built-in ImageGen prompt
 

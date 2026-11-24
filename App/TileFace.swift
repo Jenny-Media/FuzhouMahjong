@@ -22,7 +22,7 @@ enum TileMaterialStyle: String, CaseIterable {
         case .creamBakelite: "奶油电木"
         case .frostedGlass: "冰蓝琉璃"
         case .bambooPorcelain: "竹背瓷面"
-        case .blackLacquer: "黑漆"
+        case .blackLacquer: "缎面黑漆"
         }
     }
 
