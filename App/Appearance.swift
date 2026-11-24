@@ -276,8 +276,8 @@ private struct HorizontalChoiceSwipe: UIViewRepresentable {
 private struct TableAppearancePreview: View {
     private let upperSamples = [TileKind(.circles, 1), TileKind(.circles, 8), TileKind(.circles, 9),
                                 TileKind(.bamboo, 1), TileKind(.bamboo, 3), TileKind(.characters, 5)]
-    private let lowerSamples = [TileKind(.wind, 1), TileKind(.dragon, 1), TileKind(.dragon, 3),
-                                TileKind(.flower, 1), TileKind(.season, 1)]
+    private let lowerSamples = [TileKind(.characters, 2), TileKind(.circles, 6), TileKind(.bamboo, 7),
+                                TileKind(.characters, 6), TileKind(.characters, 9)]
     private let maximumTileWidth: CGFloat = 48
     private let spacing: CGFloat = 5
 
