@@ -907,7 +907,7 @@ final class TableFlowTests: XCTestCase {
             let seatCenter = seat.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             felt.tap()
             XCTAssertTrue(skip.exists)
-            felt.press(forDuration: 0.4)
+            felt.press(forDuration: 0.25)
             XCTAssertTrue(skip.exists)
 
             felt.press(forDuration: 0.15, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 1)
@@ -922,7 +922,7 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(closeInspector.waitForNonExistence(timeout: 3))
 
             felt.tap()
-            felt.press(forDuration: 1, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.2)
+            felt.press(forDuration: 0.6, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.2)
             XCTAssertTrue(skip.waitForNonExistence(timeout: 2))
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
                 .firstMatch.waitForExistence(timeout: 3))
