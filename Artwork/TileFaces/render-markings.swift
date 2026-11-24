@@ -436,11 +436,13 @@ func render(_ style: Style) throws {
                                  minimumBottom: minimumNumeralBottom, on: tile)
             } else {
                 let numeral = numerals[index]
-                let height = numeral.boundingBoxOfPath.height * numeralScale + style.addedStroke
+                // The enclosed strokes of 四 read heavier than the neighboring blue ranks.
+                let addedStroke = index == 3 ? style.addedStroke * 0.4 : style.addedStroke
+                let height = numeral.boundingBoxOfPath.height * numeralScale + addedStroke
                 let bottom = style.numeralBox.midY - height / 2
                 let box = style.numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
                 drawGlyph(numeral, color: blue, in: box, scale: numeralScale,
-                          addedStroke: style.addedStroke, on: tile)
+                          addedStroke: addedStroke, on: tile)
             }
             tile.draw(wan, in: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight))
         case 9...17:
