@@ -8,7 +8,7 @@ import XCTest
 @MainActor
 final class MaterialCatalogTests: XCTestCase {
     func testContactHapticsVaryAcrossMaterials() throws {
-        let materials = Set(TileStyle.allCases.map(\.material))
+        let materials = Set(TileMaterialStyle.allCases.map(\.material))
         let surfaces = Set(BoardStyle.allCases.map(\.surface))
 
         let contacts: [(TableImpact, Int)] = [(.draw, 1), (.discard, 2), (.shuffle, 4), (.sweep, 2),
@@ -40,15 +40,16 @@ final class MaterialCatalogTests: XCTestCase {
         XCTAssertEqual(TableImpact(meld: .addedKong).sound, .kong)
     }
 
-    func testThirtyPlayablePairingsHaveArtworkAndFeedback() throws {
+    func testMaterialPairingsHaveArtworkAndFeedback() throws {
         let boards = BoardStyle.allCases.filter { $0 != .automatic }
-        let tiles = TileStyle.allCases.filter { $0 != .automatic }
+        let tiles = TileMaterialStyle.allCases.filter { $0 != .automatic }
         XCTAssertEqual(boards.count, 5)
-        XCTAssertEqual(tiles.count, 6)
+        XCTAssertEqual(tiles.count, 5)
         XCTAssertEqual(BoardStyle.automatic.resolved(for: .light), .snowWhite)
         XCTAssertEqual(BoardStyle.automatic.resolved(for: .dark), .jadeWalnut)
-        XCTAssertEqual(TileStyle.automatic.resolved(for: .light), .porcelain)
-        XCTAssertEqual(TileStyle.automatic.resolved(for: .dark), .classic)
+        XCTAssertEqual(TileMaterialStyle.automatic.resolved(for: .light), .porcelain)
+        XCTAssertEqual(TileMaterialStyle.automatic.resolved(for: .dark), .classic)
+        XCTAssertEqual(TileMaterialStyle(storedValue: "modern"), .porcelain)
 
         let audio = TableAudio()
         let classic = TableFeedbackProfile(tile: .classic, surface: .wool)
@@ -63,9 +64,7 @@ final class MaterialCatalogTests: XCTestCase {
                 XCTAssertEqual(board.resolved(for: .light), board)
                 XCTAssertEqual(tile.resolved(for: .dark), tile)
                 XCTAssertNotNil(UIImage(named: tile.backArtwork), tile.rawValue)
-                if let face = tile.faceBodyArtwork {
-                    XCTAssertNotNil(UIImage(named: face), tile.rawValue)
-                }
+                XCTAssertNotNil(UIImage(named: tile.frontArtwork), tile.rawValue)
 
                 let profile = TableFeedbackProfile(tile: tile.material, surface: board.surface)
                 for cue in TableAudio.Cue.allCases {
@@ -86,6 +85,19 @@ final class MaterialCatalogTests: XCTestCase {
 
         for cue in materialCues {
             XCTAssertEqual(materialSounds[cue]?.count, 15, cue.rawValue)
+        }
+    }
+
+    func testEachTileFaceStyleProvidesEveryMarking() throws {
+        let kinds = Set(Tile.fullSet.map(\.kind))
+        XCTAssertEqual(kinds.count, 42)
+        for style in TileFaceStyle.allCases {
+            for kind in kinds {
+                let marking = try XCTUnwrap(TileMarkings.image(for: kind, style: style)?.cgImage,
+                                            "\(style.rawValue): \(kind.spokenName)")
+                XCTAssertEqual(marking.width, 192)
+                XCTAssertEqual(marking.height, 268)
+            }
         }
     }
 }

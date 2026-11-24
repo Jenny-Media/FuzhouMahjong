@@ -2,51 +2,51 @@ import FuzhouCore
 import SwiftUI
 import UIKit
 
-enum TileStyle: String, CaseIterable {
-    case automatic, classic, porcelain, modern, ivoryRedwood, paleJade, creamBakelite
+enum TileMaterialStyle: String, CaseIterable {
+    case automatic, classic, porcelain, ivoryRedwood, paleJade, creamBakelite
+
+    init(storedValue: String) {
+        // The old Modern option bundled different markings with a cool porcelain face.
+        self = storedValue == "modern" ? .porcelain : Self(rawValue: storedValue) ?? .automatic
+    }
 
     var title: LocalizedStringKey {
         switch self {
         case .automatic: "自动"
-        case .classic: "经典"
+        case .classic: "暖白"
         case .porcelain: "白釉瓷"
-        case .modern: "现代"
         case .ivoryRedwood: "牙白 · 紫檀拼"
         case .paleJade: "青白玉"
         case .creamBakelite: "奶油电木"
         }
     }
 
-    func resolved(for scheme: ColorScheme) -> TileStyle {
+    func resolved(for scheme: ColorScheme) -> Self {
         self == .automatic ? (scheme == .dark ? .classic : .porcelain) : self
-    }
-
-    fileprivate var assetPrefix: String {
-        self == .modern ? "ModernFace" : "Face"
     }
 
     var material: TableTileMaterial {
         switch self {
         case .automatic, .classic: .classic
-        case .porcelain, .modern: .porcelain
+        case .porcelain: .porcelain
         case .ivoryRedwood: .ivoryRedwood
         case .paleJade: .paleJade
         case .creamBakelite: .creamBakelite
         }
     }
 
-    var faceBodyArtwork: String? {
+    var frontArtwork: String {
         switch self {
         case .ivoryRedwood: "IvoryRedwoodFront"
         case .paleJade: "PaleJadeFront"
         case .creamBakelite: "CreamBakeliteFront"
-        case .automatic, .classic, .porcelain, .modern: nil
+        case .automatic, .classic, .porcelain: "PorcelainTile"
         }
     }
 
     var backArtwork: String {
         switch self {
-        case .automatic, .classic, .modern: "JadeTileBack"
+        case .automatic, .classic: "JadeTileBack"
         case .porcelain: "PorcelainTileBack"
         case .ivoryRedwood: "IvoryRedwoodBack"
         case .paleJade: "PaleJadeBack"
@@ -55,14 +55,36 @@ enum TileStyle: String, CaseIterable {
     }
 }
 
+enum TileFaceStyle: String, CaseIterable {
+    case photoMatched, minimal, traditional
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .photoMatched: "实物经典"
+        case .minimal: "极简"
+        case .traditional: "传统雕花"
+        }
+    }
+
+    fileprivate var markingsArtwork: String {
+        switch self {
+        case .photoMatched: "PhotoMatchedMarkings"
+        case .minimal: "MinimalMarkings"
+        case .traditional: "TraditionalMarkings"
+        }
+    }
+}
+
 extension EnvironmentValues {
-    @Entry var tileStyle: TileStyle = .classic
+    @Entry var tileMaterial: TileMaterialStyle = .classic
+    @Entry var tileFaceStyle: TileFaceStyle = .photoMatched
 }
 
 struct TileFace: View {
-    static let artworkAspectRatio: CGFloat = 192.0 / 268.0
+    nonisolated static let artworkAspectRatio: CGFloat = 192.0 / 268.0
 
-    @Environment(\.tileStyle) private var tileStyle
+    @Environment(\.tileMaterial) private var tileMaterial
+    @Environment(\.tileFaceStyle) private var faceStyle
     var kind: TileKind
     var gold = false
     var selected = false
@@ -72,7 +94,7 @@ struct TileFace: View {
             let width = min(geometry.size.width, geometry.size.height * Self.artworkAspectRatio)
             let height = width / Self.artworkAspectRatio
             let shape = RoundedRectangle(cornerRadius: width * 0.13)
-            let crispIndicators = tileStyle != .classic
+            let crispIndicators = tileMaterial != .classic
             let selectionWidth: CGFloat = crispIndicators ? 2.5 : 2
 
             ZStack {
@@ -110,59 +132,34 @@ struct TileFace: View {
         .accessibilityLabel(gold ? "\(kind.spokenName)，金牌" : kind.spokenName)
     }
 
-    @ViewBuilder private var artwork: some View {
-        let face = Image(decorative: kind.artworkName(for: tileStyle)).resizable()
-        if let body = tileStyle.faceBodyArtwork,
-           let markings = TileMarkings.image(named: kind.artworkName(for: .modern)) {
-            Image(decorative: body).resizable()
-                .overlay { Image(uiImage: markings).resizable().accessibilityHidden(true) }
-        } else if tileStyle == .porcelain {
-            // Grade the full Classic sprite so the glaze, relief and bevel share one surface.
-            face.saturation(0.86)
-                .brightness(0.052)
-                .colorMultiply(TeaTheme.color(0xF3F8FF))
-        } else {
-            face
-        }
+    private var artwork: some View {
+        Image(decorative: tileMaterial.frontArtwork)
+            .resizable()
+            .saturation(tileMaterial == .porcelain ? 0.28 : 1)
+            .brightness(tileMaterial == .porcelain ? 0.05 : 0)
+            .overlay {
+                if let markings = TileMarkings.image(for: kind, style: faceStyle) {
+                    Image(uiImage: markings).resizable().accessibilityHidden(true)
+                }
+            }
     }
 }
 
 @MainActor
-private enum TileMarkings {
+enum TileMarkings {
     private static let cache = NSCache<NSString, UIImage>()
 
-    static func image(named artwork: String) -> UIImage? {
-        let key = artwork as NSString
+    static func image(for kind: TileKind, style: TileFaceStyle) -> UIImage? {
+        let artwork = style.markingsArtwork
+        let index = kind.markingsIndex
+        let key = "\(artwork)-\(index)" as NSString
         if let markings = cache.object(forKey: key) { return markings }
         guard let source = UIImage(named: artwork)?.cgImage else { return nil }
-        let width = source.width
-        let height = source.height
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue |
-                                          CGBitmapInfo.byteOrder32Big.rawValue),
-              let pixels = context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
-        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        // Keep the antialiased pigments and remove the light substrate and outer bevel.
-        let paper = 228
-        let insetX = width * 6 / 100
-        let insetY = height * 7 / 100
-        for y in 0..<height {
-            for x in 0..<width {
-                let pixel = pixels.advanced(by: (y * width + x) * 4)
-                let shade = Int(min(pixel[0], pixel[1], pixel[2]))
-                let hasInk = x >= insetX && x < width - insetX && y >= insetY && y < height - insetY
-                    && shade < 215
-                let alpha = hasInk ? 255 - shade * 255 / paper : 0
-                for channel in 0..<3 {
-                    pixel[channel] = UInt8(min(alpha, max(0, Int(pixel[channel]) - shade)))
-                }
-                pixel[3] = UInt8(alpha)
-            }
-        }
-
-        guard let output = context.makeImage() else { return nil }
+        // Each atlas has seven columns and six rows in Tile.fullSet's suit and rank order.
+        let width = source.width / 7
+        let height = source.height / 6
+        guard let output = source.cropping(to: CGRect(x: index % 7 * width, y: index / 7 * height,
+                                                      width: width, height: height)) else { return nil }
         let markings = UIImage(cgImage: output)
         cache.setObject(markings, forKey: key)
         return markings
@@ -170,10 +167,10 @@ private enum TileMarkings {
 }
 
 struct TileBack: View {
-    @Environment(\.tileStyle) private var tileStyle
+    @Environment(\.tileMaterial) private var tileMaterial
 
     var body: some View {
-        Image(decorative: tileStyle.backArtwork)
+        Image(decorative: tileMaterial.backArtwork)
             .resizable()
             .scaledToFit()
             .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
@@ -182,17 +179,17 @@ struct TileBack: View {
 }
 
 extension TileKind {
-    fileprivate func artworkName(for style: TileStyle) -> String {
-        let family = switch suit {
-        case .characters: "characters"
-        case .circles: "circles"
-        case .bamboo: "bamboo"
-        case .wind: "wind"
-        case .dragon: "dragon"
-        case .flower: "flower"
-        case .season: "season"
+    fileprivate var markingsIndex: Int {
+        let first = switch suit {
+        case .characters: 0
+        case .circles: 9
+        case .bamboo: 18
+        case .wind: 27
+        case .dragon: 31
+        case .flower: 34
+        case .season: 38
         }
-        return "\(style.assetPrefix)-\(family)-\(rank)"
+        return first + rank - 1
     }
 
     var rankText: String { ["一", "二", "三", "四", "五", "六", "七", "八", "九"][rank - 1] }

@@ -29,7 +29,7 @@ struct MatchView<Session: MatchSession>: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.boardStyle) private var boardStyle
-    @Environment(\.tileStyle) private var tileStyle
+    @Environment(\.tileMaterial) private var tileMaterial
     @ScaledMetric(relativeTo: .subheadline) private var primaryControlWidth = 80.0
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("table.sound.enabled") private var soundEnabled = true
@@ -64,7 +64,7 @@ struct MatchView<Session: MatchSession>: View {
     private var active: Bool { scenePhase == .active && !session.paused }
     private var playsHaptics: Bool { hapticsEnabled && active && !showsScorecard && !showsHistory && guideLesson == nil }
     private var feedbackProfile: TableFeedbackProfile {
-        TableFeedbackProfile(tile: tileStyle.material, surface: boardStyle.surface)
+        TableFeedbackProfile(tile: tileMaterial.material, surface: boardStyle.surface)
     }
     private var dealStage: OpeningDeal.Stage? {
         guard let opening else { return nil }

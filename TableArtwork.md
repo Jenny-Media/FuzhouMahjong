@@ -120,6 +120,28 @@ Use case: product-mockup. Single photographic game sprite, one authentic Chinese
 
 ## Tile faces
 
+### Approved default design
+
+[Photo-matched face reference](Artwork/TileFaces/approved-default.png)
+
+This review sheet defines the default face artwork for the next tile update. Players should be able to choose the face design independently of the tile material. Use the neutral off-white tile body in the sheet to judge the markings.
+
+The built-in ImageGen brief used the physical set photo as the reference for layout and ink. Use fine concentric pips in cobalt, pine green, and brick red, with a pale center on 一饼, a compact red square on 六饼 and 七饼, and the reference's color rows on 九饼. Use cobalt numerals over red 萬, one green bamboo segment above two on 三條, and a double cobalt frame on 白板. The sheet covers all nine circle tiles and six sample faces across the other suits and honors.
+
+### Optional designs
+
+[Minimal reference](Artwork/TileFaces/approved-minimal.png) · [Ornate Traditional reference](Artwork/TileFaces/approved-traditional.png)
+
+The built-in ImageGen prompts used the same layout with solid pips and plain glyphs for Minimal, and carved rosettes, a peony medallion and a pheasant for Ornate Traditional. The production artwork uses a simpler five-petal center and wider gaps on the ornate 八饼 and 九饼 for the 17-point discard strip.
+
+### Production artwork
+
+[Marking atlases](App/Assets.xcassets/TileMarkings/) · [Atlas generator](Artwork/TileFaces/render-markings.swift)
+
+Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. The generator extracts ink from the approved references and completes the remaining 42-face layouts with bamboo shapes and Traditional Chinese glyphs. Each atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
+
+### Original full-tile sprites
+
 [42 separate face assets](App/Assets.xcassets/TileFaces/)
 
 Generated with Codex’s built-in ImageGen tool in seven sheets. Each sheet used an exact layout and marking guide plus the app’s blank porcelain tile as a material reference. The tile faces were checked against the guides, cropped, and resized to a shared 192 × 268 canvas for the asset catalog. The app draws the gold marker and selection state over these images.
@@ -158,11 +180,11 @@ Use case: product-mockup. Asset: season mahjong sprite sheet for a native game. 
 
 Use case: logo-brand. Asset: 1024x1024 App Store icon artwork for 福州麻将, a premium native iPhone mahjong game. Full-bleed clean deep jade green fine woven felt, studio-lit with restrained vignetting. Center a single clearly recognizable white satin-ceramic Chinese mahjong tile, a precisely molded 5:7 rounded rectangle, viewed directly overhead with a slim gray bevel and soft short contact shadow. The tile is rotated about 13 degrees counterclockwise, centered and about 67% of image height. Tile has exactly one bold highly legible dark deep-jade Chinese character '福' (good fortune), precisely written with the left 礻 radical and right 畐. The 福 is centered and painted crisply in a contemporary Chinese print glyph, simple form with precise strokes. Sophisticated rich color, clean graphic silhouette readable at tiny home screen size. Edge-to-edge green background on all four sides, square with fully opaque pixel corners, no pre-rounded outer frame, no white margin, no border, no letters, no other writing, no branded device or UI. One tile only.
 
-## Modern tile faces
+## Earlier modern tile faces
 
 [42 separate modern face assets](App/Assets.xcassets/ModernTileFaces/)
 
-Generated with Codex’s built-in ImageGen tool from the modern style preview and the seven existing layout guides. All 42 markings were verified and cropped to the same 192 × 268 canvas as the classic faces. The shared tile view applies the local preference wherever a face is shown.
+Generated with Codex’s built-in ImageGen tool from the modern style preview and the seven existing layout guides. All 42 markings were verified and cropped to the same 192 × 268 canvas as the classic faces.
 
 ### 萬
 
