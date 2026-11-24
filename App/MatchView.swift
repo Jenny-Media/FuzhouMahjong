@@ -777,6 +777,7 @@ struct MatchView<Session: MatchSession>: View {
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
                       highlightedFlowers: flowerHighlights.tiles,
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
+                      showsInlineResultActions: showsResultActions,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,
                       inspectedSeat: $inspectedSeat, onOfferedTileFrame: rememberOfferedTileFrame) {

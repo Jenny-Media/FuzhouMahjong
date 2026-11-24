@@ -1052,7 +1052,8 @@ final class TableFlowTests: XCTestCase {
         ]
 
         for (index, fixture) in cases.enumerated() {
-            XCUIDevice.shared.orientation = index == 1 ? .landscapeLeft : .portrait
+            let landscape = index == 1
+            XCUIDevice.shared.orientation = landscape ? .landscapeLeft : .portrait
             let before = try match(seed: fixture.seed, after: fixture.moves)
             var completed = before
             while completed.result == nil { try playFixtureMove(in: &completed) }
@@ -1092,6 +1093,12 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(tableNext.isHittable)
             XCTAssertTrue(element("table-score-delta", in: app).label.contains("\(result.delta(for: .south))"))
             if let winner = result.winner {
+                if landscape {
+                    let reveal = app.scrollViews["winning-hand-scroll"]
+                    XCTAssertTrue(reveal.exists)
+                    XCTAssertLessThanOrEqual(settledFrame.height - reveal.frame.height, 54,
+                                             "The landscape reveal should reclaim the space reserved for inline actions.")
+                }
                 XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "revealed-winning-tile").count, 1)
                 XCTAssertTrue(element("winning-pair", in: app).exists)
                 for meld in completed.table(for: .south).players[winner.id].melds {

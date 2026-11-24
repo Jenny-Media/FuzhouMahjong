@@ -53,6 +53,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     let paused: Bool
     let size: CGSize
     let showsDrawDock: Bool
+    var showsInlineResultActions = true
     let flyingDiscard: Tile.ID?
     let flyingClaim: Tile.ID?
     @Binding var inspectedSeat: Seat?
@@ -199,14 +200,17 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private func playingArea<Focus: View>(width: CGFloat, height: CGFloat,
                                           @ViewBuilder focus: (CGFloat) -> Focus) -> some View {
         // Reserve room for a confirmation row and the action buttons on every turn.
-        let controlsHeight = min(height, TeaTheme.hitTarget + 48 + 4 + 12)
+        let reservesControls = table.result == nil || showsInlineResultActions
+        let controlsHeight = reservesControls ? min(height, TeaTheme.hitTarget + 48 + 4 + 12) : 0
         return VStack(spacing: 0) {
             focus(height - controlsHeight)
-            ZStack(alignment: .bottom) {
-                Color.clear.allowsHitTesting(false).accessibilityHidden(true)
-                controls()
+            if reservesControls {
+                ZStack(alignment: .bottom) {
+                    Color.clear.allowsHitTesting(false).accessibilityHidden(true)
+                    controls()
+                }
+                .frame(height: controlsHeight)
             }
-            .frame(height: controlsHeight)
         }
         .frame(width: width, height: height)
     }
