@@ -173,44 +173,89 @@ struct AppearanceSettings: View {
     private func appearancePicker<Option: CaseIterable & Hashable>(
         _ label: LocalizedStringKey, id: String, selection: Binding<Option>, title: KeyPath<Option, LocalizedStringKey>
     ) -> some View {
-        Picker(label, selection: selection) {
+        SwipeChoicePicker(label: label, id: id, selection: selection,
+                          title: title, hapticsEnabled: hapticsEnabled)
+    }
+}
+
+private struct SwipeChoicePicker<Option: CaseIterable & Hashable>: View {
+    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var rowWidth: CGFloat = 0
+    let label: LocalizedStringKey
+    let id: String
+    @Binding var selection: Option
+    let title: KeyPath<Option, LocalizedStringKey>
+    let hapticsEnabled: Bool
+
+    var body: some View {
+        Picker(label, selection: $selection) {
             ForEach(Array(Option.allCases), id: \.self) { option in
                 Text(option[keyPath: title]).tag(option)
             }
         }
         .pickerStyle(.menu)
-        .accessibilityValue(Text(selection.wrappedValue[keyPath: title]))
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { rowWidth = $0 }
+        .simultaneousGesture(DragGesture(minimumDistance: 14, coordinateSpace: .global)
+            .onEnded(selectBySwipe))
+        .accessibilityValue(Text(selection[keyPath: title]))
         .accessibilityIdentifier(id)
-        .onChange(of: selection.wrappedValue) {
+        .onChange(of: selection) {
             if hapticsEnabled { UISelectionFeedbackGenerator().selectionChanged() }
         }
+    }
+
+    private func selectBySwipe(_ value: DragGesture.Value) {
+        let horizontal = value.translation.width
+        guard abs(horizontal) >= 24, abs(horizontal) > abs(value.translation.height) * 1.2 else { return }
+        let options = Array(Option.allCases)
+        guard options.count > 1, let current = options.firstIndex(of: selection) else { return }
+
+        let projected = value.predictedEndTranslation.width
+        let distance = horizontal * projected > 0 ? max(abs(horizontal), abs(projected)) : abs(horizontal)
+        let stepWidth = min(110, max(66, rowWidth * 0.32))
+        let steps = Int(min(CGFloat(options.count - 1), max(1, (distance / stepWidth).rounded())))
+        let forward = layoutDirection == .leftToRight ? horizontal < 0 : horizontal > 0
+        let destination = current + (forward ? steps : -steps) + options.count
+        selection = options[destination % options.count]
     }
 }
 
 private struct TableAppearancePreview: View {
-    private let samples = [TileKind(.circles, 1), TileKind(.circles, 8), TileKind(.circles, 9),
-                           TileKind(.bamboo, 1), TileKind(.characters, 5)]
+    private let circleSamples = [1, 3, 5, 6, 8, 9].map { TileKind(.circles, $0) }
+    private let otherSamples = [TileKind(.bamboo, 1), TileKind(.bamboo, 3), TileKind(.characters, 5),
+                                TileKind(.wind, 1), TileKind(.dragon, 3)]
+    private let spacing: CGFloat = 5
 
     var body: some View {
         GeometryReader { geometry in
-            let spacing: CGFloat = 5
-            let tileWidth = min(42, max(0, (geometry.size.width - 24 - CGFloat(samples.count) * spacing)
-                                       / CGFloat(samples.count + 1)))
+            let columns = CGFloat(circleSamples.count)
+            let tileWidth = min(48, max(0, (geometry.size.width - 24 - (columns - 1) * spacing) / columns))
             let tileHeight = tileWidth / TileFace.artworkAspectRatio
-            HStack(spacing: spacing) {
-                ForEach(samples, id: \.self) { kind in
-                    TileFace(kind: kind)
+            VStack(spacing: spacing) {
+                HStack(spacing: spacing) {
+                    faces(circleSamples, width: tileWidth, height: tileHeight)
+                }
+                HStack(spacing: spacing) {
+                    faces(otherSamples, width: tileWidth, height: tileHeight)
+                    TileBack()
                         .frame(width: tileWidth, height: tileHeight)
                 }
-                TileBack()
-                    .frame(width: tileWidth, height: tileHeight)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(height: 90)
+        .frame(height: 160)
         .modifier(Felt(gameTable: true))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("牌桌和麻将预览")
         .accessibilityIdentifier("table-appearance-preview")
+    }
+
+    private func faces(_ samples: [TileKind], width: CGFloat, height: CGFloat) -> some View {
+        ForEach(samples, id: \.self) { kind in
+            TileFace(kind: kind)
+                .frame(width: width, height: height)
+        }
     }
 }

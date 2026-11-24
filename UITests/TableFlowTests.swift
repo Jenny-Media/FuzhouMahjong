@@ -133,6 +133,61 @@ final class TableFlowTests: XCTestCase {
         XCTAssertEqual(element(face, in: app).value as? String, "传统雕花")
     }
 
+    func testAppearanceRowsSupportSingleAndMultiChoiceSwipes() {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["home-more"].tap()
+        app.buttons["设置"].tap()
+
+        let preview = element("table-appearance-preview", in: app)
+        XCTAssertTrue(preview.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(preview.frame.height, 150)
+
+        let pickers = [
+            (id: "appearance-picker", options: ["跟随系统", "浅色", "深色"]),
+            (id: "board-style-picker", options: ["自动", "碧玉胡桃木", "雪白 · 白瓷", "墨蓝 · 枪灰金属",
+                                                "紫檀 · 烟灰绒", "古铜 · 马鞍革"]),
+            (id: "tile-material-picker", options: ["自动", "暖白", "白釉瓷", "牙白 · 紫檀拼", "青白玉", "奶油电木"]),
+            (id: "tile-face-style-picker", options: ["实物经典", "极简", "传统雕花"]),
+        ]
+        for (id, options) in pickers {
+            let picker = element(id, in: app)
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            if picker.value as? String != options[0] {
+                picker.tap()
+                app.buttons[options[0]].tap()
+            }
+            XCTAssertEqual(picker.value as? String, options[0])
+
+            swipeChoice(picker, forward: false, span: 0.21, velocity: .slow)
+            XCTAssertEqual(picker.value as? String, options.last, "\(id) should wrap backward.")
+            swipeChoice(picker, forward: true, span: 0.21, velocity: .slow)
+            XCTAssertEqual(picker.value as? String, options[0], "\(id) should wrap forward.")
+            swipeChoice(picker, forward: true, span: 0.21, velocity: .slow)
+            XCTAssertEqual(picker.value as? String, options[1], "\(id) should advance one choice.")
+            swipeChoice(picker, forward: false, span: 0.72, velocity: .fast)
+            XCTAssertTrue(options.dropFirst(2).contains(picker.value as? String ?? ""),
+                          "\(id) should skip more than one choice from \(options[1]).")
+        }
+
+        let facePicker = element("tile-face-style-picker", in: app)
+        let faceValue = facePicker.value as? String
+        let startY = facePicker.frame.midY
+        let start = facePicker.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -150)))
+        XCTAssertLessThan(facePicker.frame.midY, startY - 30, "Vertical swipes should scroll settings.")
+        XCTAssertEqual(facePicker.value as? String, faceValue)
+    }
+
+    private func swipeChoice(_ picker: XCUIElement, forward: Bool, span: CGFloat, velocity: XCUIGestureVelocity) {
+        let left = picker.coordinate(withNormalizedOffset: CGVector(dx: (1 - span) / 2, dy: 0.5))
+        let right = picker.coordinate(withNormalizedOffset: CGVector(dx: (1 + span) / 2, dy: 0.5))
+        let (start, end) = forward ? (right, left) : (left, right)
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: velocity, thenHoldForDuration: 0)
+    }
+
     func testCustomRulesPreviewUpdatesForDraftChoices() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
