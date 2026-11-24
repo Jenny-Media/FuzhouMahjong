@@ -164,7 +164,7 @@ func sharedScale(for outlines: [CGPath], in box: CGRect, addedStroke: CGFloat) -
                (box.height - addedStroke) / bounds.map(\.height).max()!)
 }
 
-func tightInk(_ image: CGImage) -> CGImage {
+func inkBounds(_ image: CGImage) -> CGRect {
     let context = bitmap(image.width, image.height)
     context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
     let pixels = context.data!.assumingMemoryBound(to: UInt8.self)
@@ -174,7 +174,7 @@ func tightInk(_ image: CGImage) -> CGImage {
             bounds = bounds.union(CGRect(x: x, y: y, width: 1, height: 1))
         }
     }
-    return image.cropping(to: bounds.insetBy(dx: -1, dy: -1))!
+    return bounds
 }
 
 func recolor(_ image: CGImage, to color: CGColor) -> CGImage {
@@ -194,7 +194,8 @@ struct BambooArtwork {
 
     init(from board: CGImage) {
         // Isolate the upper stalk from the approved 三條.
-        greenStalk = tightInk(extractInk(board, rect: CGRect(x: 449, y: 701, width: 70, height: 128)))
+        let artwork = extractInk(board, rect: CGRect(x: 449, y: 701, width: 70, height: 128))
+        greenStalk = artwork.cropping(to: inkBounds(artwork).insetBy(dx: -1, dy: -1))!
         redStalk = recolor(greenStalk, to: red)
         blueStalk = recolor(greenStalk, to: blue)
     }
@@ -278,6 +279,8 @@ func render(_ style: Style) throws {
         return (index, tileSample(board, column: position % 5, row: position / 5, verticalScale: scale))
     })
     let wan = tileSample(board, column: 2, row: 2, redOnly: true)
+    // Convert image rows to the drawing context's bottom-left origin.
+    let minimumNumeralBottom = CGFloat(cellHeight) - inkBounds(wan).minY + 6
     let bamboo = BambooArtwork(from: board)
     let font = markingFont(for: style)
     let numerals = ["一", "二", "三", "四", "伍", "六", "七", "八", "九"].map { glyphPath($0, font: font) }
@@ -296,7 +299,11 @@ func render(_ style: Style) throws {
         let tile = bitmap(cellWidth, cellHeight)
         switch index {
         case 0...8:
-            drawGlyph(numerals[index], color: blue, in: style.numeralBox, scale: numeralScale,
+            let numeral = numerals[index]
+            let height = numeral.boundingBoxOfPath.height * numeralScale + style.addedStroke
+            let bottom = style.numeralBox.midY - height / 2
+            let box = style.numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
+            drawGlyph(numeral, color: blue, in: box, scale: numeralScale,
                       addedStroke: style.addedStroke, on: tile)
             tile.draw(wan, in: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight))
         case 18...26:
