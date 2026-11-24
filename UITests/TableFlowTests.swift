@@ -1071,6 +1071,10 @@ final class TableFlowTests: XCTestCase {
             XCTAssertEqual(result.winner, fixture.winner)
             let app = try launchSavedMatch(before)
             XCTAssertFalse(app.buttons["skip-opening"].exists)
+            let sideSeats = [Seat.south.advanced(1), Seat.south.advanced(3)].map {
+                element("seat-score-\($0.id)", in: app)
+            }
+            var liveSideFrames: [CGRect]?
 
             if before.result == nil, fixture.winner == .south {
                 let board = element("table-surface", in: app)
@@ -1086,6 +1090,7 @@ final class TableFlowTests: XCTestCase {
                 let pass = app.buttons["table-move-过"]
                 XCTAssertGreaterThan(win.frame.width, pass.frame.width)
                 XCTAssertGreaterThan(win.frame.height, pass.frame.height)
+                if !landscape { liveSideFrames = sideSeats.map(\.frame) }
                 win.tap()
             }
 
@@ -1102,11 +1107,21 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(tableNext.isHittable)
             XCTAssertTrue(element("table-score-delta", in: app).label.contains("\(result.delta(for: .south))"))
             if let winner = result.winner {
+                let reveal = app.scrollViews["winning-hand-scroll"]
+                XCTAssertTrue(reveal.exists)
                 if landscape {
-                    let reveal = app.scrollViews["winning-hand-scroll"]
-                    XCTAssertTrue(reveal.exists)
-                    XCTAssertLessThanOrEqual(settledFrame.height - reveal.frame.height, 54,
-                                             "The landscape reveal should reclaim the space reserved for inline actions.")
+                    XCTAssertEqual(settledFrame.height - reveal.frame.height, 20, accuracy: 2,
+                                   "The landscape reveal should fill the table inside its top and bottom insets.")
+                } else {
+                    XCTAssertEqual(scorecard.frame.minY - reveal.frame.maxY, 8, accuracy: 2,
+                                   "Only the result controls' top padding should separate them from the reveal.")
+                    if let liveSideFrames {
+                        for (seat, liveFrame) in zip(sideSeats, liveSideFrames) {
+                            let settledFrame = seat.frame
+                            XCTAssertEqual(settledFrame.midX, liveFrame.midX, accuracy: 1, "Side seat moved horizontally.")
+                            XCTAssertEqual(settledFrame.midY, liveFrame.midY, accuracy: 1, "Side seat moved vertically.")
+                        }
+                    }
                 }
                 XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "revealed-winning-tile").count, 1)
                 XCTAssertTrue(element("winning-pair", in: app).exists)

@@ -70,6 +70,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private let inset: CGFloat = 10
     private let gap: CGFloat = 6
     private let stripHeight: CGFloat = 24
+    private let liveControlsHeight = TeaTheme.hitTarget + 48 + 4 + 12
     private var showsFlowers: Bool { opening?.showsFlowers ?? true }
 
     var body: some View {
@@ -85,12 +86,13 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         .frame(width: width, height: height)
         .frame(width: size.width, height: size.height)
         .foregroundStyle(board.ink)
-        .modifier(Felt(gameTable: true))
         .transformAnchorPreference(key: TableAnchors.self, value: .bounds) {
             if opening != nil { $0[.felt] = $1 }
         }
         .accessibilityElement(children: .contain)
+        .contentShape(.accessibility, Rectangle())
         .accessibilityIdentifier("table-surface")
+        .modifier(Felt(gameTable: true))
         .onChange(of: table.roundNumber) { inspectedSeat = nil }
         .sheet(item: $inspectedSeat) { seat in
             NavigationStack {
@@ -144,15 +146,19 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         let sideWidth = min(108, width * 0.25)
         let middleWidth = max(0, width - 2 * (sideWidth + gap))
         let middleHeight = max(0, height - endHeight - playerEndHeight - stripHeight - gap * 3)
+        let liveFocusHeight = max(0, middleHeight - liveControlsHeight)
+        let sideHeight = min(liveFocusHeight, 118)
 
         return VStack(spacing: gap) {
             seatCard(table.viewer.advanced(2), width: endWidth, height: endHeight)
             playingArea(width: width, height: middleHeight) { focusHeight in
-                let sideHeight = min(focusHeight, 118)
-                HStack(spacing: gap) {
+                HStack(alignment: .top, spacing: gap) {
+                    // Keep the seats centered in the live area when the winning hand gains space.
                     seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
+                        .frame(height: liveFocusHeight)
                     discardFocus(width: middleWidth, height: focusHeight, stacked: true)
                     seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
+                        .frame(height: liveFocusHeight)
                 }
             }
             tableStrip(width: width)
@@ -198,18 +204,20 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     }
 
     private func playingArea<Focus: View>(width: CGFloat, height: CGFloat,
-                                          @ViewBuilder focus: (CGFloat) -> Focus) -> some View {
-        // Reserve room for a confirmation row and the action buttons on every turn.
-        let reservesControls = table.result == nil || showsInlineResultActions
-        let controlsHeight = reservesControls ? min(height, TeaTheme.hitTarget + 48 + 4 + 12) : 0
-        return VStack(spacing: 0) {
-            focus(height - controlsHeight)
-            if reservesControls {
+                                          @ViewBuilder focus: @escaping (CGFloat) -> Focus) -> some View {
+        VStack(spacing: 0) {
+            GeometryReader { geometry in
+                focus(geometry.size.height)
+            }
+            if table.result == nil {
+                // Reserve room for a confirmation row and the action buttons on every live turn.
                 ZStack(alignment: .bottom) {
                     Color.clear.allowsHitTesting(false).accessibilityHidden(true)
                     controls()
                 }
-                .frame(height: controlsHeight)
+                .frame(height: min(height, liveControlsHeight))
+            } else if showsInlineResultActions {
+                controls().fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(width: width, height: height)
