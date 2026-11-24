@@ -921,6 +921,7 @@ final class TableFlowTests: XCTestCase {
             closeInspector.tap()
             XCTAssertTrue(closeInspector.waitForNonExistence(timeout: 3))
 
+            felt.tap()
             felt.press(forDuration: 1, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.2)
             XCTAssertTrue(skip.waitForNonExistence(timeout: 2))
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))

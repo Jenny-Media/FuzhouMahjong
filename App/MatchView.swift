@@ -41,7 +41,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var showsScorecard = false
     @State private var openingStage = OpeningDeal.Stage.shuffle(nil)
     @State private var openingAnimationRound: Int?
-    @State private var openingSkipHeld = false
+    @State private var openingSkipStarted: ContinuousClock.Instant?
     @State private var audio = TableAudio()
     @State private var touch = TableTouch()
     @State private var observedDiscard: TableDiscard?
@@ -635,14 +635,18 @@ struct MatchView<Session: MatchSession>: View {
                         let target = overlay[felt]
                         let controls = Seat.allCases.map(TableAnchors.Marker.seatCard) + [.openingDrawDock]
                         let exclusions = controls.compactMap { anchors[$0].map { overlay[$0] } }
-                        OpeningSkipTarget(size: target.size, region: exposedFelt(in: target, excluding: exclusions),
-                                          isHolding: $openingSkipHeld) {
+                        let region = exposedFelt(in: target, excluding: exclusions)
+                        OpeningSkipTarget(region: region, started: $openingSkipStarted) {
                             guard active, self.opening == opening else { return }
                             playHaptic(.selection)
                             finishOpening(opening)
                         }
+                        .frame(width: target.width, height: target.height)
+                        .contentShape(region)
+                        .accessibilityHidden(true)
                         .id(opening)
                         .position(x: target.midX, y: target.midY)
+                        .onDisappear { openingSkipStarted = nil }
                     }
                 }
             }
@@ -850,7 +854,7 @@ struct MatchView<Session: MatchSession>: View {
             Spacer(minLength: 0)
             if let opening {
                 Button { finishOpening(opening) } label: {
-                    tableControlLabel("跳过动画", primary: true, holdProgress: openingSkipHeld)
+                    tableControlLabel("跳过动画", primary: true, holdStarted: openingSkipStarted)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("skip-opening")
@@ -1389,7 +1393,7 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func tableControlLabel(_ title: String, prominent: Bool = false, primary: Bool = false,
-                                   winning: Bool = false, holdProgress: Bool? = nil) -> some View {
+                                   winning: Bool = false, holdStarted: ContinuousClock.Instant? = nil) -> some View {
         let shape = RoundedRectangle(cornerRadius: 10)
         return Text(title)
             .font(winning ? .title3.weight(.bold) : .subheadline.weight(.semibold))
@@ -1402,13 +1406,15 @@ struct MatchView<Session: MatchSession>: View {
             .background {
                 ZStack {
                     shape.fill(prominent ? TeaTheme.brassFinish : TeaTheme.panelFinish)
-                    if let holdProgress {
-                        Rectangle().fill(TeaTheme.brass.opacity(0.24))
-                            .scaleEffect(x: holdProgress ? 1 : 0, y: 1, anchor: .leading)
-                            .environment(\.layoutDirection, .leftToRight)
-                            .animation(holdProgress ? .linear(duration: OpeningSkipTarget.duration) : nil,
-                                       value: holdProgress)
-                            .clipShape(shape)
+                    if let holdStarted {
+                        TimelineView(.animation) { _ in
+                            let elapsed = ContinuousClock.now - holdStarted
+                            let progress = min(1, max(0, elapsed / OpeningSkipTarget.duration))
+                            Rectangle().fill(TeaTheme.brass.opacity(0.24))
+                                .scaleEffect(x: progress, y: 1, anchor: .leading)
+                                .environment(\.layoutDirection, .leftToRight)
+                        }
+                        .clipShape(shape)
                     }
                 }
             }
@@ -1488,35 +1494,77 @@ struct MatchView<Session: MatchSession>: View {
     }
 }
 
-private struct OpeningSkipTarget: View {
-    static let duration: TimeInterval = 0.8
+private struct OpeningSkipTarget: UIViewRepresentable {
+    static let duration = Duration.milliseconds(800)
 
-    let size: CGSize
     let region: Path
-    @Binding var isHolding: Bool
+    @Binding var started: ContinuousClock.Instant?
     let skip: () -> Void
-    @GestureState private var press = Press.idle
 
-    private enum Press { case idle, holding, cancelled }
+    func makeUIView(context: Context) -> HoldControl {
+        let control = HoldControl()
+        control.isOpaque = false
+        return control
+    }
 
-    var body: some View {
-        Color.clear
-            .frame(width: size.width, height: size.height)
-            .contentShape(region)
-            .gesture(DragGesture(minimumDistance: 0).updating($press) { value, press, _ in
-                guard press != .cancelled else { return }
-                press = region.contains(value.location) ? .holding : .cancelled
-            })
-            .accessibilityHidden(true)
-            .onChange(of: press == .holding) { _, holding in isHolding = holding }
-            .onDisappear { isHolding = false }
-            .task(id: press) {
-                guard press == .holding else { return }
-                do { try await Task.sleep(for: .seconds(Self.duration)) }
+    func updateUIView(_ control: HoldControl, context: Context) {
+        control.region = region
+        control.onPressChanged = { started = $0 }
+        control.onSkip = skip
+    }
+
+    static func dismantleUIView(_ control: HoldControl, coordinator: ()) {
+        control.onPressChanged = nil
+        control.onSkip = nil
+        control.cancelHold()
+    }
+
+    final class HoldControl: UIControl {
+        var region = Path()
+        var onPressChanged: ((ContinuousClock.Instant?) -> Void)?
+        var onSkip: (() -> Void)?
+        private var holdTask: Task<Void, Never>?
+
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            super.point(inside: point, with: event) && region.contains(point)
+        }
+
+        override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            guard region.contains(touch.location(in: self)) else { return false }
+            holdTask?.cancel()
+            let clock = ContinuousClock()
+            let started = clock.now
+            holdTask = Task { [weak self] in
+                do { try await clock.sleep(until: started + OpeningSkipTarget.duration) }
                 catch { return }
-                guard !Task.isCancelled, press == .holding else { return }
-                skip()
+                guard let self, !Task.isCancelled, isTracking else { return }
+                onSkip?()
             }
+            onPressChanged?(started)
+            return true
+        }
+
+        override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            guard !region.contains(touch.location(in: self)) else { return true }
+            cancelHold()
+            return false
+        }
+
+        override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+            super.endTracking(touch, with: event)
+            cancelHold()
+        }
+
+        override func cancelTracking(with event: UIEvent?) {
+            super.cancelTracking(with: event)
+            cancelHold()
+        }
+
+        func cancelHold() {
+            holdTask?.cancel()
+            holdTask = nil
+            onPressChanged?(nil)
+        }
     }
 }
 
