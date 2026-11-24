@@ -274,29 +274,32 @@ private struct HorizontalChoiceSwipe: UIViewRepresentable {
 }
 
 private struct TableAppearancePreview: View {
-    private let circleSamples = [1, 3, 5, 6, 8, 9].map { TileKind(.circles, $0) }
-    private let otherSamples = [TileKind(.bamboo, 1), TileKind(.bamboo, 3), TileKind(.characters, 5),
-                                TileKind(.wind, 1), TileKind(.dragon, 3)]
+    private let upperSamples = [TileKind(.circles, 1), TileKind(.circles, 8), TileKind(.circles, 9),
+                                TileKind(.bamboo, 1), TileKind(.bamboo, 3), TileKind(.characters, 5)]
+    private let lowerSamples = [TileKind(.wind, 1), TileKind(.dragon, 1), TileKind(.dragon, 3),
+                                TileKind(.flower, 1), TileKind(.season, 1)]
+    private let maximumTileWidth: CGFloat = 48
     private let spacing: CGFloat = 5
 
     var body: some View {
         GeometryReader { geometry in
-            let columns = CGFloat(circleSamples.count)
-            let tileWidth = min(48, max(0, (geometry.size.width - 24 - (columns - 1) * spacing) / columns))
+            let columns = CGFloat(upperSamples.count)
+            let tileWidth = min(maximumTileWidth, max(0, (geometry.size.width - (columns - 1) * spacing) / columns))
             let tileHeight = tileWidth / TileFace.artworkAspectRatio
             VStack(spacing: spacing) {
                 HStack(spacing: spacing) {
-                    faces(circleSamples, width: tileWidth, height: tileHeight)
+                    faces(upperSamples, width: tileWidth, height: tileHeight)
                 }
                 HStack(spacing: spacing) {
-                    faces(otherSamples, width: tileWidth, height: tileHeight)
+                    faces(lowerSamples, width: tileWidth, height: tileHeight)
                     TileBack()
                         .frame(width: tileWidth, height: tileHeight)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(height: 160)
+        .frame(height: 2 * maximumTileWidth / TileFace.artworkAspectRatio + spacing)
+        .padding(24)
         .modifier(Felt(gameTable: true))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("牌桌和麻将预览")
