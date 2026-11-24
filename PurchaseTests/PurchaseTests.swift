@@ -8,6 +8,39 @@ import XCTest
 
 @MainActor
 final class SoloSaveMigrationTests: XCTestCase {
+    func testCancelledComputerTurnDoesNotAdvanceOrOverwriteTheSave() async throws {
+        let suite = "SoloComputerTurnTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let access = GameAccess(defaults: defaults, keychainService: nil)
+        let player = FuzhouMatch.player
+        var match = FuzhouMatch()
+        for _ in 0..<4 where !match.hasComputerMove(excluding: [player]) {
+            let move = try XCTUnwrap(match.legalMoves(for: player).first { $0 != .win })
+            XCTAssertTrue(match.apply(move, by: player))
+        }
+        _ = match.settleRestoredDiscard()
+        let (seat, move) = try XCTUnwrap(match.nextComputerMove(excluding: [player]))
+        let key = SoloSaveSlot.first.rawValue
+        let saved = try JSONEncoder().encode(match)
+        XCTAssertTrue(access.beginSoloHand(key: key, match: saved))
+        let solo = SoloMatch(access: access)
+        let revision = solo.revision
+
+        let cancelled = Task { await solo.advanceComputer() }
+        cancelled.cancel()
+        await cancelled.value
+        XCTAssertEqual(solo.revision, revision)
+        XCTAssertEqual(access.soloSave(key: key)?.match, saved)
+
+        await solo.advanceComputer()
+        XCTAssertTrue(match.apply(move, by: seat))
+        XCTAssertEqual(solo.revision, revision + 1)
+        XCTAssertEqual(solo.table, match.table(for: player))
+        let updatedSave = try XCTUnwrap(access.soloSave(key: key)?.match)
+        XCTAssertEqual(try JSONDecoder().decode(FuzhouMatch.self, from: updatedSave), match)
+    }
+
     func testRetiringLegacySoloTablesPreservesCurrentSavesAndUsage() throws {
         let encoder = JSONEncoder()
         let legacy = try encoder.encode(FuzhouMatch(ruleset: .legacy))
