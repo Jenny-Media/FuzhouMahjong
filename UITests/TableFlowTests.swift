@@ -184,7 +184,9 @@ final class TableFlowTests: XCTestCase {
                     XCTFail("Unknown selection for \(id).")
                     return
                 }
-                app.buttons["\(id)-next"].tap()
+                XCTAssertFalse(app.buttons["\(id)-previous"].exists)
+                XCTAssertFalse(app.buttons["\(id)-next"].exists)
+                swipeArea.coordinate(withNormalizedOffset: CGVector(dx: 0.90, dy: 0.5)).tap()
                 expectValue(of: picker, in: [options[(current + 1) % options.count]])
             }
         }
@@ -197,6 +199,43 @@ final class TableFlowTests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -150)))
         XCTAssertLessThan(faceArc.frame.midY, startY - 30, "Vertical swipes should scroll settings.")
         XCTAssertEqual(faceArc.value as? String, faceValue)
+    }
+
+    func testChangeAppearanceWithoutLeavingTheTable() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 1, after: 1)
+        let app = try launchSavedMatch(fixture)
+        let settings = app.buttons["table-settings"]
+        let table = element("table-surface", in: app)
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let discard = app.buttons["discard-action"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        let boardFrame = table.frame
+        let handTile = try XCTUnwrap(fixture.table(for: .south).hand.first)
+
+        settings.tap()
+        let title = app.navigationBars["设置"]
+        let face = element("tile-face-style-picker", in: app)
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        reveal(face, in: app)
+        let selection = face.value as? String == "极简" ? "传统雕花" : "极简"
+        face.tap()
+        app.buttons[selection].tap()
+        expectValue(of: face, in: [selection])
+        capture("settings-from-table")
+
+        title.buttons["完成"].tap()
+        XCTAssertTrue(title.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(table.exists)
+        XCTAssertTrue(app.buttons["tile-\(handTile.id)"].exists)
+        XCTAssertTrue(discard.isHittable)
+        assertFrames([table.frame], match: [boardFrame], labels: ["board"])
+        capture("table-after-settings")
+
+        settings.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(face.value as? String, selection)
     }
 
     private func reveal(_ control: XCUIElement, in app: XCUIApplication) {
@@ -498,7 +537,8 @@ final class TableFlowTests: XCTestCase {
         let dock = element("drawn-tile-dock", in: app)
         let discard = app.buttons["discard-action"]
         XCTAssertTrue(discard.waitForExistence(timeout: 5))
-        let frames = [table.frame, rack.frame]
+        let anchors = [table, rack] + Seat.allCases.map { element("seat-score-\($0.id)", in: app) }
+        let frames = anchors.map(\.frame)
         XCTAssertTrue(table.frame.contains(actions.frame))
         XCTAssertTrue(table.frame.contains(dock.frame))
         XCTAssertGreaterThan(dock.frame.midX, table.frame.midX)
@@ -528,7 +568,9 @@ final class TableFlowTests: XCTestCase {
                           withVelocity: .slow, thenHoldForDuration: 0.15)
         XCTAssertTrue(drawnTile.waitForNonExistence(timeout: 3))
         XCTAssertTrue(element("latest-discard", in: app).label.contains("你打出"))
-        assertFrames([table.frame, rack.frame], match: frames, labels: ["board", "rack"])
+        XCTAssertTrue(discard.waitForNonExistence(timeout: 3))
+        assertFrames(anchors.map(\.frame), match: frames,
+                     labels: ["board", "rack"] + Seat.allCases.map { "seat \($0.id)" })
     }
 
     func testKongPreviewLocksOrdinaryDiscardAndKeepsMeldSwipe() throws {
@@ -583,6 +625,7 @@ final class TableFlowTests: XCTestCase {
         let table = element("table-surface", in: app)
         let actions = element("table-actions", in: app)
         let discard = element("latest-discard", in: app)
+        let seatScores = Seat.allCases.map { element("seat-score-\($0.id)", in: app) }
         let pass = app.buttons["table-move-过"]
         XCTAssertTrue(pass.waitForExistence(timeout: 5))
 
@@ -598,6 +641,15 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(discard.exists)
             XCTAssertFalse(actions.frame.intersects(discard.frame))
             capture(landscape ? "multiple-claims-landscape" : "multiple-claims-portrait")
+
+            let anchors = [table, element("table-rack", in: app), discard] + seatScores
+            let labels = ["board", "rack", "discard"] + Seat.allCases.map { "seat \($0.id)" }
+            let before = anchors.map(\.frame)
+            app.buttons["table-move-碰"].tap()
+            XCTAssertTrue(app.buttons["confirm-meld"].waitForExistence(timeout: 5))
+            assertFrames(anchors.map(\.frame), match: before, labels: labels)
+            app.buttons["cancel-meld-preview"].tap()
+            assertFrames(anchors.map(\.frame), match: before, labels: labels)
         }
         func rackIDs(for kind: MeldKind) throws -> [Tile.ID] {
             try XCTUnwrap(state.moves.compactMap { move -> [Tile.ID]? in

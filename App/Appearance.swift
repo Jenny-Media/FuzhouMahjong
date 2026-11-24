@@ -164,21 +164,19 @@ struct AppearanceSettings: View {
 
             ArcChoicePicker(label: "牌桌", id: "board-style-picker", selection: $boardStyle,
                             title: \.title, hapticsEnabled: hapticsEnabled) { option in
-                AppearanceSwatch(board: option.resolved(for: colorScheme), subject: .table)
+                .table(option.resolved(for: colorScheme))
             }
             .listRowInsets(turntableInsets)
 
             ArcChoicePicker(label: "材质", id: "tile-material-picker", selection: $tileMaterial,
                             title: \.title, hapticsEnabled: hapticsEnabled) { option in
-                AppearanceSwatch(board: boardStyle.resolved(for: colorScheme), subject: .material,
-                                 material: option.resolved(for: colorScheme), face: tileFaceStyle)
+                .material(option.resolved(for: colorScheme))
             }
             .listRowInsets(turntableInsets)
 
             ArcChoicePicker(label: "牌面", id: "tile-face-style-picker", selection: $tileFaceStyle,
                             title: \.title, hapticsEnabled: hapticsEnabled) { option in
-                AppearanceSwatch(board: boardStyle.resolved(for: colorScheme), subject: .face,
-                                 material: tileMaterial.resolved(for: colorScheme), face: option)
+                .face(option)
             }
             .listRowInsets(turntableInsets)
         } header: {
@@ -289,29 +287,31 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable>: View {
             }
             .padding(.horizontal, 7)
 
-            HStack(spacing: 2) {
-                arrow("chevron.backward", label: "上一项", by: -1)
+            GeometryReader { geometry in
+                let swatchWidth = (geometry.size.width * 0.56 * displayScale).rounded(.down) / displayScale
+                let request = SwatchRequest(swatches: swatches, width: swatchWidth,
+                                            scale: displayScale, scheme: colorScheme)
                 TimelineView(.animation(paused: turn == nil)) { context in
-                    track(at: displayedPosition(on: context.date), swatches: swatches)
+                    track(at: displayedPosition(on: context.date), size: geometry.size, request: request)
                 }
-                .frame(height: 66)
-                .background {
-                    HorizontalChoiceSwipe(onChange: followDrag, onCancel: cancelDrag, onSwipe: finishSwipe)
-                        .accessibilityHidden(true)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(label))
-                .accessibilityValue(Text(selection[keyPath: title]))
-                .accessibilityAdjustableAction { direction in
-                    switch direction {
-                    case .increment: step(by: 1)
-                    case .decrement: step(by: -1)
-                    @unknown default: break
-                    }
-                }
-                .accessibilityIdentifier("\(id)-arc")
-                arrow("chevron.forward", label: "下一项", by: 1)
+                .task(id: request) { await prepareSwatches(for: request) }
             }
+            .frame(height: 62)
+            .background {
+                HorizontalChoiceSwipe(onChange: followDrag, onCancel: cancelDrag, onSwipe: finishSwipe)
+                    .accessibilityHidden(true)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(label))
+            .accessibilityValue(Text(selection[keyPath: title]))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: step(by: 1)
+                case .decrement: step(by: -1)
+                @unknown default: break
+                }
+            }
+            .accessibilityIdentifier("\(id)-arc")
         }
         .task(id: turn) {
             guard let pending = turn else { return }
@@ -329,37 +329,28 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable>: View {
         }
     }
 
-    private func track(at position: CGFloat, swatches: [AppearanceSwatch]) -> some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let anchor = Int(position.rounded(.down))
-            let swatchWidth = (width * 0.62 * displayScale).rounded(.down) / displayScale
-            let request = SwatchRequest(swatches: swatches, width: swatchWidth,
-                                        scale: displayScale, scheme: colorScheme)
-            ZStack {
-                ForEach((anchor - 2)...(anchor + 2), id: \.self) { index in
-                    let offset = CGFloat(index) - position
-                    if abs(offset) < 1.7 {
-                        let angle = offset * 0.74
-                        let rise = 1 - cos(angle)
-                        let tilt = offset * readingDirection
-                        swatchView(at: wrappedIndex(index), request: request)
-                            .frame(width: swatchWidth, height: 50)
-                            .scaleEffect(1 - rise * 0.34)
-                            .rotation3DEffect(.degrees(tilt * 20), axis: (x: 0, y: 1, z: 0))
-                            .rotationEffect(.degrees(-tilt * 4))
-                            .offset(x: sin(angle) * width * 0.61 * readingDirection, y: 4 - rise * 36)
-                            .opacity(min(1, 1.1 - abs(offset) * 0.24))
-                            .zIndex(2 - abs(offset))
-                            .onTapGesture { move(to: index) }
-                    }
+    private func track(at position: CGFloat, size: CGSize, request: SwatchRequest) -> some View {
+        let anchor = Int(position.rounded(.down))
+        return ZStack {
+            ForEach((anchor - 2)...(anchor + 2), id: \.self) { index in
+                let offset = CGFloat(index) - position
+                if abs(offset) < 1.7 {
+                    let angle = offset * 0.74
+                    let rise = 1 - cos(angle)
+                    swatchView(at: wrappedIndex(index), request: request)
+                        .frame(width: request.width, height: 50)
+                        .scaleEffect(1 - rise * 0.34)
+                        .rotation3DEffect(.degrees(offset * readingDirection * 14), axis: (x: 0, y: 1, z: 0))
+                        .offset(x: sin(angle) * size.width * 0.60 * readingDirection, y: 4 - rise * 30)
+                        .opacity(min(1, 1.1 - abs(offset) * 0.24))
+                        .zIndex(2 - abs(offset))
+                        .onTapGesture { move(to: index) }
                 }
             }
-            .frame(width: width, height: geometry.size.height)
-            .contentShape(Rectangle())
-            .clipped()
-            .task(id: request) { await prepareSwatches(for: request) }
         }
+        .frame(width: size.width, height: size.height)
+        .contentShape(Rectangle())
+        .clipped()
     }
 
     @ViewBuilder
@@ -387,19 +378,6 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable>: View {
         preparedSwatches = PreparedSwatches(request: request, images: images)
     }
 
-    private func arrow(_ symbol: String, label: LocalizedStringKey, by offset: Int) -> some View {
-        Button { step(by: offset) } label: {
-            Image(systemName: symbol)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(TeaTheme.brass)
-                .frame(width: TeaTheme.hitTarget, height: TeaTheme.hitTarget)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(label))
-        .accessibilityIdentifier("\(id)-\(offset < 0 ? "previous" : "next")")
-    }
-
     private func wrappedIndex(_ index: Int) -> Int {
         let remainder = index % options.count
         return remainder < 0 ? remainder + options.count : remainder
@@ -413,7 +391,7 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable>: View {
         move(to: (turn?.destination ?? selectedIndex) + offset)
     }
 
-    private func stride(for width: CGFloat) -> CGFloat { max(38, width * 0.56) }
+    private func stride(for width: CGFloat) -> CGFloat { max(38, width * 0.46) }
 
     private func followDrag(horizontal: CGFloat, width: CGFloat) {
         guard !reduceMotion else { return }
@@ -492,35 +470,44 @@ private struct ArcChoicePicker<Option: CaseIterable & Hashable>: View {
     }
 }
 
-private struct AppearanceSwatch: View, Equatable {
-    enum Subject { case table, material, face }
-
-    let board: BoardStyle
-    let subject: Subject
-    var material: TileMaterialStyle = .classic
-    var face: TileFaceStyle = .photoMatched
+private enum AppearanceSwatch: View, Equatable {
+    case table(BoardStyle)
+    case material(TileMaterialStyle)
+    case face(TileFaceStyle)
 
     var body: some View {
-        HStack(spacing: 5) {
-            switch subject {
-            case .table:
+        Group {
+            switch self {
+            case .table(let board):
                 Color.clear
-            case .material:
-                tile(.characters, 6)
-                TileBack().frame(width: 24, height: 34)
-            case .face:
-                tile(.circles, 1)
-                tile(.circles, 8)
-                tile(.bamboo, 1)
+                    .modifier(Felt(gameTable: true))
+                    .environment(\.boardStyle, board)
+            case .material(let material):
+                tileSamples {
+                    tile(.characters, 6)
+                    TileBack().frame(width: 24, height: 34)
+                }
+                .environment(\.tileMaterial, material)
+                .environment(\.tileFaceStyle, .photoMatched)
+            case .face(let face):
+                tileSamples {
+                    tile(.characters, 6)
+                    tile(.circles, 8)
+                    tile(.bamboo, 8)
+                }
+                .environment(\.tileMaterial, .porcelain)
+                .environment(\.tileFaceStyle, face)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(Felt(gameTable: true))
-        .environment(\.boardStyle, board)
-        .environment(\.tileMaterial, material)
-        .environment(\.tileFaceStyle, face)
         .clipShape(RoundedRectangle(cornerRadius: 9))
         .contentShape(Rectangle())
+    }
+
+    private func tileSamples<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 5, content: content)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(TeaTheme.panelFinish)
+            .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(TeaTheme.line) }
     }
 
     private func tile(_ suit: Suit, _ rank: Int) -> some View {

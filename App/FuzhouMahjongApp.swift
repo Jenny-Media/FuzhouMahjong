@@ -13,7 +13,7 @@ struct FuzhouMahjongApp: App {
 
     var body: some Scene {
         WindowGroup {
-            HomeView(appearance: $appearance)
+            HomeView()
                 .gameAppearance(appearance)
         }
     }
@@ -38,7 +38,6 @@ private struct HomeView: View {
     @AppStorage("table.tileStyle") private var storedTileMaterial = TileMaterialStyle.automatic.rawValue
     @AppStorage("table.tileFaceStyle") private var tileFaceStyle = TileFaceStyle.photoMatched
     @AppStorage("table.boardStyle") private var boardStyle = BoardStyle.automatic
-    @Binding var appearance: GameAppearance
     @AppStorage("solo.ruleset") private var ruleset = FuzhouRuleset.pureSuit
     @AppStorage("solo.customRulesetID") private var customRulesetID = ""
     @State private var access: GameAccess
@@ -61,13 +60,7 @@ private struct HomeView: View {
     @State private var saveChoiceFailed = false
     @State private var opensSoloAfterSetup = false
 
-    private var tileMaterial: Binding<TileMaterialStyle> {
-        Binding(get: { TileMaterialStyle(storedValue: storedTileMaterial) },
-                set: { storedTileMaterial = $0.rawValue })
-    }
-
-    init(appearance: Binding<GameAppearance>) {
-        _appearance = appearance
+    init() {
         let access = GameAccess()
         let session = SoloMatch(access: access)
         _access = State(initialValue: access)
@@ -98,8 +91,7 @@ private struct HomeView: View {
             .sheet(item: $sheet, onDismiss: openPreparedSoloGame) { destination in
                 switch destination {
                 case .settings:
-                    SettingsView(appearance: $appearance, boardStyle: $boardStyle,
-                                 tileMaterial: tileMaterial, tileFaceStyle: $tileFaceStyle)
+                    SettingsView()
                 case .soloSetup:
                     SoloSetup(ruleset: ruleset, customID: customRulesetID,
                               replacesUnfinishedGame: session.table?.matchFinished == false,
@@ -140,7 +132,7 @@ private struct HomeView: View {
         .environment(access)
         .environment(rulesetLibrary)
         .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
-        .environment(\.tileMaterial, tileMaterial.wrappedValue.resolved(for: colorScheme))
+        .environment(\.tileMaterial, TileMaterialStyle(storedValue: storedTileMaterial).resolved(for: colorScheme))
         .environment(\.tileFaceStyle, tileFaceStyle)
         .tint(TeaTheme.brass)
         .foregroundStyle(TeaTheme.ink)
@@ -408,18 +400,23 @@ private struct SoloSetup: View {
     }
 }
 
-private struct SettingsView: View {
+struct SettingsView: View {
     @Environment(GameAccess.self) private var access
     @Environment(\.dismiss) private var dismiss
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("table.sound.enabled") private var soundEnabled = true
     @AppStorage("table.sound.nearbyOwnMovesOnly") private var nearbyOwnMovesOnly = true
     @AppStorage(NearbyNickname.storageKey) private var nickname = ""
+    @AppStorage("appearance.mode") private var appearance = GameAppearance.system
+    @AppStorage("table.boardStyle") private var boardStyle = BoardStyle.automatic
+    @AppStorage("table.tileStyle") private var storedTileMaterial = TileMaterialStyle.automatic.rawValue
+    @AppStorage("table.tileFaceStyle") private var tileFaceStyle = TileFaceStyle.photoMatched
     @State private var showsNicknameEditor = false
-    @Binding var appearance: GameAppearance
-    @Binding var boardStyle: BoardStyle
-    @Binding var tileMaterial: TileMaterialStyle
-    @Binding var tileFaceStyle: TileFaceStyle
+
+    private var tileMaterial: Binding<TileMaterialStyle> {
+        Binding(get: { TileMaterialStyle(storedValue: storedTileMaterial) },
+                set: { storedTileMaterial = $0.rawValue })
+    }
 
     var body: some View {
         NavigationStack {
@@ -437,7 +434,7 @@ private struct SettingsView: View {
                 }
                 .listRowBackground(TeaTheme.surface)
                 AppearanceSettings(appearance: $appearance, boardStyle: $boardStyle,
-                                   tileMaterial: $tileMaterial, tileFaceStyle: $tileFaceStyle,
+                                   tileMaterial: tileMaterial, tileFaceStyle: $tileFaceStyle,
                                    hapticsEnabled: hapticsEnabled)
 
                 Section("操作反馈") {

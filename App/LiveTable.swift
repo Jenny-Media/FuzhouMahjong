@@ -146,18 +146,14 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
 
         return VStack(spacing: gap) {
             seatCard(table.viewer.advanced(2), width: endWidth, height: endHeight)
-            VStack(spacing: 0) {
-                GeometryReader { focus in
-                    let sideHeight = min(focus.size.height, 118)
-                    HStack(spacing: gap) {
-                        seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
-                        discardFocus(width: middleWidth, height: focus.size.height, stacked: true)
-                        seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
-                    }
+            playingArea(width: width, height: middleHeight) { focusHeight in
+                let sideHeight = min(focusHeight, 118)
+                HStack(spacing: gap) {
+                    seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
+                    discardFocus(width: middleWidth, height: focusHeight, stacked: true)
+                    seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
                 }
-                controls()
             }
-            .frame(width: width, height: middleHeight)
             tableStrip(width: width)
             if showsDrawDock {
                 let dockWidth = TeaTheme.hitTarget
@@ -194,14 +190,25 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 }
                 tableStrip(width: playersWidth)
             }
-            VStack(spacing: 0) {
-                GeometryReader { focus in
-                    discardFocus(width: centerWidth, height: focus.size.height, stacked: false)
-                }
+            playingArea(width: centerWidth, height: height) { focusHeight in
+                discardFocus(width: centerWidth, height: focusHeight, stacked: false)
+            }
+        }
+    }
+
+    private func playingArea<Focus: View>(width: CGFloat, height: CGFloat,
+                                          @ViewBuilder focus: (CGFloat) -> Focus) -> some View {
+        // Reserve room for a confirmation row and the action buttons on every turn.
+        let controlsHeight = min(height, TeaTheme.hitTarget + 48 + 4 + 12)
+        return VStack(spacing: 0) {
+            focus(height - controlsHeight)
+            ZStack(alignment: .bottom) {
+                Color.clear.allowsHitTesting(false).accessibilityHidden(true)
                 controls()
             }
-            .frame(width: centerWidth, height: height)
+            .frame(height: controlsHeight)
         }
+        .frame(width: width, height: height)
     }
 
     @ViewBuilder
