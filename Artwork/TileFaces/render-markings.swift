@@ -70,9 +70,18 @@ func load(_ url: URL) -> CGImage {
     return CGImageSourceCreateImageAtIndex(source, 0, nil)!
 }
 
+enum Pigment: Int {
+    case red = 0, blue = 2
+
+    func matches(_ pixel: UnsafePointer<UInt8>) -> Bool {
+        let other = self == .red ? 2 : 0
+        return Int(pixel[rawValue]) - Int(max(pixel[1], pixel[other])) > 18
+    }
+}
+
 // The approved review boards share a registered grid. Recover pigment coverage
 // from the tile interior, then remove the sampled neutral substrate.
-func extractInk(_ source: CGImage, rect: CGRect, redOnly: Bool = false) -> CGImage {
+func extractInk(_ source: CGImage, rect: CGRect, pigment: Pigment? = nil) -> CGImage {
     let crop = source.cropping(to: rect)!
     let context = bitmap(crop.width, crop.height)
     context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
@@ -83,7 +92,7 @@ func extractInk(_ source: CGImage, rect: CGRect, redOnly: Bool = false) -> CGIma
         let pixel = data.advanced(by: offset)
         let darkest = Double(min(pixel[0], pixel[1], pixel[2]))
         let lightest = Double(max(pixel[0], pixel[1], pixel[2]))
-        let matchesInk = !redOnly || (Int(pixel[0]) - Int(max(pixel[1], pixel[2])) > 18)
+        let matchesInk = pigment?.matches(pixel) ?? true
         let alpha = matchesInk && darkest < 204 && (lightest - darkest > 24 || lightest < 170)
             ? min(1, (213 - darkest) / 183)
             : 0
@@ -96,8 +105,7 @@ func extractInk(_ source: CGImage, rect: CGRect, redOnly: Bool = false) -> CGIma
     return context.makeImage()!
 }
 
-func tileSample(_ source: CGImage, column: Int, row: Int, redOnly: Bool = false,
-                verticalScale: CGFloat = 1) -> CGImage {
+func tileSample(_ source: CGImage, column: Int, row: Int, pigment: Pigment? = nil) -> CGImage {
     let left = [83, 368, 650, 933, 1217][column]
     let top = [33, 351, 676][row]
     let height = [291, 297, 303][row]
@@ -105,11 +113,11 @@ func tileSample(_ source: CGImage, column: Int, row: Int, redOnly: Bool = false,
     let insetY = 12
     let ink = extractInk(source, rect: CGRect(x: left + insetX, y: top + insetY,
                                              width: 235 - 2 * insetX, height: height - 2 * insetY),
-                         redOnly: redOnly)
+                         pigment: pigment)
     let context = bitmap(cellWidth, cellHeight)
     let scale = min(CGFloat(cellWidth) / 235, CGFloat(cellHeight) / CGFloat(height))
     let width = CGFloat(ink.width) * scale
-    let fittedHeight = CGFloat(ink.height) * scale * verticalScale
+    let fittedHeight = CGFloat(ink.height) * scale
     context.draw(ink, in: CGRect(x: (CGFloat(cellWidth) - width) / 2,
                                  y: (CGFloat(cellHeight) - fittedHeight) / 2,
                                  width: width, height: fittedHeight))
@@ -177,6 +185,15 @@ func inkBounds(_ image: CGImage) -> CGRect {
     return bounds
 }
 
+func drawFittedInk(_ image: CGImage, in box: CGRect, minimumBottom: CGFloat = 0, on context: CGContext) {
+    let bounds = inkBounds(image)
+    let scale = min(box.width / bounds.width, box.height / bounds.height)
+    let bottom = max(minimumBottom, box.midY - bounds.height * scale / 2)
+    let pixelsBelowInk = CGFloat(image.height) - bounds.maxY
+    context.draw(image, in: CGRect(x: box.midX - bounds.midX * scale, y: bottom - pixelsBelowInk * scale,
+                                   width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale))
+}
+
 func recolor(_ image: CGImage, to color: CGColor) -> CGImage {
     let context = bitmap(image.width, image.height)
     let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
@@ -187,15 +204,54 @@ func recolor(_ image: CGImage, to color: CGColor) -> CGImage {
     return context.makeImage()!
 }
 
+func drawSampledGlyph(_ sample: CGImage, in box: CGRect, strokeRadius: Int, minimumBottom: CGFloat = 0,
+                      on context: CGContext) {
+    let fitted = bitmap(cellWidth, cellHeight)
+    let inset = CGFloat(strokeRadius)
+    drawFittedInk(sample, in: box.insetBy(dx: inset, dy: inset), minimumBottom: minimumBottom + inset, on: fitted)
+    let source = fitted.data!.assumingMemoryBound(to: UInt8.self)
+    // Set a solid ink core and drop faint residue from the sampled tile surface.
+    let coverage = (0..<(cellWidth * cellHeight)).map { index in
+        UInt8(clamping: (Int(source[index * 4 + 3]) - 32) * 255 / (205 - 32))
+    }
+    let offsets = (-strokeRadius...strokeRadius).flatMap { dy in
+        (-strokeRadius...strokeRadius).compactMap { dx in
+            dx * dx + dy * dy <= strokeRadius * strokeRadius ? dy * cellWidth + dx : nil
+        }
+    }
+
+    let expanded = bitmap(cellWidth, cellHeight)
+    let pixels = expanded.data!.assumingMemoryBound(to: UInt8.self)
+    for y in strokeRadius..<(cellHeight - strokeRadius) {
+        for x in strokeRadius..<(cellWidth - strokeRadius) {
+            let index = y * cellWidth + x
+            var alpha: UInt8 = 0
+            for offset in offsets { alpha = max(alpha, coverage[index + offset]) }
+            pixels[index * 4 + 3] = alpha
+        }
+    }
+    let glyph = recolor(expanded.makeImage()!, to: blue)
+    context.draw(glyph, in: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight))
+}
+
 struct BambooArtwork {
     let greenStalk: CGImage
     let redStalk: CGImage
     let blueStalk: CGImage
 
-    init(from board: CGImage) {
-        // Isolate the upper stalk from the approved 三條.
-        let artwork = extractInk(board, rect: CGRect(x: 449, y: 701, width: 70, height: 128))
-        greenStalk = artwork.cropping(to: inkBounds(artwork).insetBy(dx: -1, dy: -1))!
+    init(from board: CGImage, style: Style) {
+        if style == .minimal {
+            let context = bitmap(26, 100)
+            context.setFillColor(green)
+            context.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: 26, height: 100),
+                                   cornerWidth: 13, cornerHeight: 13, transform: nil))
+            context.fillPath()
+            greenStalk = context.makeImage()!
+        } else {
+            // Isolate the upper stalk from the approved 三條.
+            let artwork = extractInk(board, rect: CGRect(x: 449, y: 701, width: 70, height: 128))
+            greenStalk = artwork.cropping(to: inkBounds(artwork).insetBy(dx: -1, dy: -1))!
+        }
         redStalk = recolor(greenStalk, to: red)
         blueStalk = recolor(greenStalk, to: blue)
     }
@@ -214,6 +270,11 @@ struct BambooArtwork {
                 for y in [85.0, 183.0] {
                     stalk(greenStalk, x: x, y: y, height: regularHeight, on: context)
                 }
+            }
+        case 3:
+            stalk(greenStalk, x: 96, y: 185, height: regularHeight, on: context)
+            for x in [61.0, 131.0] {
+                stalk(greenStalk, x: x, y: 83, height: regularHeight, on: context)
             }
         case 5:
             for x in [58.0, 134.0] {
@@ -268,26 +329,97 @@ struct BambooArtwork {
     }
 }
 
+func drawMinimalCircles(_ rank: Int, on context: CGContext) {
+    let corners: [(CGFloat, CGFloat)] = [(54, 181), (138, 181), (54, 87), (138, 87)]
+    let dots: [(CGFloat, CGFloat)]
+    let diameter: CGFloat
+    switch rank {
+    case 1: (dots, diameter) = ([(96, 134)], 96)
+    case 2: (dots, diameter) = ([(96, 182), (96, 86)], 58)
+    case 3: (dots, diameter) = ([(52, 192), (96, 134), (140, 76)], 48)
+    case 4: (dots, diameter) = (corners, 46)
+    case 5: (dots, diameter) = (corners + [(96, 134)], 42)
+    case 6: (dots, diameter) = ([(62, 196), (130, 196), (62, 123), (130, 123), (62, 72), (130, 72)], 40)
+    case 7: (dots, diameter) = ([(52, 211), (96, 191), (140, 171),
+                                 (65, 124), (127, 124), (65, 76), (127, 76)], 36)
+    case 8: (dots, diameter) = ([56, 108, 160, 212].flatMap { y in [(62, y), (130, y)] }, 36)
+    case 9: (dots, diameter) = ([196, 134, 72].flatMap { y in [(44, y), (96, y), (148, y)] }, 36)
+    default: preconditionFailure("Unexpected circle rank")
+    }
+    // Use the familiar color groupings on the flat dots.
+    let colors = switch rank {
+    case 2: [green, blue]
+    case 3: [green, red, blue]
+    case 4: [blue, green, green, blue]
+    case 5: [blue, green, green, blue, red]
+    case 6: [green, green, red, red, red, red]
+    case 7: [green, green, green, red, red, red, red]
+    case 9: [green, green, green, red, red, red, blue, blue, blue]
+    default: Array(repeating: blue, count: dots.count)
+    }
+    for ((x, y), color) in zip(dots, colors) {
+        context.setFillColor(color)
+        context.fillEllipse(in: CGRect(x: x - diameter / 2, y: y - diameter / 2,
+                                       width: diameter, height: diameter))
+    }
+}
+
+func separateTraditionalEightCircles(_ sample: CGImage) -> CGImage {
+    let tile = bitmap(cellWidth, cellHeight)
+    // Split the approved ink between rows, then space the four pairs evenly.
+    let rowBoundaries = [35, 86, 135, 184, 238]
+    let scale: CGFloat = 0.92
+    let width = CGFloat(cellWidth) * scale
+    for (row, (start, end)) in zip(rowBoundaries, rowBoundaries.dropFirst()).enumerated() {
+        let pair = sample.cropping(to: CGRect(x: 0, y: start, width: cellWidth, height: end - start))!
+        let height = CGFloat(pair.height) * scale
+        let centerY = 212 - CGFloat(row) * 52
+        tile.draw(pair, in: CGRect(x: (CGFloat(cellWidth) - width) / 2, y: centerY - height / 2,
+                                   width: width, height: height))
+    }
+    return tile.makeImage()!
+}
+
 func render(_ style: Style) throws {
     let board = load(references.appending(path: "\(style.sheet).png"))
     let atlas = bitmap(cellWidth * columns, cellHeight * rows)
-    // The approved boards have five tiles per row, in this order.
-    let sampleIndices = [9, 10, 11, 12, 13, 14, 15, 16, 17, 33, 18, 20, 4, 5, 27]
-    let approved = Dictionary(uniqueKeysWithValues: sampleIndices.enumerated().map { position, index in
-        // Compensate for the slight vertical oval in the Minimal sheet's single pip.
-        let scale = style == .minimal && index == 9 ? 0.95 : 1.0
-        return (index, tileSample(board, column: position % 5, row: position / 5, verticalScale: scale))
+    // These approved cells supply the complete circle tiles, white dragon, and bamboo samples.
+    let sampleIndices = [9, 10, 11, 12, 13, 14, 15, 16, 17, 33, 18, 20]
+    let approved: [Int: CGImage] = Dictionary(uniqueKeysWithValues: sampleIndices.enumerated().compactMap { position, index in
+        guard style != .minimal || index == 18 || index == 33 else { return nil }
+        let sample = tileSample(board, column: position % 5, row: position / 5)
+        return (index, style == .traditional && index == 16 ? separateTraditionalEightCircles(sample) : sample)
     })
-    let wan = tileSample(board, column: 2, row: 2, redOnly: true)
+    let font = markingFont(for: style)
+    let wan: CGImage
+    if style == .minimal {
+        let tile = bitmap(cellWidth, cellHeight)
+        let glyph = glyphPath("万", font: font)
+        let box = CGRect(x: 41, y: 42, width: 110, height: 91)
+        let scale = sharedScale(for: [glyph], in: box, addedStroke: 0) * 0.85
+        drawGlyph(glyph, color: red, in: box, scale: scale, addedStroke: 0, on: tile)
+        wan = tile.makeImage()!
+    } else {
+        wan = tileSample(board, column: 2, row: 2, pigment: .red)
+    }
     // Convert image rows to the drawing context's bottom-left origin.
     let minimumNumeralBottom = CGFloat(cellHeight) - inkBounds(wan).minY + 6
-    let bamboo = BambooArtwork(from: board)
-    let font = markingFont(for: style)
-    let numerals = ["一", "二", "三", "四", "伍", "六", "七", "八", "九"].map { glyphPath($0, font: font) }
+    let bamboo = BambooArtwork(from: board, style: style)
+    let numerals = ["一", "二", "三", "四", style == .minimal ? "五" : "伍", "六", "七", "八", "九"]
+        .map { glyphPath($0, font: font) }
     let honors = ["東", "南", "西", "北", "中", "發", "白", "梅", "蘭", "菊", "竹", "春", "夏", "秋", "冬"]
         .map { glyphPath($0, font: font) }
     let numeralScale = sharedScale(for: numerals, in: style.numeralBox, addedStroke: style.addedStroke)
     let honorScale = sharedScale(for: honors, in: style.honorBox, addedStroke: style.addedStroke)
+    let sampledStrokeRadius = style == .traditional ? 2 : 1
+    let sampledRanks = style == .minimal ? [:] : [
+        4: tileSample(board, column: 2, row: 2, pigment: .blue),
+        5: tileSample(board, column: 3, row: 2, pigment: .blue),
+    ]
+    let widestGeneratedRank = numerals.enumerated().filter { sampledRanks[$0.offset] == nil }
+        .map { $0.element.boundingBoxOfPath.width }.max()!
+    let sampledRankWidth = widestGeneratedRank * numeralScale + style.addedStroke
+    let sampledRankBox = style.numeralBox.insetBy(dx: (style.numeralBox.width - sampledRankWidth) / 2, dy: 0)
 
     for index in 0..<(columns * rows) {
         let rect = CGRect(x: index % columns * cellWidth, y: (rows - 1 - index / columns) * cellHeight,
@@ -299,19 +431,38 @@ func render(_ style: Style) throws {
         let tile = bitmap(cellWidth, cellHeight)
         switch index {
         case 0...8:
-            let numeral = numerals[index]
-            let height = numeral.boundingBoxOfPath.height * numeralScale + style.addedStroke
-            let bottom = style.numeralBox.midY - height / 2
-            let box = style.numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
-            drawGlyph(numeral, color: blue, in: box, scale: numeralScale,
-                      addedStroke: style.addedStroke, on: tile)
+            if let sample = sampledRanks[index] {
+                drawSampledGlyph(sample, in: sampledRankBox, strokeRadius: sampledStrokeRadius,
+                                 minimumBottom: minimumNumeralBottom, on: tile)
+            } else {
+                let numeral = numerals[index]
+                let height = numeral.boundingBoxOfPath.height * numeralScale + style.addedStroke
+                let bottom = style.numeralBox.midY - height / 2
+                let box = style.numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
+                drawGlyph(numeral, color: blue, in: box, scale: numeralScale,
+                          addedStroke: style.addedStroke, on: tile)
+            }
             tile.draw(wan, in: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight))
+        case 9...17:
+            drawMinimalCircles(index - 8, on: tile)
         case 18...26:
             bamboo.draw(index - 17, on: tile)
-        case 28...32, 34...41:
+        case 27 where style != .minimal:
+            let sample = tileSample(board, column: 4, row: 2, pigment: .blue)
+            let tallestOtherWind = honors[1...3].map { $0.boundingBoxOfPath.height }.max()!
+            let height = tallestOtherWind * honorScale + style.addedStroke
+            let box = style.honorBox.insetBy(dx: 0, dy: (style.honorBox.height - height) / 2)
+            drawSampledGlyph(sample, in: box, strokeRadius: sampledStrokeRadius, on: tile)
+        case 27...32, 34...41:
             let color = index == 31 || index >= 38 ? red : index >= 32 ? green : blue
+            // Keep the narrow gaps in 蘭 and 夏 open at bonus-strip size.
+            let strokeScale: CGFloat = switch index {
+            case 35: 0.2
+            case 39: 0.4
+            default: 1
+            }
             drawGlyph(honors[index - 27], color: color, in: style.honorBox, scale: honorScale,
-                      addedStroke: style.addedStroke, on: tile)
+                      addedStroke: style.addedStroke * strokeScale, on: tile)
         default:
             preconditionFailure("Missing tile \(index)")
         }

@@ -53,6 +53,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     let paused: Bool
     let size: CGSize
     let showsDrawDock: Bool
+    var showsInlineResultActions = true
     let flyingDiscard: Tile.ID?
     let flyingClaim: Tile.ID?
     @Binding var inspectedSeat: Seat?
@@ -69,6 +70,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private let inset: CGFloat = 10
     private let gap: CGFloat = 6
     private let stripHeight: CGFloat = 24
+    private let liveControlsHeight = TeaTheme.hitTarget + 48 + 4 + 12
     private var showsFlowers: Bool { opening?.showsFlowers ?? true }
 
     var body: some View {
@@ -84,12 +86,13 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         .frame(width: width, height: height)
         .frame(width: size.width, height: size.height)
         .foregroundStyle(board.ink)
-        .modifier(Felt(gameTable: true))
         .transformAnchorPreference(key: TableAnchors.self, value: .bounds) {
             if opening != nil { $0[.felt] = $1 }
         }
         .accessibilityElement(children: .contain)
+        .contentShape(.accessibility, Rectangle())
         .accessibilityIdentifier("table-surface")
+        .modifier(Felt(gameTable: true))
         .onChange(of: table.roundNumber) { inspectedSeat = nil }
         .sheet(item: $inspectedSeat) { seat in
             NavigationStack {
@@ -143,21 +146,21 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         let sideWidth = min(108, width * 0.25)
         let middleWidth = max(0, width - 2 * (sideWidth + gap))
         let middleHeight = max(0, height - endHeight - playerEndHeight - stripHeight - gap * 3)
+        let liveFocusHeight = max(0, middleHeight - liveControlsHeight)
+        let sideHeight = min(liveFocusHeight, 118)
 
         return VStack(spacing: gap) {
             seatCard(table.viewer.advanced(2), width: endWidth, height: endHeight)
-            VStack(spacing: 0) {
-                GeometryReader { focus in
-                    let sideHeight = min(focus.size.height, 118)
-                    HStack(spacing: gap) {
-                        seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
-                        discardFocus(width: middleWidth, height: focus.size.height, stacked: true)
-                        seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
-                    }
+            playingArea(width: width, height: middleHeight) { focusHeight in
+                HStack(alignment: .top, spacing: gap) {
+                    // Keep the seats centered in the live area when the winning hand gains space.
+                    seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
+                        .frame(height: liveFocusHeight)
+                    discardFocus(width: middleWidth, height: focusHeight, stacked: true)
+                    seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
+                        .frame(height: liveFocusHeight)
                 }
-                controls()
             }
-            .frame(width: width, height: middleHeight)
             tableStrip(width: width)
             if showsDrawDock {
                 let dockWidth = TeaTheme.hitTarget
@@ -194,14 +197,30 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 }
                 tableStrip(width: playersWidth)
             }
-            VStack(spacing: 0) {
-                GeometryReader { focus in
-                    discardFocus(width: centerWidth, height: focus.size.height, stacked: false)
-                }
-                controls()
+            playingArea(width: centerWidth, height: height) { focusHeight in
+                discardFocus(width: centerWidth, height: focusHeight, stacked: false)
             }
-            .frame(width: centerWidth, height: height)
         }
+    }
+
+    private func playingArea<Focus: View>(width: CGFloat, height: CGFloat,
+                                          @ViewBuilder focus: @escaping (CGFloat) -> Focus) -> some View {
+        VStack(spacing: 0) {
+            GeometryReader { geometry in
+                focus(geometry.size.height)
+            }
+            if table.result == nil {
+                // Reserve room for a confirmation row and the action buttons on every live turn.
+                ZStack(alignment: .bottom) {
+                    Color.clear.allowsHitTesting(false).accessibilityHidden(true)
+                    controls()
+                }
+                .frame(height: min(height, liveControlsHeight))
+            } else if showsInlineResultActions {
+                controls().fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(width: width, height: height)
     }
 
     @ViewBuilder
@@ -478,7 +497,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 let isGold = table.isGold(latest.tile)
                 let owner = "\(name(of: latest.seat))打出"
                 let tileName = latest.tile.kind.spokenName
-                let detail = claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" } ?? (isGold ? "金牌" : nil)
+                let claimDetail = claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" }
+                let detail = claimDetail ?? (isGold ? "金牌" : nil)
                 let compact = !stacked && height < 54
                 let singleLine = !stacked && height < 38
                 let visibleTitle = if compact, let detail { "\(tileName) · \(detail)" } else { tileName }
@@ -498,9 +518,20 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                         if !singleLine {
                             Text(owner).font(.caption2.weight(.semibold)).foregroundStyle(board.accent)
                         }
-                        Text(singleLine ? "\(owner) · \(visibleTitle)" : visibleTitle)
-                            .font(.system(compact ? .caption : .subheadline, design: .serif, weight: .bold))
-                        if !compact, let detail { Text(detail).font(.caption2).foregroundStyle(board.muted) }
+                        HStack(spacing: 4) {
+                            Text(singleLine ? "\(owner) · \(visibleTitle)" : visibleTitle)
+                                .font(.system(compact ? .caption : .subheadline, design: .serif, weight: .bold))
+                            if isGold && !compact {
+                                Text("金牌")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(TeaTheme.color(0x292115))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(TeaTheme.modernTileGoldBadge, in: RoundedRectangle(cornerRadius: 3))
+                                    .fixedSize()
+                            }
+                        }
+                        if !compact, let claimDetail { Text(claimDetail).font(.caption2).foregroundStyle(board.muted) }
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)

@@ -84,6 +84,18 @@ Use case: photorealistic-natural. Full-bleed, overhead photograph of the very fi
 
 Use case: product-mockup. One production sprite sheet for two views of the same premium handmade mahjong tile. Image 1 is the exact shape and straight-on orthographic framing reference, never repeat its dark green color. One row of exactly TWO separately isolated vertical 5:7 blank tiles of the same outer dimensions and corner radius, facing straight up to the camera, arranged front left and reverse right, generous transparent gutter and outer margin, no collisions. Left: deeply warm pale cream ivory-inspired satin composite, extremely fine subtle diagonal structure and softly chamfered edges, with only a thin lower dark red-brown hardwood side and one miniature visible dovetail seam at bottom. Its large completely blank playing face must be even and very light for separately overlaid markings. Right: dark reddish-purple-brown rosewood-style reverse, subtle rich grain lengthwise and satin finished, tiny warm ivory lip and very subtle interlocking dovetail joinery across the bottom edge of the back. These are tactile finished objects with directional soft top-left studio lights and detailed but subdued edges. No marks, pips, letters, engraving, labels, graphic patterns, checkerboard, environment, trim outside the tile, third object, decorative ornament or obvious cast shadow. True transparency between and around the cutouts.
 
+### Dark redwood tile body
+
+[Tile front](App/Assets.xcassets/RedwoodTileFront.imageset/art.png) · [Tile back](App/Assets.xcassets/IvoryRedwoodBack.imageset/art.png)
+
+紫檀 uses a dark redwood playing face, lighter markings, and a brighter gold-tile border. The reverse and contact sounds use the existing redwood assets.
+
+Built-in ImageGen prompt
+
+```text
+Use case: precise-object-edit. Production sprite for an original iPhone mahjong game. Image 1 is the blank front shape and registration reference. Image 2 is a reference for 紫檀 wood color and fine vertical grain. Generate one blank face-up tile in dark satin red sandalwood. Keep the shape from Image 1: straight top-down view, vertical 5:7 profile, simple rounded corners, subtle bevel, upright symmetry and a nearly full-width quiet central playing face. Use very dark warm reddish purple brown in the broad middle (near #392019), restrained straight grain like Image 2 at much lower contrast, and a narrow soft walnut highlight on the bevel. Preserve a dark flat playable surface for separately added pale ink. One object, centered, complete with a tight transparent perimeter. No ivory face, inlay, logos, patterns beyond natural wood grain, pips, letters, border stripe, environment, cast shadow, bevel exaggeration, or fake checkerboard. Genuine transparent alpha around the shape.
+```
+
 ### Pale Jade tile body
 
 [Tile front](App/Assets.xcassets/PaleJadeFront.imageset/art.png) · [Tile back](App/Assets.xcassets/PaleJadeBack.imageset/art.png)
@@ -99,6 +111,48 @@ Use case: product-mockup. Two production mahjong tile sprites with genuine alpha
 The back received a second ImageGen pass after play-size review.
 
 Use case: precise-object-edit. This is a single tile-back sprite for a premium original mahjong game. Keep exactly the existing full-frame vertical 5:7 silhouette, overhead view, dimensions, clipping corners, shape of the bevel and genuinely transparent negative space. Recolor the entire homogeneous blank tile from bright honey-orange to muted dark roasted chestnut vintage phenolic resin, subdued satin surface, espresso-brown darker bevel and one soft toasted cream-colored reflection on upper left, low saturation, a warm dark tea color with caramel only in the specular, not yellow or orange plastic. Shadows integrated within the tile shape. No text, inset rectangle, letters, patterns, markings, added objects, or background. This should sit quietly against dark espresso saddle leather while remaining identifiable near a warm cream front.
+
+### Frosted glass tile body
+
+[Tile front](App/Assets.xcassets/FrostedGlassFront.imageset/art.png) · [Tile back](App/Assets.xcassets/FrostedGlassBack.imageset/art.png)
+
+冰蓝琉璃 uses a frosted ice-blue face and deeper slate-blue glass on the reverse. It uses the porcelain contact profile.
+
+Built-in ImageGen prompt
+
+```text
+Use case: product-mockup. Production sprite sheet for the 冰蓝琉璃 material in an original iPhone mahjong game. Image 1 is the exact upright shape and orthographic reference. Show one horizontal row of exactly two isolated blank 5:7 tiles with the same exterior size, slim round bevels, large uniform playing centers, wide transparent gutter and outer margins. Both face straight up under soft overhead studio light. Left is the playing face, porcelain-pale tightly frosted ice-blue glass (center near #D9EAF6), softly translucent and distinctly blue only through the glass bevel and side. Right is the reverse of the same tile, clear muted slate-blue glass with restrained internal depth, a deeper blue center near #3D698A and narrow softly polished border. Both have flush, clean surfaces and a true transparent background around and between tiles. No tint towards sage or jade, no crackling, ripples, air bubbles, shine patches on the playing center, neon, text, letter, graphic mark, pips, graphic outlines, floor, extra object, shadow outside the silhouettes, or perspective.
+```
+
+### Bamboo-backed porcelain tile body
+
+[Tile front](App/Assets.xcassets/PorcelainTile.imageset/porcelain.png) · [Tile back](App/Assets.xcassets/BambooPorcelainBack.imageset/art.png)
+
+竹背瓷面 pairs the existing warm white face with a bamboo reverse and uses the wood-backed contact profile.
+
+Built-in ImageGen prompt
+
+```text
+Use case: precise-object-edit. Single production tile-back sprite for the 竹背瓷面 material in an original iPhone mahjong app. Image 1 gives the flat top-down framing, exact upright 5:7 footprint, exterior radius and narrow bevel. Show the reverse of a warm white porcelain mahjong tile backed with golden pale natural bamboo. The broad surface is real bamboo, warm subdued honey-straw around #BA915E, with fine mostly vertical fibers, a faint horizontal bamboo node low in the composition, softly hand-burnished satin finish and subtle dimensional bevel. A narrow ivory ceramic layer may show near the bottom edge. Strict top-down orthographic camera with the tile centered almost edge to edge, complete and isolated on genuinely transparent alpha. Avoid orange wood stain, redwood, contrasting strips or planks, heavy texture, grain drawn like typography, decorative inlay, shadow outside the object, environment, marks or pips. Exactly one tile back.
+```
+
+### Black lacquer tile body
+
+[Tile front](App/Assets.xcassets/BlackLacquerFront.imageset/art.png) · [Tile back](App/Assets.xcassets/BlackLacquerBack.imageset/art.png)
+
+缎面黑漆 uses a satin charcoal face, a darker reverse with a continuous smoke-gray bevel, lighter markings, and high-contrast selection and gold-tile borders. It uses the bakelite contact profile.
+
+Built-in ImageGen prompt
+
+```text
+Use case: product-mockup. Production sprite sheet for the 黑漆 material in an original iPhone mahjong game. Image 1 is the true vertical 5:7 shape and straight top-down registration reference. Exactly two separate unmarked identical-size tiles in one row with a wide transparent gutter and uniform slim gently rounded bevel. Left is the blank playing face: soft satin charcoal-black artisan lacquer, center near #222429, cool neutral black with one restrained studio edge highlight and a broad quiet dark field for later separately drawn pale colored markings. Right is its reverse, deeper charcoal-black lacquer, slightly more polished with a narrow smoke-gray scale of reflected light along the curved bevel. A refined dense solid tactile object, with the front flatter and softer in sheen than the reverse and the body cool neutral in both cases. No wood grain, glitter, metallic gold edges, textures that look like labels, graphic inset stripes, letters, markings, pips, floor, cast shadows outside silhouettes, or extra tiles. True transparent alpha around and between both tiles.
+```
+
+The built-in ImageGen edit widened the bevel for the small wall and opponent racks.
+
+```text
+Use case: precise-object-edit. Edit Image 1, the single tile-back game sprite. Change only the existing rounded bevel to a continuous satin smoke-gray lacquer highlight (roughly #808791 at the sides, with a soft variation in light), about 7–9% of the tile width thick so neighboring backs are countable when drawn 8 points wide. Keep the broad interior satin black (#080B10), the exact upright 5:7 footprint, corner radius, centered full-frame alignment, true overhead view and transparent exterior. The bevel should follow the existing curved surface and read as reflected light, with visible sides and bottom as well as top, with no second outline, metal trim, symbols, outside shadow, or added objects.
+```
 
 ## Shuffle hand
 
@@ -138,9 +192,9 @@ The built-in ImageGen prompts used the same layout with solid pips and plain gly
 
 [Marking atlases](App/Assets.xcassets/TileMarkings/) · [Atlas generator](Artwork/TileFaces/render-markings.swift)
 
-Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. The generator extracts the ink from all 15 faces on each approved sheet. It corrects the slight oval in Minimal 一筒 and uses the approved 萬 and 三條 markings to complete the character and bamboo suits. The joined 八條 groups follow the physical set.
+Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. Classic and Ornate Traditional use the approved markings to complete the character and bamboo suits. Minimal uses solid circles and plain bamboo strokes with blue, green, and red groupings by rank. It uses the simplified 万 glyph, with the bird and white dragon frame from its approved sheet. The two joined 八條 groups follow the physical layout in all three sets.
 
-The remaining Chinese glyphs use a common scale and stroke weight within each style. Classic and Ornate Traditional use an artwork-only subset of [LXGW WenKai TC Medium v1.530](https://github.com/lxgw/LxgwWenkaiTC/releases/tag/v1.530), included with its [font license](Artwork/TileFaces/TileCalligraphy-OFL.txt). Minimal uses PingFang TC Semibold.
+The generated Chinese glyphs share a scale within each style. Classic and Ornate Traditional use the same cobalt ink for the sampled 伍, 六 and 東 brush shapes and the other blue glyphs. Their 蘭 and 夏 use a lighter stroke to keep the narrow gaps readable on small tiles. Both styles use an artwork-only subset of [LXGW WenKai TC Medium v1.530](https://github.com/lxgw/LxgwWenkaiTC/releases/tag/v1.530), included with its [font license](Artwork/TileFaces/TileCalligraphy-OFL.txt). Minimal uses PingFang TC Semibold.
 
 Each atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
 

@@ -3,7 +3,8 @@ import SwiftUI
 import UIKit
 
 enum TileMaterialStyle: String, CaseIterable {
-    case automatic, classic, porcelain, ivoryRedwood, paleJade, creamBakelite
+    case automatic, classic, porcelain, ivoryRedwood, redwood, paleJade, creamBakelite
+    case frostedGlass, bambooPorcelain, blackLacquer
 
     init(storedValue: String) {
         // The old Modern option bundled different markings with a cool porcelain face.
@@ -16,8 +17,12 @@ enum TileMaterialStyle: String, CaseIterable {
         case .classic: "暖白"
         case .porcelain: "白釉瓷"
         case .ivoryRedwood: "牙白 · 紫檀拼"
+        case .redwood: "紫檀"
         case .paleJade: "青白玉"
         case .creamBakelite: "奶油电木"
+        case .frostedGlass: "冰蓝琉璃"
+        case .bambooPorcelain: "竹背瓷面"
+        case .blackLacquer: "缎面黑漆"
         }
     }
 
@@ -28,19 +33,22 @@ enum TileMaterialStyle: String, CaseIterable {
     var material: TableTileMaterial {
         switch self {
         case .automatic, .classic: .classic
-        case .porcelain: .porcelain
-        case .ivoryRedwood: .ivoryRedwood
+        case .porcelain, .frostedGlass: .porcelain
+        case .ivoryRedwood, .redwood, .bambooPorcelain: .ivoryRedwood
         case .paleJade: .paleJade
-        case .creamBakelite: .creamBakelite
+        case .creamBakelite, .blackLacquer: .creamBakelite
         }
     }
 
     var frontArtwork: String {
         switch self {
         case .ivoryRedwood: "IvoryRedwoodFront"
+        case .redwood: "RedwoodTileFront"
         case .paleJade: "PaleJadeFront"
         case .creamBakelite: "CreamBakeliteFront"
-        case .automatic, .classic, .porcelain: "PorcelainTile"
+        case .frostedGlass: "FrostedGlassFront"
+        case .blackLacquer: "BlackLacquerFront"
+        case .automatic, .classic, .porcelain, .bambooPorcelain: "PorcelainTile"
         }
     }
 
@@ -48,11 +56,16 @@ enum TileMaterialStyle: String, CaseIterable {
         switch self {
         case .automatic, .classic: "JadeTileBack"
         case .porcelain: "PorcelainTileBack"
-        case .ivoryRedwood: "IvoryRedwoodBack"
+        case .ivoryRedwood, .redwood: "IvoryRedwoodBack"
         case .paleJade: "PaleJadeBack"
         case .creamBakelite: "CreamBakeliteBack"
+        case .frostedGlass: "FrostedGlassBack"
+        case .bambooPorcelain: "BambooPorcelainBack"
+        case .blackLacquer: "BlackLacquerBack"
         }
     }
+
+    fileprivate var usesLightInk: Bool { self == .redwood || self == .blackLacquer }
 }
 
 enum TileFaceStyle: String, CaseIterable {
@@ -94,36 +107,41 @@ struct TileFace: View {
             let width = min(geometry.size.width, geometry.size.height * Self.artworkAspectRatio)
             let height = width / Self.artworkAspectRatio
             let shape = RoundedRectangle(cornerRadius: width * 0.13)
-            let crispIndicators = tileMaterial != .classic
-            let selectionWidth: CGFloat = crispIndicators ? 2.5 : 2
-
+            // Keep the nested gold and selection outlines within the unprinted margin.
+            let selectionWidth = min(tileMaterial == .classic ? 2 : 2.5, width * (gold ? 0.045 : 0.075))
+            let goldWidth = min(2, width * (selected ? 0.03 : 0.06))
+            let goldEdge = tileMaterial.usesLightInk ? TeaTheme.modernTileGoldBadge : TeaTheme.modernTileGoldEdge
+            let selectionEdge = switch tileMaterial {
+            case .classic: TeaTheme.color(0xF0D29A)
+            case .redwood: TeaTheme.color(0x94D5F2)
+            case .blackLacquer: TeaTheme.color(0x86CCD1)
+            default: TeaTheme.modernTileSelection
+            }
             ZStack {
                 artwork
-                if gold && !crispIndicators { shape.fill(TeaTheme.goldShade.opacity(0.46)).blendMode(.multiply) }
+                if gold && tileMaterial == .classic {
+                    shape.fill(TeaTheme.goldShade.opacity(0.46)).blendMode(.multiply)
+                }
             }
             .frame(width: width, height: height)
             .clipShape(shape)
             .overlay {
-                if gold && crispIndicators {
-                    shape.inset(by: selected ? selectionWidth : 0)
-                        .strokeBorder(TeaTheme.modernTileGoldEdge, lineWidth: min(2, width * 0.085))
+                if gold {
+                    let inset = selected ? selectionWidth : 0
+                    let goldShape = shape.inset(by: inset)
+                    let cornerSize = min(8, width * 0.19)
+                    goldShape.strokeBorder(goldEdge, lineWidth: goldWidth)
+                        .overlay(alignment: .topTrailing) {
+                            GoldTileCorner()
+                                .fill(goldEdge)
+                                .frame(width: cornerSize, height: cornerSize)
+                                .padding(inset)
+                                .flipsForRightToLeftLayoutDirection(true)
+                        }
+                        .clipShape(goldShape)
                 }
                 if selected {
-                    shape.strokeBorder(crispIndicators ? TeaTheme.modernTileSelection : TeaTheme.color(0xF0D29A),
-                                       lineWidth: selectionWidth)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                if gold, width >= 26 {
-                    Text("金")
-                        .font(.system(size: min(11, width * 0.27), weight: .bold))
-                        .foregroundStyle(crispIndicators ? TeaTheme.color(0x292115) : TeaTheme.porcelain)
-                        .padding(.horizontal, crispIndicators ? 3 : 2)
-                        .padding(.vertical, crispIndicators ? 1 : 2)
-                        .background(crispIndicators ? TeaTheme.modernTileGoldBadge : TeaTheme.wood,
-                                    in: RoundedRectangle(cornerRadius: 3))
-                        .offset(x: crispIndicators ? 0 : 1, y: crispIndicators ? 0 : -2)
-                        .accessibilityHidden(true)
+                    shape.strokeBorder(selectionEdge, lineWidth: selectionWidth)
                 }
             }
             .shadow(color: .black.opacity(0.24), radius: selected ? 3 : 1, y: selected ? 3 : 1)
@@ -139,9 +157,24 @@ struct TileFace: View {
             .brightness(tileMaterial == .porcelain ? 0.05 : 0)
             .overlay {
                 if let markings = TileMarkings.image(for: kind, style: faceStyle) {
-                    Image(uiImage: markings).resizable().accessibilityHidden(true)
+                    Image(uiImage: markings)
+                        .resizable()
+                        .aspectRatio(Self.artworkAspectRatio, contentMode: .fit)
+                        .brightness(tileMaterial.usesLightInk ? 0.52 : 0)
+                        .accessibilityHidden(true)
                 }
             }
+    }
+}
+
+private struct GoldTileCorner: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.closeSubpath()
+        }
     }
 }
 

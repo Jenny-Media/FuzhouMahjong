@@ -13,6 +13,12 @@ final class TableFlowTests: XCTestCase {
             (board: "jadeWalnut", material: "porcelain", face: "minimal"),
             (board: "redwoodSuede", material: "paleJade", face: "traditional"),
             (board: "bronzeLeather", material: "creamBakelite", face: "minimal"),
+            (board: "redwoodSuede", material: "redwood", face: "photoMatched"),
+            (board: "snowWhite", material: "redwood", face: "minimal"),
+            (board: "jadeWalnut", material: "redwood", face: "traditional"),
+            (board: "jadeWalnut", material: "frostedGlass", face: "photoMatched"),
+            (board: "jadeWalnut", material: "bambooPorcelain", face: "photoMatched"),
+            (board: "jadeWalnut", material: "blackLacquer", face: "photoMatched"),
         ]
         for combination in combinations {
             app.launchArguments = base + [
@@ -120,17 +126,19 @@ final class TableFlowTests: XCTestCase {
         choose("紫檀 · 烟灰绒", using: board)
         XCTAssertEqual(element(face, in: app).value as? String, "传统雕花")
         capture("settings-traditional-paleJade")
+        choose("紫檀", using: material)
+        capture("settings-traditional-redwood")
 
         choose("浅色", using: display)
         XCTAssertEqual(element(board, in: app).value as? String, "紫檀 · 烟灰绒")
-        XCTAssertEqual(element(material, in: app).value as? String, "青白玉")
+        XCTAssertEqual(element(material, in: app).value as? String, "紫檀")
         XCTAssertEqual(element(face, in: app).value as? String, "传统雕花")
         app.terminate()
         app.launch()
         openSettings()
         XCTAssertEqual(element(display, in: app).value as? String, "浅色")
         XCTAssertEqual(element(board, in: app).value as? String, "紫檀 · 烟灰绒")
-        XCTAssertEqual(element(material, in: app).value as? String, "青白玉")
+        XCTAssertEqual(element(material, in: app).value as? String, "紫檀")
         XCTAssertEqual(element(face, in: app).value as? String, "传统雕花")
     }
 
@@ -151,7 +159,8 @@ final class TableFlowTests: XCTestCase {
             (id: "appearance-picker", options: ["跟随系统", "浅色", "深色"]),
             (id: "board-style-picker", options: ["自动", "碧玉胡桃木", "雪白 · 白瓷", "墨蓝 · 枪灰金属",
                                                 "紫檀 · 烟灰绒", "古铜 · 马鞍革"]),
-            (id: "tile-material-picker", options: ["自动", "暖白", "白釉瓷", "牙白 · 紫檀拼", "青白玉", "奶油电木"]),
+            (id: "tile-material-picker", options: ["自动", "暖白", "白釉瓷", "牙白 · 紫檀拼", "紫檀", "青白玉",
+                                                  "奶油电木", "冰蓝琉璃", "竹背瓷面", "缎面黑漆"]),
             (id: "tile-face-style-picker", options: ["实物经典", "极简", "传统雕花"]),
         ]
         for (id, options) in pickers {
@@ -184,7 +193,9 @@ final class TableFlowTests: XCTestCase {
                     XCTFail("Unknown selection for \(id).")
                     return
                 }
-                app.buttons["\(id)-next"].tap()
+                XCTAssertFalse(app.buttons["\(id)-previous"].exists)
+                XCTAssertFalse(app.buttons["\(id)-next"].exists)
+                swipeArea.coordinate(withNormalizedOffset: CGVector(dx: 0.90, dy: 0.5)).tap()
                 expectValue(of: picker, in: [options[(current + 1) % options.count]])
             }
         }
@@ -197,6 +208,43 @@ final class TableFlowTests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -150)))
         XCTAssertLessThan(faceArc.frame.midY, startY - 30, "Vertical swipes should scroll settings.")
         XCTAssertEqual(faceArc.value as? String, faceValue)
+    }
+
+    func testChangeAppearanceWithoutLeavingTheTable() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 1, after: 1)
+        let app = try launchSavedMatch(fixture)
+        let settings = app.buttons["table-settings"]
+        let table = element("table-surface", in: app)
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let discard = app.buttons["discard-action"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        let boardFrame = table.frame
+        let handTile = try XCTUnwrap(fixture.table(for: .south).hand.first)
+
+        settings.tap()
+        let title = app.navigationBars["设置"]
+        let face = element("tile-face-style-picker", in: app)
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        reveal(face, in: app)
+        let selection = face.value as? String == "极简" ? "传统雕花" : "极简"
+        face.tap()
+        app.buttons[selection].tap()
+        expectValue(of: face, in: [selection])
+        capture("settings-from-table")
+
+        title.buttons["完成"].tap()
+        XCTAssertTrue(title.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(table.exists)
+        XCTAssertTrue(app.buttons["tile-\(handTile.id)"].exists)
+        XCTAssertTrue(discard.isHittable)
+        assertFrames([table.frame], match: [boardFrame], labels: ["board"])
+        capture("table-after-settings")
+
+        settings.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(face.value as? String, selection)
     }
 
     private func reveal(_ control: XCUIElement, in app: XCUIApplication) {
@@ -498,7 +546,8 @@ final class TableFlowTests: XCTestCase {
         let dock = element("drawn-tile-dock", in: app)
         let discard = app.buttons["discard-action"]
         XCTAssertTrue(discard.waitForExistence(timeout: 5))
-        let frames = [table.frame, rack.frame]
+        let anchors = [table, rack] + Seat.allCases.map { element("seat-score-\($0.id)", in: app) }
+        let frames = anchors.map(\.frame)
         XCTAssertTrue(table.frame.contains(actions.frame))
         XCTAssertTrue(table.frame.contains(dock.frame))
         XCTAssertGreaterThan(dock.frame.midX, table.frame.midX)
@@ -528,7 +577,9 @@ final class TableFlowTests: XCTestCase {
                           withVelocity: .slow, thenHoldForDuration: 0.15)
         XCTAssertTrue(drawnTile.waitForNonExistence(timeout: 3))
         XCTAssertTrue(element("latest-discard", in: app).label.contains("你打出"))
-        assertFrames([table.frame, rack.frame], match: frames, labels: ["board", "rack"])
+        XCTAssertTrue(discard.waitForNonExistence(timeout: 3))
+        assertFrames(anchors.map(\.frame), match: frames,
+                     labels: ["board", "rack"] + Seat.allCases.map { "seat \($0.id)" })
     }
 
     func testKongPreviewLocksOrdinaryDiscardAndKeepsMeldSwipe() throws {
@@ -583,6 +634,7 @@ final class TableFlowTests: XCTestCase {
         let table = element("table-surface", in: app)
         let actions = element("table-actions", in: app)
         let discard = element("latest-discard", in: app)
+        let seatScores = Seat.allCases.map { element("seat-score-\($0.id)", in: app) }
         let pass = app.buttons["table-move-过"]
         XCTAssertTrue(pass.waitForExistence(timeout: 5))
 
@@ -598,6 +650,15 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(discard.exists)
             XCTAssertFalse(actions.frame.intersects(discard.frame))
             capture(landscape ? "multiple-claims-landscape" : "multiple-claims-portrait")
+
+            let anchors = [table, element("table-rack", in: app), discard] + seatScores
+            let labels = ["board", "rack", "discard"] + Seat.allCases.map { "seat \($0.id)" }
+            let before = anchors.map(\.frame)
+            app.buttons["table-move-碰"].tap()
+            XCTAssertTrue(app.buttons["confirm-meld"].waitForExistence(timeout: 5))
+            assertFrames(anchors.map(\.frame), match: before, labels: labels)
+            app.buttons["cancel-meld-preview"].tap()
+            assertFrames(anchors.map(\.frame), match: before, labels: labels)
         }
         func rackIDs(for kind: MeldKind) throws -> [Tile.ID] {
             try XCTUnwrap(state.moves.compactMap { move -> [Tile.ID]? in
@@ -1000,7 +1061,8 @@ final class TableFlowTests: XCTestCase {
         ]
 
         for (index, fixture) in cases.enumerated() {
-            XCUIDevice.shared.orientation = index == 1 ? .landscapeLeft : .portrait
+            let landscape = index == 1
+            XCUIDevice.shared.orientation = landscape ? .landscapeLeft : .portrait
             let before = try match(seed: fixture.seed, after: fixture.moves)
             var completed = before
             while completed.result == nil { try playFixtureMove(in: &completed) }
@@ -1009,6 +1071,10 @@ final class TableFlowTests: XCTestCase {
             XCTAssertEqual(result.winner, fixture.winner)
             let app = try launchSavedMatch(before)
             XCTAssertFalse(app.buttons["skip-opening"].exists)
+            let sideSeats = [Seat.south.advanced(1), Seat.south.advanced(3)].map {
+                element("seat-score-\($0.id)", in: app)
+            }
+            var liveSideFrames: [CGRect]?
 
             if before.result == nil, fixture.winner == .south {
                 let board = element("table-surface", in: app)
@@ -1024,6 +1090,7 @@ final class TableFlowTests: XCTestCase {
                 let pass = app.buttons["table-move-过"]
                 XCTAssertGreaterThan(win.frame.width, pass.frame.width)
                 XCTAssertGreaterThan(win.frame.height, pass.frame.height)
+                if !landscape { liveSideFrames = sideSeats.map(\.frame) }
                 win.tap()
             }
 
@@ -1040,6 +1107,22 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(tableNext.isHittable)
             XCTAssertTrue(element("table-score-delta", in: app).label.contains("\(result.delta(for: .south))"))
             if let winner = result.winner {
+                let reveal = app.scrollViews["winning-hand-scroll"]
+                XCTAssertTrue(reveal.exists)
+                if landscape {
+                    XCTAssertEqual(settledFrame.height - reveal.frame.height, 20, accuracy: 2,
+                                   "The landscape reveal should fill the table inside its top and bottom insets.")
+                } else {
+                    XCTAssertEqual(scorecard.frame.minY - reveal.frame.maxY, 8, accuracy: 2,
+                                   "Only the result controls' top padding should separate them from the reveal.")
+                    if let liveSideFrames {
+                        for (seat, liveFrame) in zip(sideSeats, liveSideFrames) {
+                            let settledFrame = seat.frame
+                            XCTAssertEqual(settledFrame.midX, liveFrame.midX, accuracy: 1, "Side seat moved horizontally.")
+                            XCTAssertEqual(settledFrame.midY, liveFrame.midY, accuracy: 1, "Side seat moved vertically.")
+                        }
+                    }
+                }
                 XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "revealed-winning-tile").count, 1)
                 XCTAssertTrue(element("winning-pair", in: app).exists)
                 for meld in completed.table(for: .south).players[winner.id].melds {

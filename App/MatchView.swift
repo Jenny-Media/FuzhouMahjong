@@ -37,6 +37,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var selectedID: Tile.ID?
     @State private var inspectedSeat: Seat?
     @State private var showsHistory = false
+    @State private var showsSettings = false
     @State private var guideLesson: RuleLesson?
     @State private var showsScorecard = false
     @State private var openingStage = OpeningDeal.Stage.shuffle(nil)
@@ -62,7 +63,10 @@ struct MatchView<Session: MatchSession>: View {
 
     private var opening: Int? { session.openingRound }
     private var active: Bool { scenePhase == .active && !session.paused }
-    private var playsHaptics: Bool { hapticsEnabled && active && !showsScorecard && !showsHistory && guideLesson == nil }
+    private var computerTurnReady: Bool { active && opening == nil && !showsSettings }
+    private var playsHaptics: Bool {
+        hapticsEnabled && active && !showsScorecard && !showsHistory && !showsSettings && guideLesson == nil
+    }
     private var feedbackProfile: TableFeedbackProfile {
         TableFeedbackProfile(tile: tileMaterial.material, surface: boardStyle.surface)
     }
@@ -110,8 +114,17 @@ struct MatchView<Session: MatchSession>: View {
                     Button("出牌记录", systemImage: "square.grid.3x3") { showsHistory = true }
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("设置", systemImage: "gearshape") {
+                    audio.stop()
+                    showsSettings = true
+                }
+                .disabled(opening != nil)
+                .accessibilityIdentifier("table-settings")
+            }
         }
         .fullScreenCover(isPresented: $showsScorecard) { scorecard }
+        .sheet(isPresented: $showsSettings) { SettingsView() }
         .sheet(item: $tablePurchaseReason) { PurchaseSheet(reason: $0) }
         .sheet(isPresented: $showsHistory) {
             if let table = session.table { TableHistory(table: table, names: names) }
@@ -144,8 +157,8 @@ struct MatchView<Session: MatchSession>: View {
             if soundEnabled { audio.prepare(for: feedbackProfile) }
             if playsHaptics { touch.prepare(for: feedbackProfile) }
         }
-        .task(id: TurnState(revision: session.revision, ready: active && opening == nil)) {
-            guard !session.managesComputerTurns, active, opening == nil, session.computerHasMove else { return }
+        .task(id: TurnState(revision: session.revision, ready: computerTurnReady)) {
+            guard !session.managesComputerTurns, computerTurnReady, session.computerHasMove else { return }
             let delay = switch (session.table?.step, reduceMotion) {
             // Leave room for a claim landing and the following draw animation.
             case (.turn, false): Int.random(in: 950...1050)
@@ -154,7 +167,7 @@ struct MatchView<Session: MatchSession>: View {
             }
             do { try await Task.sleep(for: .milliseconds(delay)) }
             catch { return }
-            guard !Task.isCancelled, opening == nil, active else { return }
+            guard !Task.isCancelled, computerTurnReady else { return }
             await session.advanceComputer()
         }
         .task(id: drawCue?.id) {
@@ -557,7 +570,7 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func play(_ cue: TableAudio.Cue, by seat: Seat? = nil) {
-        guard active, soundEnabled else { return }
+        guard active, soundEnabled, !showsSettings else { return }
         let isNearby = !session.players.isEmpty
         if isNearby, nearbyOwnMovesOnly {
             guard let seat, seat == session.table?.viewer else { return }
@@ -764,6 +777,7 @@ struct MatchView<Session: MatchSession>: View {
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
                       highlightedFlowers: flowerHighlights.tiles,
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
+                      showsInlineResultActions: showsResultActions,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,
                       inspectedSeat: $inspectedSeat, onOfferedTileFrame: rememberOfferedTileFrame) {
