@@ -84,6 +84,18 @@ Use case: photorealistic-natural. Full-bleed, overhead photograph of the very fi
 
 Use case: product-mockup. One production sprite sheet for two views of the same premium handmade mahjong tile. Image 1 is the exact shape and straight-on orthographic framing reference, never repeat its dark green color. One row of exactly TWO separately isolated vertical 5:7 blank tiles of the same outer dimensions and corner radius, facing straight up to the camera, arranged front left and reverse right, generous transparent gutter and outer margin, no collisions. Left: deeply warm pale cream ivory-inspired satin composite, extremely fine subtle diagonal structure and softly chamfered edges, with only a thin lower dark red-brown hardwood side and one miniature visible dovetail seam at bottom. Its large completely blank playing face must be even and very light for separately overlaid markings. Right: dark reddish-purple-brown rosewood-style reverse, subtle rich grain lengthwise and satin finished, tiny warm ivory lip and very subtle interlocking dovetail joinery across the bottom edge of the back. These are tactile finished objects with directional soft top-left studio lights and detailed but subdued edges. No marks, pips, letters, engraving, labels, graphic patterns, checkerboard, environment, trim outside the tile, third object, decorative ornament or obvious cast shadow. True transparency between and around the cutouts.
 
+### Dark redwood tile body
+
+[Tile front](App/Assets.xcassets/RedwoodTileFront.imageset/art.png) · [Tile back](App/Assets.xcassets/IvoryRedwoodBack.imageset/art.png)
+
+紫檀 uses a dark redwood playing face, lighter markings, and a brighter gold-tile border. The reverse and contact sounds use the existing redwood assets.
+
+Built-in ImageGen prompt
+
+```text
+Use case: precise-object-edit. Production sprite for an original iPhone mahjong game. Image 1 is the blank front shape and registration reference. Image 2 is a reference for 紫檀 wood color and fine vertical grain. Generate one blank face-up tile in dark satin red sandalwood. Keep the shape from Image 1: straight top-down view, vertical 5:7 profile, simple rounded corners, subtle bevel, upright symmetry and a nearly full-width quiet central playing face. Use very dark warm reddish purple brown in the broad middle (near #392019), restrained straight grain like Image 2 at much lower contrast, and a narrow soft walnut highlight on the bevel. Preserve a dark flat playable surface for separately added pale ink. One object, centered, complete with a tight transparent perimeter. No ivory face, inlay, logos, patterns beyond natural wood grain, pips, letters, border stripe, environment, cast shadow, bevel exaggeration, or fake checkerboard. Genuine transparent alpha around the shape.
+```
+
 ### Pale Jade tile body
 
 [Tile front](App/Assets.xcassets/PaleJadeFront.imageset/art.png) · [Tile back](App/Assets.xcassets/PaleJadeBack.imageset/art.png)

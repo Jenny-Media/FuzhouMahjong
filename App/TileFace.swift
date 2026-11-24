@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 enum TileMaterialStyle: String, CaseIterable {
-    case automatic, classic, porcelain, ivoryRedwood, paleJade, creamBakelite
+    case automatic, classic, porcelain, ivoryRedwood, redwood, paleJade, creamBakelite
 
     init(storedValue: String) {
         // The old Modern option bundled different markings with a cool porcelain face.
@@ -16,6 +16,7 @@ enum TileMaterialStyle: String, CaseIterable {
         case .classic: "暖白"
         case .porcelain: "白釉瓷"
         case .ivoryRedwood: "牙白 · 紫檀拼"
+        case .redwood: "紫檀"
         case .paleJade: "青白玉"
         case .creamBakelite: "奶油电木"
         }
@@ -29,7 +30,7 @@ enum TileMaterialStyle: String, CaseIterable {
         switch self {
         case .automatic, .classic: .classic
         case .porcelain: .porcelain
-        case .ivoryRedwood: .ivoryRedwood
+        case .ivoryRedwood, .redwood: .ivoryRedwood
         case .paleJade: .paleJade
         case .creamBakelite: .creamBakelite
         }
@@ -38,6 +39,7 @@ enum TileMaterialStyle: String, CaseIterable {
     var frontArtwork: String {
         switch self {
         case .ivoryRedwood: "IvoryRedwoodFront"
+        case .redwood: "RedwoodTileFront"
         case .paleJade: "PaleJadeFront"
         case .creamBakelite: "CreamBakeliteFront"
         case .automatic, .classic, .porcelain: "PorcelainTile"
@@ -48,7 +50,7 @@ enum TileMaterialStyle: String, CaseIterable {
         switch self {
         case .automatic, .classic: "JadeTileBack"
         case .porcelain: "PorcelainTileBack"
-        case .ivoryRedwood: "IvoryRedwoodBack"
+        case .ivoryRedwood, .redwood: "IvoryRedwoodBack"
         case .paleJade: "PaleJadeBack"
         case .creamBakelite: "CreamBakeliteBack"
         }
@@ -96,6 +98,7 @@ struct TileFace: View {
             let shape = RoundedRectangle(cornerRadius: width * 0.13)
             let crispIndicators = tileMaterial != .classic
             let selectionWidth: CGFloat = crispIndicators ? 2.5 : 2
+            let goldEdge = tileMaterial == .redwood ? TeaTheme.modernTileGoldBadge : TeaTheme.modernTileGoldEdge
 
             ZStack {
                 artwork
@@ -106,7 +109,7 @@ struct TileFace: View {
             .overlay {
                 if gold && crispIndicators {
                     shape.inset(by: selected ? selectionWidth : 0)
-                        .strokeBorder(TeaTheme.modernTileGoldEdge, lineWidth: min(2, width * 0.085))
+                        .strokeBorder(goldEdge, lineWidth: min(2, width * 0.085))
                 }
                 if selected {
                     shape.strokeBorder(crispIndicators ? TeaTheme.modernTileSelection : TeaTheme.color(0xF0D29A),
@@ -139,7 +142,10 @@ struct TileFace: View {
             .brightness(tileMaterial == .porcelain ? 0.05 : 0)
             .overlay {
                 if let markings = TileMarkings.image(for: kind, style: faceStyle) {
-                    Image(uiImage: markings).resizable().accessibilityHidden(true)
+                    Image(uiImage: markings)
+                        .resizable()
+                        .brightness(tileMaterial == .redwood ? 0.52 : 0)
+                        .accessibilityHidden(true)
                 }
             }
     }

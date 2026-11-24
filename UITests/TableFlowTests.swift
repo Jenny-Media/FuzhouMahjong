@@ -13,6 +13,9 @@ final class TableFlowTests: XCTestCase {
             (board: "jadeWalnut", material: "porcelain", face: "minimal"),
             (board: "redwoodSuede", material: "paleJade", face: "traditional"),
             (board: "bronzeLeather", material: "creamBakelite", face: "minimal"),
+            (board: "redwoodSuede", material: "redwood", face: "photoMatched"),
+            (board: "snowWhite", material: "redwood", face: "minimal"),
+            (board: "jadeWalnut", material: "redwood", face: "traditional"),
         ]
         for combination in combinations {
             app.launchArguments = base + [
@@ -120,17 +123,19 @@ final class TableFlowTests: XCTestCase {
         choose("紫檀 · 烟灰绒", using: board)
         XCTAssertEqual(element(face, in: app).value as? String, "传统雕花")
         capture("settings-traditional-paleJade")
+        choose("紫檀", using: material)
+        capture("settings-traditional-redwood")
 
         choose("浅色", using: display)
         XCTAssertEqual(element(board, in: app).value as? String, "紫檀 · 烟灰绒")
-        XCTAssertEqual(element(material, in: app).value as? String, "青白玉")
+        XCTAssertEqual(element(material, in: app).value as? String, "紫檀")
         XCTAssertEqual(element(face, in: app).value as? String, "传统雕花")
         app.terminate()
         app.launch()
         openSettings()
         XCTAssertEqual(element(display, in: app).value as? String, "浅色")
         XCTAssertEqual(element(board, in: app).value as? String, "紫檀 · 烟灰绒")
-        XCTAssertEqual(element(material, in: app).value as? String, "青白玉")
+        XCTAssertEqual(element(material, in: app).value as? String, "紫檀")
         XCTAssertEqual(element(face, in: app).value as? String, "传统雕花")
     }
 
@@ -151,7 +156,7 @@ final class TableFlowTests: XCTestCase {
             (id: "appearance-picker", options: ["跟随系统", "浅色", "深色"]),
             (id: "board-style-picker", options: ["自动", "碧玉胡桃木", "雪白 · 白瓷", "墨蓝 · 枪灰金属",
                                                 "紫檀 · 烟灰绒", "古铜 · 马鞍革"]),
-            (id: "tile-material-picker", options: ["自动", "暖白", "白釉瓷", "牙白 · 紫檀拼", "青白玉", "奶油电木"]),
+            (id: "tile-material-picker", options: ["自动", "暖白", "白釉瓷", "牙白 · 紫檀拼", "紫檀", "青白玉", "奶油电木"]),
             (id: "tile-face-style-picker", options: ["实物经典", "极简", "传统雕花"]),
         ]
         for (id, options) in pickers {
