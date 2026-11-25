@@ -138,6 +138,7 @@ final class MaterialCatalogTests: XCTestCase {
 
     func testCharacterNumeralsStayClearOfWan() throws {
         for style in TileFaceStyle.allCases {
+            var gaps: [Int] = []
             for rank in 1...9 {
                 let context = try markingBitmap(for: TileKind(.characters, rank), style: style)
                 let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
@@ -154,7 +155,10 @@ final class MaterialCatalogTests: XCTestCase {
                 let face = "\(style.rawValue) rank \(rank)"
                 let gap = try XCTUnwrap(wanTop, face) - XCTUnwrap(numeralBottom, face) - 1
                 XCTAssertGreaterThanOrEqual(gap, 11, face)
+                gaps.append(gap)
             }
+            let peerGap = try XCTUnwrap(gaps.dropFirst().max(), style.rawValue)
+            XCTAssertLessThanOrEqual(gaps[0], peerGap + 8, style.rawValue)
         }
     }
 

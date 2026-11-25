@@ -436,6 +436,12 @@ func render(_ style: Style) throws {
         .map { glyphPath($0, font: font) }
     let numeralScale = sharedScale(for: numerals, in: style.numeralBox, addedStroke: style.addedStroke)
     let honorScale = sharedScale(for: honors, in: style.honorBox, addedStroke: style.addedStroke)
+    // A single stroke needs a lower optical center than the taller numerals.
+    let oneStrokeOffset: CGFloat = switch style {
+    case .photoMatched: -20
+    case .minimal: -30
+    case .traditional: -16
+    }
 
     for index in 0..<(columns * rows) {
         let rect = CGRect(x: index % columns * cellWidth, y: (rows - 1 - index / columns) * cellHeight,
@@ -448,21 +454,19 @@ func render(_ style: Style) throws {
         switch index {
         case 0...8:
             let numeral = numerals[index]
-            // 四 can grow without gaining visual weight. 伍 already fills the numeral area.
+            // Give 四 more height and keep the enclosed counters open.
             let (scaleAdjustment, strokeReduction): (CGFloat, CGFloat) = switch (style, index) {
-            case (.traditional, 3): (1.22, 6.3)
-            case (.traditional, 4): (1, 3.6)
-            case (_, 3): (1.055, 3.4)
+            case (.photoMatched, 3): (1.22, 4.4)
+            case (.traditional, 3): (1.22, 5.25)
+            case (.traditional, 4): (1, 2.6)
+            case (.minimal, 3): (1.055, 3.4)
             case (_, 4): (1, 1.8)
             default: (1, 0)
             }
             let scale = numeralScale * scaleAdjustment
             let stroke = style.addedStroke - strokeReduction
             let height = numeral.boundingBoxOfPath.height * scale + stroke
-            // Bring the single stroke of 一 closer to 萬 while preserving their clearance.
-            let numeralBox = style == .traditional && index == 0
-                ? style.numeralBox.offsetBy(dx: 0, dy: -16)
-                : style.numeralBox
+            let numeralBox = style.numeralBox.offsetBy(dx: 0, dy: index == 0 ? oneStrokeOffset : 0)
             let bottom = numeralBox.midY - height / 2
             let box = numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
             drawGlyph(numeral, color: blue, in: box, scale: scale, addedStroke: stroke, on: tile)
@@ -474,9 +478,10 @@ func render(_ style: Style) throws {
         case 27...32, 34...41:
             let color = index == 31 || index >= 38 ? red : index >= 32 ? green : blue
             // 西 is naturally shorter than the other winds.
-            let scale = style == .traditional && index == 29 ? honorScale * 1.09 : honorScale
+            let scale = index == 29 && style != .minimal ? honorScale * 1.09 : honorScale
             // Keep the narrow gaps in 蘭 and 夏 open at bonus-strip size.
             let stroke: CGFloat = switch (style, index) {
+            case (.photoMatched, 29): 2.2
             case (.traditional, 29): 3.2
             case (.minimal, 35): -2.1
             case (.minimal, 39): -2.0
