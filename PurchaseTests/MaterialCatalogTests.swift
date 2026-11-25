@@ -118,7 +118,7 @@ final class MaterialCatalogTests: XCTestCase {
         }
     }
 
-    func testGoldIndicatorsKeepCirclePipsUncovered() throws {
+    func testGoldOutlineAndCornerKeepCirclePipsUncovered() throws {
         for style in TileFaceStyle.allCases {
             for width: CGFloat in [30, 35, 43, 53] {
                 for rank in 8...9 {
@@ -176,7 +176,7 @@ final class MaterialCatalogTests: XCTestCase {
     private func upperPipInkCount(_ kind: TileKind, style: TileFaceStyle, width: CGFloat,
                                   gold: Bool = false, selected: Bool = false) throws -> Int {
         let renderer = ImageRenderer(content:
-            TileFace(kind: kind, gold: gold, selected: selected)
+            TileFace(kind: kind, gold: gold, selected: selected, showsGoldBadge: false)
                 .frame(width: width, height: width / TileFace.artworkAspectRatio)
                 .environment(\.tileMaterial, .porcelain)
                 .environment(\.tileFaceStyle, style)

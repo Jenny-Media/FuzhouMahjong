@@ -146,7 +146,7 @@ struct TileFace: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if gold && showsGoldBadge && width >= 30 {
+                if gold && showsGoldBadge && width >= 26 {
                     goldBadge(width: width)
                 }
             }
@@ -159,14 +159,13 @@ struct TileFace: View {
     private func goldBadge(width: CGFloat) -> some View {
         let classic = tileMaterial == .classic
         return Text("金")
-            .font(.system(size: min(11, width * 0.20), weight: .bold))
+            .font(.system(size: min(11, width * 0.27), weight: .bold))
             .foregroundStyle(classic ? TeaTheme.porcelain : TeaTheme.color(0x292115))
-            .fixedSize()
-            .frame(width: width * 0.23, height: width * 0.22)
+            .padding(.horizontal, classic ? 2 : 3)
+            .padding(.vertical, classic ? 2 : 1)
             .background(classic ? TeaTheme.wood : TeaTheme.modernTileGoldBadge,
-                        in: RoundedRectangle(cornerRadius: 2))
-            // Straddle the top edge so the lower corner of the badge stays clear of the ink.
-            .offset(y: -width * 0.075)
+                        in: RoundedRectangle(cornerRadius: 3))
+            .offset(x: classic ? 1 : 0, y: classic ? -2 : 0)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

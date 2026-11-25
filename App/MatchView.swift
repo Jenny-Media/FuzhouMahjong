@@ -936,14 +936,12 @@ struct MatchView<Session: MatchSession>: View {
         let cellWidth = min(46, max(0, availableWidth - rim * 2) / CGFloat(slotCount))
         let cellHeight = max(TeaTheme.hitTarget, RackTile.faceSize(for: cellWidth).height)
         let rackMelds = availableRackMelds(table)
-        // Leave clearance for gold badges when a tile is lifted in the second row.
-        let rowSpacing: CGFloat = 7
-        let rackHeight = landscape ? cellHeight : cellHeight * 2 + rowSpacing
+        let rackHeight = landscape ? cellHeight : cellHeight * 2 + 4
         let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: 0), count: count)
         return HStack(alignment: .bottom, spacing: 0) {
             TimelineView(.animation(minimumInterval: 1 / 30, paused: dealStage?.isDealing != true)) { time in
                 let landed = dealStage?.landed(for: table.viewer, dealer: table.dealer, at: time.date) ?? tiles.count
-                LazyVGrid(columns: columns, spacing: rowSpacing) {
+                LazyVGrid(columns: columns, spacing: 4) {
                     ForEach(Array(tiles.enumerated()), id: \.element.id) { index, tile in
                         Group {
                             if arranging {
