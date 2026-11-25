@@ -70,18 +70,9 @@ func load(_ url: URL) -> CGImage {
     return CGImageSourceCreateImageAtIndex(source, 0, nil)!
 }
 
-enum Pigment: Int {
-    case red = 0, blue = 2
-
-    func matches(_ pixel: UnsafePointer<UInt8>) -> Bool {
-        let other = self == .red ? 2 : 0
-        return Int(pixel[rawValue]) - Int(max(pixel[1], pixel[other])) > 18
-    }
-}
-
 // The approved review boards share a registered grid. Recover pigment coverage
 // from the tile interior, then remove the sampled neutral substrate.
-func extractInk(_ source: CGImage, rect: CGRect, pigment: Pigment? = nil) -> CGImage {
+func extractInk(_ source: CGImage, rect: CGRect) -> CGImage {
     let crop = source.cropping(to: rect)!
     let context = bitmap(crop.width, crop.height)
     context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
@@ -92,8 +83,7 @@ func extractInk(_ source: CGImage, rect: CGRect, pigment: Pigment? = nil) -> CGI
         let pixel = data.advanced(by: offset)
         let darkest = Double(min(pixel[0], pixel[1], pixel[2]))
         let lightest = Double(max(pixel[0], pixel[1], pixel[2]))
-        let matchesInk = pigment?.matches(pixel) ?? true
-        let alpha = matchesInk && darkest < 204 && (lightest - darkest > 24 || lightest < 170)
+        let alpha = darkest < 204 && (lightest - darkest > 24 || lightest < 170)
             ? min(1, (213 - darkest) / 183)
             : 0
         for channel in 0..<3 {
@@ -105,15 +95,14 @@ func extractInk(_ source: CGImage, rect: CGRect, pigment: Pigment? = nil) -> CGI
     return context.makeImage()!
 }
 
-func tileSample(_ source: CGImage, column: Int, row: Int, pigment: Pigment? = nil) -> CGImage {
+func tileSample(_ source: CGImage, column: Int, row: Int) -> CGImage {
     let left = [83, 368, 650, 933, 1217][column]
     let top = [33, 351, 676][row]
     let height = [291, 297, 303][row]
     let insetX = 13
     let insetY = 12
     let ink = extractInk(source, rect: CGRect(x: left + insetX, y: top + insetY,
-                                             width: 235 - 2 * insetX, height: height - 2 * insetY),
-                         pigment: pigment)
+                                             width: 235 - 2 * insetX, height: height - 2 * insetY))
     let context = bitmap(cellWidth, cellHeight)
     let scale = min(CGFloat(cellWidth) / 235, CGFloat(cellHeight) / CGFloat(height))
     let width = CGFloat(ink.width) * scale
@@ -158,11 +147,20 @@ func drawGlyph(_ outline: CGPath, color: CGColor, in box: CGRect, scale: CGFloat
     context.translateBy(x: box.midX - bounds.midX * scale, y: box.midY - bounds.midY * scale)
     context.scaleBy(x: scale, y: scale)
     context.setFillColor(color)
-    context.setStrokeColor(color)
-    context.setLineWidth(addedStroke / scale)
-    context.setLineJoin(.round)
-    context.addPath(outline)
-    context.drawPath(using: addedStroke > 0 ? .fillStroke : .fill)
+    if addedStroke < 0 {
+        // Resolve overlapping font contours before thinning to preserve the joins.
+        let shape = outline.normalized()
+        let edge = shape.copy(strokingWithWidth: -addedStroke / scale, lineCap: .round,
+                              lineJoin: .round, miterLimit: 2)
+        context.addPath(shape.subtracting(edge))
+        context.fillPath()
+    } else {
+        context.setStrokeColor(color)
+        context.setLineWidth(addedStroke / scale)
+        context.setLineJoin(.round)
+        context.addPath(outline)
+        context.drawPath(using: addedStroke > 0 ? .fillStroke : .fill)
+    }
     context.restoreGState()
 }
 
@@ -185,15 +183,6 @@ func inkBounds(_ image: CGImage) -> CGRect {
     return bounds
 }
 
-func drawFittedInk(_ image: CGImage, in box: CGRect, minimumBottom: CGFloat = 0, on context: CGContext) {
-    let bounds = inkBounds(image)
-    let scale = min(box.width / bounds.width, box.height / bounds.height)
-    let bottom = max(minimumBottom, box.midY - bounds.height * scale / 2)
-    let pixelsBelowInk = CGFloat(image.height) - bounds.maxY
-    context.draw(image, in: CGRect(x: box.midX - bounds.midX * scale, y: bottom - pixelsBelowInk * scale,
-                                   width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale))
-}
-
 func recolor(_ image: CGImage, to color: CGColor) -> CGImage {
     let context = bitmap(image.width, image.height)
     let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
@@ -202,36 +191,6 @@ func recolor(_ image: CGImage, to color: CGColor) -> CGImage {
     context.setFillColor(color)
     context.fill(rect)
     return context.makeImage()!
-}
-
-func drawSampledGlyph(_ sample: CGImage, in box: CGRect, strokeRadius: Int, minimumBottom: CGFloat = 0,
-                      on context: CGContext) {
-    let fitted = bitmap(cellWidth, cellHeight)
-    let inset = CGFloat(strokeRadius)
-    drawFittedInk(sample, in: box.insetBy(dx: inset, dy: inset), minimumBottom: minimumBottom + inset, on: fitted)
-    let source = fitted.data!.assumingMemoryBound(to: UInt8.self)
-    // Set a solid ink core and drop faint residue from the sampled tile surface.
-    let coverage = (0..<(cellWidth * cellHeight)).map { index in
-        UInt8(clamping: (Int(source[index * 4 + 3]) - 32) * 255 / (205 - 32))
-    }
-    let offsets = (-strokeRadius...strokeRadius).flatMap { dy in
-        (-strokeRadius...strokeRadius).compactMap { dx in
-            dx * dx + dy * dy <= strokeRadius * strokeRadius ? dy * cellWidth + dx : nil
-        }
-    }
-
-    let expanded = bitmap(cellWidth, cellHeight)
-    let pixels = expanded.data!.assumingMemoryBound(to: UInt8.self)
-    for y in strokeRadius..<(cellHeight - strokeRadius) {
-        for x in strokeRadius..<(cellWidth - strokeRadius) {
-            let index = y * cellWidth + x
-            var alpha: UInt8 = 0
-            for offset in offsets { alpha = max(alpha, coverage[index + offset]) }
-            pixels[index * 4 + 3] = alpha
-        }
-    }
-    let glyph = recolor(expanded.makeImage()!, to: blue)
-    context.draw(glyph, in: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight))
 }
 
 struct BambooArtwork {
@@ -329,7 +288,19 @@ struct BambooArtwork {
     }
 }
 
-func drawMinimalCircles(_ rank: Int, on context: CGContext) {
+func drawCircles(_ rank: Int, compactTraditional: Bool = false, on context: CGContext) {
+    if compactTraditional && rank == 1 {
+        let frame = CGRect(x: 24, y: 62, width: 144, height: 144)
+        context.setStrokeColor(blue)
+        context.setLineWidth(8)
+        context.strokeEllipse(in: frame.insetBy(dx: 4, dy: 4))
+        context.setFillColor(green)
+        for (x, y) in [(65, 101), (65, 167), (127, 101), (127, 167)] {
+            context.fillEllipse(in: CGRect(x: x - 11, y: y - 11, width: 22, height: 22))
+        }
+        drawRosette(x: 96, y: 134, diameter: 76, color: red, on: context)
+        return
+    }
     let corners: [(CGFloat, CGFloat)] = [(54, 181), (138, 181), (54, 87), (138, 87)]
     let dots: [(CGFloat, CGFloat)]
     let diameter: CGFloat
@@ -358,10 +329,57 @@ func drawMinimalCircles(_ rank: Int, on context: CGContext) {
     default: Array(repeating: blue, count: dots.count)
     }
     for ((x, y), color) in zip(dots, colors) {
-        context.setFillColor(color)
-        context.fillEllipse(in: CGRect(x: x - diameter / 2, y: y - diameter / 2,
-                                       width: diameter, height: diameter))
+        if compactTraditional {
+            drawRosette(x: x, y: y, diameter: diameter + 4, color: color, on: context)
+        } else {
+            context.setFillColor(color)
+            context.fillEllipse(in: CGRect(x: x - diameter / 2, y: y - diameter / 2,
+                                           width: diameter, height: diameter))
+        }
     }
+}
+
+func drawRosette(x: CGFloat, y: CGFloat, diameter: CGFloat, color: CGColor, on context: CGContext) {
+    let ring = diameter * 0.12
+    context.setStrokeColor(color)
+    context.setLineWidth(ring)
+    context.strokeEllipse(in: CGRect(x: x - diameter / 2 + ring / 2, y: y - diameter / 2 + ring / 2,
+                                     width: diameter - ring, height: diameter - ring))
+    context.setFillColor(color)
+    let petal = diameter * 0.18
+    let offset = diameter * 0.15
+    for (dx, dy) in [(0, offset), (offset, 0), (0, -offset), (-offset, 0)] {
+        context.fillEllipse(in: CGRect(x: x + dx - petal / 2, y: y + dy - petal / 2,
+                                       width: petal, height: petal))
+    }
+}
+
+func drawCompactWhiteDragon(on context: CGContext) {
+    let border = CGPath(roundedRect: CGRect(x: 39, y: 48, width: 114, height: 172),
+                        cornerWidth: 13, cornerHeight: 13, transform: nil)
+    context.setStrokeColor(blue)
+    context.setLineWidth(8)
+    context.addPath(border)
+    context.strokePath()
+}
+
+func separateLowerCircleRows(_ sample: CGImage, top: Int, split: Int) -> CGImage {
+    // Keep the upper pips in place and open a gap between the two lower pairs.
+    let tile = bitmap(cellWidth, cellHeight)
+    let width = CGFloat(cellWidth)
+    let upper = sample.cropping(to: CGRect(x: 0, y: 0, width: cellWidth, height: top))!
+    tile.draw(upper, in: CGRect(x: 0, y: cellHeight - top, width: cellWidth, height: top))
+    let scale: CGFloat = 0.92
+    for (band, shift) in [(top..<split, 1.0), (split..<cellHeight, -1.0)] {
+        let pair = sample.cropping(to: CGRect(x: 0, y: band.lowerBound, width: cellWidth, height: band.count))!
+        let inkMidY = inkBounds(pair).midY
+        let centerY = CGFloat(cellHeight - band.lowerBound) - inkMidY
+        let height = CGFloat(band.count) * scale
+        tile.draw(pair, in: CGRect(x: (width - width * scale) / 2,
+                                   y: centerY - (CGFloat(band.count) - inkMidY) * scale + shift,
+                                   width: width * scale, height: height))
+    }
+    return tile.makeImage()!
 }
 
 func separateTraditionalEightCircles(_ sample: CGImage) -> CGImage {
@@ -384,26 +402,33 @@ func render(_ style: Style) throws {
     let board = load(references.appending(path: "\(style.sheet).png"))
     let atlas = bitmap(cellWidth * columns, cellHeight * rows)
     // These approved cells supply the complete circle tiles, white dragon, and bamboo samples.
-    let sampleIndices = [9, 10, 11, 12, 13, 14, 15, 16, 17, 33, 18, 20]
+    let sampleIndices = [9, 10, 11, 12, 13, 14, 15, 16, 17, 33, 18]
     let approved: [Int: CGImage] = Dictionary(uniqueKeysWithValues: sampleIndices.enumerated().compactMap { position, index in
         guard style != .minimal || index == 18 || index == 33 else { return nil }
         let sample = tileSample(board, column: position % 5, row: position / 5)
-        return (index, style == .traditional && index == 16 ? separateTraditionalEightCircles(sample) : sample)
+        let artwork = switch (style, index) {
+        case (.photoMatched, 15): separateLowerCircleRows(sample, top: 139, split: 187)
+        case (.traditional, 14): separateLowerCircleRows(sample, top: 121, split: 176)
+        case (.traditional, 16): separateTraditionalEightCircles(sample)
+        default: sample
+        }
+        return (index, artwork)
     })
     let font = markingFont(for: style)
-    let wan: CGImage
-    if style == .minimal {
-        let tile = bitmap(cellWidth, cellHeight)
-        let glyph = glyphPath("万", font: font)
-        let box = CGRect(x: 41, y: 42, width: 110, height: 91)
-        let scale = sharedScale(for: [glyph], in: box, addedStroke: 0) * 0.85
-        drawGlyph(glyph, color: red, in: box, scale: scale, addedStroke: 0, on: tile)
-        wan = tile.makeImage()!
-    } else {
-        wan = tileSample(board, column: 2, row: 2, pigment: .red)
+    let wanTile = bitmap(cellWidth, cellHeight)
+    let wanGlyph = glyphPath(style == .minimal ? "万" : "萬", font: font)
+    let wanBox: CGRect = switch style {
+    case .photoMatched: CGRect(x: 44, y: 37, width: 104, height: 105)
+    case .minimal: CGRect(x: 41, y: 42, width: 110, height: 91)
+    case .traditional: CGRect(x: 42, y: 32, width: 108, height: 113)
     }
+    // The dense strokes of 萬 need more space at discard size.
+    let wanStroke = style.addedStroke * 0.4
+    let wanScale = sharedScale(for: [wanGlyph], in: wanBox, addedStroke: wanStroke) * (style == .minimal ? 0.85 : 0.96)
+    drawGlyph(wanGlyph, color: red, in: wanBox, scale: wanScale, addedStroke: wanStroke, on: wanTile)
+    let wan = wanTile.makeImage()!
     // Convert image rows to the drawing context's bottom-left origin.
-    let minimumNumeralBottom = CGFloat(cellHeight) - inkBounds(wan).minY + 6
+    let minimumNumeralBottom = CGFloat(cellHeight) - inkBounds(wan).minY + 13
     let bamboo = BambooArtwork(from: board, style: style)
     let numerals = ["一", "二", "三", "四", style == .minimal ? "五" : "伍", "六", "七", "八", "九"]
         .map { glyphPath($0, font: font) }
@@ -411,15 +436,12 @@ func render(_ style: Style) throws {
         .map { glyphPath($0, font: font) }
     let numeralScale = sharedScale(for: numerals, in: style.numeralBox, addedStroke: style.addedStroke)
     let honorScale = sharedScale(for: honors, in: style.honorBox, addedStroke: style.addedStroke)
-    let sampledStrokeRadius = style == .traditional ? 2 : 1
-    let sampledRanks = style == .minimal ? [:] : [
-        4: tileSample(board, column: 2, row: 2, pigment: .blue),
-        5: tileSample(board, column: 3, row: 2, pigment: .blue),
-    ]
-    let widestGeneratedRank = numerals.enumerated().filter { sampledRanks[$0.offset] == nil }
-        .map { $0.element.boundingBoxOfPath.width }.max()!
-    let sampledRankWidth = widestGeneratedRank * numeralScale + style.addedStroke
-    let sampledRankBox = style.numeralBox.insetBy(dx: (style.numeralBox.width - sampledRankWidth) / 2, dy: 0)
+    // Center the single stroke within each style's upper numeral area.
+    let oneStrokeOffset: CGFloat = switch style {
+    case .photoMatched: 2
+    case .minimal: 1
+    case .traditional: -16
+    }
 
     for index in 0..<(columns * rows) {
         let rect = CGRect(x: index % columns * cellWidth, y: (rows - 1 - index / columns) * cellHeight,
@@ -431,45 +453,55 @@ func render(_ style: Style) throws {
         let tile = bitmap(cellWidth, cellHeight)
         switch index {
         case 0...8:
-            if let sample = sampledRanks[index] {
-                drawSampledGlyph(sample, in: sampledRankBox, strokeRadius: sampledStrokeRadius,
-                                 minimumBottom: minimumNumeralBottom, on: tile)
-            } else {
-                let numeral = numerals[index]
-                let height = numeral.boundingBoxOfPath.height * numeralScale + style.addedStroke
-                let bottom = style.numeralBox.midY - height / 2
-                let box = style.numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
-                drawGlyph(numeral, color: blue, in: box, scale: numeralScale,
-                          addedStroke: style.addedStroke, on: tile)
+            let numeral = numerals[index]
+            // Give 四 more height and keep the enclosed counters open.
+            let (scaleAdjustment, strokeReduction): (CGFloat, CGFloat) = switch (style, index) {
+            case (.photoMatched, 3): (1.22, 4.4)
+            case (.traditional, 3): (1.22, 5.25)
+            case (.traditional, 4): (1, 2.6)
+            case (.minimal, 3): (1.055, 3.4)
+            case (_, 4): (1, 1.8)
+            default: (1, 0)
             }
+            let scale = numeralScale * scaleAdjustment
+            let stroke = style.addedStroke - strokeReduction
+            let height = numeral.boundingBoxOfPath.height * scale + stroke
+            let numeralBox = style.numeralBox.offsetBy(dx: 0, dy: index == 0 ? oneStrokeOffset : 0)
+            let bottom = numeralBox.midY - height / 2
+            let box = numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
+            drawGlyph(numeral, color: blue, in: box, scale: scale, addedStroke: stroke, on: tile)
             tile.draw(wan, in: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight))
         case 9...17:
-            drawMinimalCircles(index - 8, on: tile)
+            drawCircles(index - 8, on: tile)
         case 18...26:
             bamboo.draw(index - 17, on: tile)
-        case 27 where style != .minimal:
-            let sample = tileSample(board, column: 4, row: 2, pigment: .blue)
-            let tallestOtherWind = honors[1...3].map { $0.boundingBoxOfPath.height }.max()!
-            let height = tallestOtherWind * honorScale + style.addedStroke
-            let box = style.honorBox.insetBy(dx: 0, dy: (style.honorBox.height - height) / 2)
-            drawSampledGlyph(sample, in: box, strokeRadius: sampledStrokeRadius, on: tile)
         case 27...32, 34...41:
             let color = index == 31 || index >= 38 ? red : index >= 32 ? green : blue
+            // 西 is naturally shorter than the other winds.
+            let scale = index == 29 && style != .minimal ? honorScale * 1.09 : honorScale
             // Keep the narrow gaps in 蘭 and 夏 open at bonus-strip size.
-            let strokeScale: CGFloat = switch index {
-            case 35: 0.2
-            case 39: 0.4
-            default: 1
+            let stroke: CGFloat = switch (style, index) {
+            case (.photoMatched, 29): 2.2
+            case (.traditional, 29): 3.2
+            case (.minimal, 35): -2.1
+            case (.minimal, 39): -2.0
+            case (_, 35): style.addedStroke * 0.2
+            case (_, 39): style.addedStroke * 0.4
+            default: style.addedStroke
             }
-            drawGlyph(honors[index - 27], color: color, in: style.honorBox, scale: honorScale,
-                      addedStroke: style.addedStroke * strokeScale, on: tile)
+            drawGlyph(honors[index - 27], color: color, in: style.honorBox, scale: scale,
+                      addedStroke: stroke, on: tile)
         default:
             preconditionFailure("Missing tile \(index)")
         }
         atlas.draw(tile.makeImage()!, in: rect)
     }
 
-    let imageset = catalog.appending(path: "\(style.asset).imageset")
+    try writeAtlas(atlas, named: style.asset)
+}
+
+func writeAtlas(_ atlas: CGContext, named name: String) throws {
+    let imageset = catalog.appending(path: "\(name).imageset")
     try FileManager.default.createDirectory(at: imageset, withIntermediateDirectories: true)
     let info = #"{"images":[{"filename":"markings.png","idiom":"universal","scale":"1x"}],"info":{"author":"xcode","version":1}}"#
     try (info + "\n").write(to: imageset.appending(path: "Contents.json"), atomically: true, encoding: .utf8)
@@ -482,3 +514,18 @@ func render(_ style: Style) throws {
 for style in Style.allCases {
     try render(style)
 }
+
+let compactColumns = 5
+let compact = bitmap(cellWidth * compactColumns, cellHeight * 2)
+for index in 0..<10 {
+    let tile = bitmap(cellWidth, cellHeight)
+    if index == 9 {
+        drawCompactWhiteDragon(on: tile)
+    } else {
+        drawCircles(index + 1, compactTraditional: true, on: tile)
+    }
+    compact.draw(tile.makeImage()!, in: CGRect(x: index % compactColumns * cellWidth,
+                                             y: (1 - index / compactColumns) * cellHeight,
+                                             width: cellWidth, height: cellHeight))
+}
+try writeAtlas(compact, named: "TraditionalCompactMarkings")

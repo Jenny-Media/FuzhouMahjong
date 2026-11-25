@@ -503,7 +503,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 let singleLine = !stacked && height < 38
                 let visibleTitle = if compact, let detail { "\(tileName) · \(detail)" } else { tileName }
                 layout {
-                    TileFace(kind: latest.tile.kind, gold: isGold)
+                    TileFace(kind: latest.tile.kind, gold: isGold, showsGoldBadge: false)
                         .frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
                         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                             if table.step == .claim, table.offeredTile?.id == latest.id {
