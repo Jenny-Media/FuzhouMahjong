@@ -967,14 +967,8 @@ struct MatchView<Session: MatchSession>: View {
                                 }, moveEarlier: index > 0 ? { moveInHand(tile.id, to: index - 1) } : nil,
                                          moveLater: index + 1 < tiles.count ? { moveInHand(tile.id, to: index + 1) } : nil)
                             } else {
-                                let column = index % count
-                                let edge: HorizontalEdge? = if column == 0 {
-                                    .leading
-                                } else if column == count - 1 || index == tiles.count - 1 {
-                                    .trailing
-                                } else {
-                                    nil
-                                }
+                                let edge = RackTile.DiscardSwipe.rackEdge(at: index, tileCount: tiles.count,
+                                                                        columns: count, slotCount: slotCount)
                                 tileButton(tile, table: table, rackCellWidth: cellWidth,
                                            rackEdge: edge, rackMelds: rackMelds)
                             }

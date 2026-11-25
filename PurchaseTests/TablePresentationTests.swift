@@ -22,6 +22,20 @@ final class TablePresentationTests: XCTestCase {
         }
     }
 
+    func testPartialRackRowEndsUseThePaneCenter() {
+        let edge = RackTile.DiscardSwipe.rackEdge
+        XCTAssertEqual(edge(8, 10, 8, 8), .leading)
+        XCTAssertEqual(edge(9, 10, 8, 8), .leading)
+        XCTAssertEqual(edge(12, 13, 8, 8), .trailing)
+        XCTAssertNil(edge(9, 13, 8, 8))
+        XCTAssertEqual(edge(7, 10, 8, 8), .trailing)
+
+        // The draw slot shares the center of the pane with a single-row rack.
+        XCTAssertEqual(edge(6, 7, 16, 17), .leading)
+        XCTAssertNil(edge(8, 9, 16, 17))
+        XCTAssertEqual(edge(9, 10, 16, 17), .trailing)
+    }
+
     func testRackDiscardSwipeRequiresAnUpwardStartAndEnoughRise() {
         let rejected: [(HorizontalEdge?, CGSize)] = [
             (.leading, CGSize(width: 100, height: -10)),

@@ -38,6 +38,18 @@ struct RackTile: View {
         static let minimumDistance: CGFloat = 12
         private(set) var isTracking = false
 
+        static func rackEdge(at index: Int, tileCount: Int, columns: Int, slotCount: Int) -> HorizontalEdge? {
+            let column = index % columns
+            guard column == 0 || column == columns - 1 || index == tileCount - 1 else { return nil }
+
+            // The fixed grid and any adjacent draw slot are centered together in the pane.
+            let tileCenter = CGFloat(column) + 0.5
+            let paneCenter = CGFloat(slotCount) / 2
+            if tileCenter < paneCenter { return .leading }
+            if tileCenter > paneCenter { return .trailing }
+            return nil
+        }
+
         mutating func track(_ translation: CGSize, edge: HorizontalEdge?, direction: LayoutDirection) {
             guard !isTracking else { return }
             let horizontal = direction == .leftToRight ? translation.width : -translation.width
