@@ -47,7 +47,11 @@ struct RackTile: View {
             isTracking = rise >= Self.minimumDistance && rise > abs(horizontal) * minimumRise
         }
 
-        func canRelease(_ translation: CGSize, predictedEnd: CGSize) -> Bool {
+        func canReleaseDiscard(_ translation: CGSize) -> Bool {
+            isTracking && -translation.height >= 48
+        }
+
+        func canReleaseMeld(_ translation: CGSize, predictedEnd: CGSize) -> Bool {
             let rise = -translation.height
             return isTracking && rise >= 22 && (rise >= 48 || -predictedEnd.height >= 77)
         }
@@ -149,7 +153,10 @@ struct RackTile: View {
     }
 
     private func canRelease(_ gesture: DragGesture.Value, swipe: DiscardSwipe) -> Bool {
-        (canDiscard || meldAction != nil) && swipe.canRelease(gesture.translation, predictedEnd: gesture.predictedEndTranslation)
+        if meldAction != nil {
+            return swipe.canReleaseMeld(gesture.translation, predictedEnd: gesture.predictedEndTranslation)
+        }
+        return canDiscard && swipe.canReleaseDiscard(gesture.translation)
     }
 
     private struct PressStyle: ButtonStyle {

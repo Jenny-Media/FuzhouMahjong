@@ -12,12 +12,12 @@ final class TablePresentationTests: XCTestCase {
                 var swipe = RackTile.DiscardSwipe()
                 let diagonal = CGSize(width: inward * 62, height: -62)
                 swipe.track(diagonal, edge: edge, direction: direction)
-                XCTAssertTrue(swipe.canRelease(diagonal, predictedEnd: diagonal))
+                XCTAssertTrue(swipe.canReleaseDiscard(diagonal))
 
                 let curveEnd = CGSize(width: inward * 120, height: -62)
                 swipe.track(curveEnd, edge: edge, direction: direction)
-                XCTAssertTrue(swipe.canRelease(curveEnd, predictedEnd: curveEnd))
-                XCTAssertFalse(swipe.canRelease(CGSize(width: inward * 20, height: -14), predictedEnd: .zero))
+                XCTAssertTrue(swipe.canReleaseDiscard(curveEnd))
+                XCTAssertFalse(swipe.canReleaseDiscard(CGSize(width: inward * 20, height: -14)))
             }
         }
     }
@@ -32,16 +32,20 @@ final class TablePresentationTests: XCTestCase {
             var swipe = RackTile.DiscardSwipe()
             swipe.track(translation, edge: edge, direction: .leftToRight)
             XCTAssertFalse(swipe.isTracking)
-            XCTAssertFalse(swipe.canRelease(translation, predictedEnd: translation))
+            XCTAssertFalse(swipe.canReleaseDiscard(translation))
         }
 
         var swipe = RackTile.DiscardSwipe()
         let short = CGSize(width: 4, height: -16)
         swipe.track(short, edge: .leading, direction: .leftToRight)
         XCTAssertTrue(swipe.isTracking)
-        XCTAssertFalse(swipe.canRelease(short, predictedEnd: CGSize(width: 8, height: -100)))
+        XCTAssertFalse(swipe.canReleaseDiscard(short))
         let flick = CGSize(width: 10, height: -24)
-        XCTAssertTrue(swipe.canRelease(flick, predictedEnd: CGSize(width: 16, height: -80)))
+        XCTAssertFalse(swipe.canReleaseDiscard(flick))
+        XCTAssertTrue(swipe.canReleaseMeld(flick, predictedEnd: CGSize(width: 16, height: -80)))
+
+        XCTAssertTrue(swipe.canReleaseDiscard(CGSize(width: 10, height: -48)))
+        XCTAssertFalse(swipe.canReleaseDiscard(CGSize(width: 10, height: -47.9)))
     }
 
     func testFoldAtAWindowEdgeKeepsTheTableAndRackInOnePane() {
