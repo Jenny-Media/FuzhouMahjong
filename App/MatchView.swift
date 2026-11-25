@@ -967,8 +967,10 @@ struct MatchView<Session: MatchSession>: View {
                                 }, moveEarlier: index > 0 ? { moveInHand(tile.id, to: index - 1) } : nil,
                                          moveLater: index + 1 < tiles.count ? { moveInHand(tile.id, to: index + 1) } : nil)
                             } else {
+                                let edge = RackTile.DiscardSwipe.rackEdge(at: index, tileCount: tiles.count,
+                                                                        columns: count, slotCount: slotCount)
                                 tileButton(tile, table: table, rackCellWidth: cellWidth,
-                                           rackMelds: rackMelds)
+                                           rackEdge: edge, rackMelds: rackMelds)
                             }
                         }
                         .opacity(index < landed ? 1 : 0)
@@ -1022,7 +1024,7 @@ struct MatchView<Session: MatchSession>: View {
                 .accessibilityHidden(true)
             Group {
                 if let tile {
-                    tileButton(tile, table: table, rackCellWidth: rackCellWidth, isDrawn: true,
+                    tileButton(tile, table: table, rackCellWidth: rackCellWidth, rackEdge: .trailing, isDrawn: true,
                                rackMelds: availableRackMelds(table))
                 } else {
                     Color.clear.accessibilityHidden(true)
@@ -1112,7 +1114,7 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func tileButton(_ tile: Tile, table: TableState, rackCellWidth: CGFloat? = nil,
-                            isDrawn: Bool = false, rackMelds: [Move]) -> some View {
+                            rackEdge: HorizontalEdge? = nil, isDrawn: Bool = false, rackMelds: [Move]) -> some View {
         let playable = active && !arranging && opening == nil && session.moveStatus == nil && !localDrawInFlight(table)
         let options = meldOptions(for: tile, among: rackMelds, table: table)
         let canSwap = playable && robGoldChoice != nil && table.step == .opening && table.canSubmit(.discard(tile.id))
@@ -1138,7 +1140,7 @@ struct MatchView<Session: MatchSession>: View {
         }
         return RackTile(tile: tile, isGold: showsGoldIndicator && table.isGold(tile), isSelected: selected,
                         isDrawn: isDrawn, drawLabel: drawLabel(table),
-                        canSelect: canSelect, canDiscard: canDiscard, rackCellWidth: rackCellWidth, select: {
+                        canSelect: canSelect, canDiscard: canDiscard, rackCellWidth: rackCellWidth, rackEdge: rackEdge, select: {
             if canSwap {
                 guard robGoldChoice?.tileID != tile.id, session.table?.canSubmit(.discard(tile.id)) == true else { return }
                 robGoldChoice = .selected(tile.id)

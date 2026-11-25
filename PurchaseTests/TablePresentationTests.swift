@@ -5,6 +5,95 @@ import XCTest
 
 @MainActor
 final class TablePresentationTests: XCTestCase {
+    func testRackEndSwipeKeepsTrackingWhenItCurvesInward() {
+        for direction in [LayoutDirection.leftToRight, .rightToLeft] {
+            for edge in [HorizontalEdge.leading, .trailing] {
+                let inward: CGFloat = (edge == .leading) == (direction == .leftToRight) ? 1 : -1
+                var swipe = RackTile.DiscardSwipe()
+                let start = CGSize(width: inward * 12, height: -8)
+                swipe.track(start, edge: edge, direction: direction)
+                XCTAssertTrue(swipe.isTracking)
+                XCTAssertFalse(swipe.canReleaseDiscard(start))
+
+                let curveEnd = CGSize(width: inward * 92, height: -50)
+                swipe.track(curveEnd, edge: edge, direction: direction)
+                XCTAssertTrue(swipe.canReleaseDiscard(curveEnd))
+                XCTAssertFalse(swipe.canReleaseDiscard(CGSize(width: inward * 20, height: -14)))
+            }
+        }
+    }
+
+    func testPartialRackRowEndsUseThePaneCenter() {
+        let edge = RackTile.DiscardSwipe.rackEdge
+        XCTAssertEqual(edge(8, 10, 8, 8), .leading)
+        XCTAssertEqual(edge(9, 10, 8, 8), .leading)
+        XCTAssertEqual(edge(12, 13, 8, 8), .trailing)
+        XCTAssertNil(edge(9, 13, 8, 8))
+        XCTAssertEqual(edge(7, 10, 8, 8), .trailing)
+
+        // The draw slot shares the center of the pane with a single-row rack.
+        XCTAssertEqual(edge(6, 7, 16, 17), .leading)
+        XCTAssertNil(edge(8, 9, 16, 17))
+        XCTAssertEqual(edge(9, 10, 16, 17), .trailing)
+    }
+
+    func testRackDiscardSwipeRequiresAnUpwardStartAndEnoughRise() {
+        let rejected: [(HorizontalEdge?, CGSize)] = [
+            (.leading, CGSize(width: 100, height: -10)),
+            (.trailing, CGSize(width: 62, height: -62)),
+            (nil, CGSize(width: 62, height: -62))
+        ]
+        for (edge, translation) in rejected {
+            var swipe = RackTile.DiscardSwipe()
+            swipe.track(translation, edge: edge, direction: .leftToRight)
+            XCTAssertFalse(swipe.isTracking)
+            XCTAssertFalse(swipe.canReleaseDiscard(translation))
+        }
+
+        var swipe = RackTile.DiscardSwipe()
+        let short = CGSize(width: 4, height: -16)
+        swipe.track(short, edge: .leading, direction: .leftToRight)
+        XCTAssertTrue(swipe.isTracking)
+        XCTAssertFalse(swipe.canReleaseDiscard(short))
+        let flick = CGSize(width: 10, height: -24)
+        XCTAssertFalse(swipe.canReleaseDiscard(flick))
+
+        XCTAssertTrue(swipe.canReleaseDiscard(CGSize(width: 10, height: -48)))
+        XCTAssertFalse(swipe.canReleaseDiscard(CGSize(width: 10, height: -47.9)))
+    }
+
+    func testHeldMeldSwipeKeepsCheckingTheUpwardAngle() {
+        let swipe = RackTile.MeldSwipe(isDrawn: false, direction: .leftToRight)
+        let upward = CGSize(width: 0, height: -62)
+        XCTAssertTrue(swipe.isUpward(upward))
+        XCTAssertTrue(swipe.canRelease(upward, predictedEnd: upward))
+
+        let diagonal = CGSize(width: 62, height: -62)
+        XCTAssertFalse(swipe.isUpward(diagonal))
+        XCTAssertFalse(swipe.canRelease(diagonal, predictedEnd: diagonal))
+
+        let sideways = CGSize(width: 140, height: -50)
+        XCTAssertFalse(swipe.isUpward(sideways))
+        XCTAssertFalse(swipe.canRelease(sideways, predictedEnd: sideways))
+    }
+
+    func testMeldSwipeKeepsDrawnTileAllowanceAndFlickThreshold() {
+        for direction in [LayoutDirection.leftToRight, .rightToLeft] {
+            let swipe = RackTile.MeldSwipe(isDrawn: true, direction: direction)
+            let horizontal: CGFloat = direction == .leftToRight ? -62 : 62
+            let inward = CGSize(width: horizontal, height: -62)
+            let outward = CGSize(width: -horizontal, height: -62)
+            XCTAssertTrue(swipe.canRelease(inward, predictedEnd: inward))
+            XCTAssertFalse(swipe.canRelease(outward, predictedEnd: outward))
+        }
+
+        let swipe = RackTile.MeldSwipe(isDrawn: false, direction: .leftToRight)
+        let flick = CGSize(width: 10, height: -24)
+        XCTAssertTrue(swipe.canRelease(flick, predictedEnd: CGSize(width: 16, height: -80)))
+        XCTAssertFalse(swipe.canRelease(flick, predictedEnd: flick))
+        XCTAssertFalse(swipe.canRelease(CGSize(width: 0, height: -21), predictedEnd: CGSize(width: 0, height: -80)))
+    }
+
     func testFoldAtAWindowEdgeKeepsTheTableAndRackInOnePane() {
         let size = CGSize(width: 350, height: 600)
         let examples: [(CGRect, CGRect)] = [
