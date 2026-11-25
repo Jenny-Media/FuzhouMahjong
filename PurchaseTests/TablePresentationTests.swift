@@ -10,11 +10,12 @@ final class TablePresentationTests: XCTestCase {
             for edge in [HorizontalEdge.leading, .trailing] {
                 let inward: CGFloat = (edge == .leading) == (direction == .leftToRight) ? 1 : -1
                 var swipe = RackTile.DiscardSwipe()
-                let diagonal = CGSize(width: inward * 62, height: -62)
-                swipe.track(diagonal, edge: edge, direction: direction)
-                XCTAssertTrue(swipe.canReleaseDiscard(diagonal))
+                let start = CGSize(width: inward * 12, height: -8)
+                swipe.track(start, edge: edge, direction: direction)
+                XCTAssertTrue(swipe.isTracking)
+                XCTAssertFalse(swipe.canReleaseDiscard(start))
 
-                let curveEnd = CGSize(width: inward * 120, height: -62)
+                let curveEnd = CGSize(width: inward * 92, height: -50)
                 swipe.track(curveEnd, edge: edge, direction: direction)
                 XCTAssertTrue(swipe.canReleaseDiscard(curveEnd))
                 XCTAssertFalse(swipe.canReleaseDiscard(CGSize(width: inward * 20, height: -14)))

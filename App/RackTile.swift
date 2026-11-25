@@ -56,7 +56,7 @@ struct RackTile: View {
             let inward = (edge == .leading && horizontal > 0) || (edge == .trailing && horizontal < 0)
             let minimumRise: CGFloat = inward ? 0.55 : 1.2
             let rise = -translation.height
-            isTracking = rise >= Self.minimumDistance && rise > abs(horizontal) * minimumRise
+            isTracking = rise > abs(horizontal) * minimumRise
         }
 
         func canReleaseDiscard(_ translation: CGSize) -> Bool {
