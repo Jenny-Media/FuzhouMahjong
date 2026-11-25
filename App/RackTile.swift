@@ -50,10 +50,22 @@ struct RackTile: View {
         func canReleaseDiscard(_ translation: CGSize) -> Bool {
             isTracking && -translation.height >= 48
         }
+    }
 
-        func canReleaseMeld(_ translation: CGSize, predictedEnd: CGSize) -> Bool {
+    struct MeldSwipe {
+        let isDrawn: Bool
+        let direction: LayoutDirection
+
+        func isUpward(_ translation: CGSize) -> Bool {
+            let inward = direction == .leftToRight ? translation.width < 0 : translation.width > 0
+            // The draw slot sits beside the rack and allows a more diagonal inward swipe.
+            let minimumRise: CGFloat = isDrawn && inward ? 0.55 : 1.2
+            return -translation.height > abs(translation.width) * minimumRise
+        }
+
+        func canRelease(_ translation: CGSize, predictedEnd: CGSize) -> Bool {
             let rise = -translation.height
-            return isTracking && rise >= 22 && (rise >= 48 || -predictedEnd.height >= 77)
+            return rise >= 22 && isUpward(translation) && (rise >= 48 || -predictedEnd.height >= 77)
         }
     }
 
@@ -124,9 +136,13 @@ struct RackTile: View {
                     return
                 }
                 var updated = drag
-                updated.swipe.track(gesture.translation, edge: rackEdge, direction: layoutDirection)
-                guard updated.swipe.isTracking else { return }
-                updated.offset = gesture.translation
+                if meldAction != nil {
+                    updated.offset = meldSwipe.isUpward(gesture.translation) ? gesture.translation : .zero
+                } else {
+                    updated.swipe.track(gesture.translation, edge: rackEdge, direction: layoutDirection)
+                    guard updated.swipe.isTracking else { return }
+                    updated.offset = gesture.translation
+                }
                 if let swipeReady, !updated.reachedRelease, canRelease(gesture, swipe: updated.swipe) {
                     updated.reachedRelease = true
                     swipeReady()
@@ -140,7 +156,9 @@ struct RackTile: View {
                     reposition(gesture.location)
                     return
                 }
-                swipe.track(gesture.translation, edge: rackEdge, direction: layoutDirection)
+                if meldAction == nil {
+                    swipe.track(gesture.translation, edge: rackEdge, direction: layoutDirection)
+                }
                 guard canRelease(gesture, swipe: swipe) else { return }
                 if let meldAction {
                     meldAction.perform()
@@ -154,9 +172,13 @@ struct RackTile: View {
 
     private func canRelease(_ gesture: DragGesture.Value, swipe: DiscardSwipe) -> Bool {
         if meldAction != nil {
-            return swipe.canReleaseMeld(gesture.translation, predictedEnd: gesture.predictedEndTranslation)
+            return meldSwipe.canRelease(gesture.translation, predictedEnd: gesture.predictedEndTranslation)
         }
         return canDiscard && swipe.canReleaseDiscard(gesture.translation)
+    }
+
+    private var meldSwipe: MeldSwipe {
+        MeldSwipe(isDrawn: isDrawn, direction: layoutDirection)
     }
 
     private struct PressStyle: ButtonStyle {
