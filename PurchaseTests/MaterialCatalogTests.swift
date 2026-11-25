@@ -120,7 +120,7 @@ final class MaterialCatalogTests: XCTestCase {
 
     func testGoldIndicatorsKeepCirclePipsUncovered() throws {
         for style in TileFaceStyle.allCases {
-            for width: CGFloat in [35, 43, 53] {
+            for width: CGFloat in [30, 35, 43, 53] {
                 for rank in 8...9 {
                     let kind = TileKind(.circles, rank)
                     for selected in [false, true] {

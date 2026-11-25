@@ -101,6 +101,7 @@ struct TileFace: View {
     var kind: TileKind
     var gold = false
     var selected = false
+    var showsGoldBadge = true
 
     var body: some View {
         GeometryReader { geometry in
@@ -144,10 +145,30 @@ struct TileFace: View {
                     shape.strokeBorder(selectionEdge, lineWidth: selectionWidth)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if gold && showsGoldBadge && width >= 30 {
+                    goldBadge(width: width)
+                }
+            }
             .shadow(color: .black.opacity(0.24), radius: selected ? 3 : 1, y: selected ? 3 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .accessibilityLabel(gold ? "\(kind.spokenName)，金牌" : kind.spokenName)
+    }
+
+    private func goldBadge(width: CGFloat) -> some View {
+        let classic = tileMaterial == .classic
+        return Text("金")
+            .font(.system(size: min(11, width * 0.20), weight: .bold))
+            .foregroundStyle(classic ? TeaTheme.porcelain : TeaTheme.color(0x292115))
+            .fixedSize()
+            .frame(width: width * 0.23, height: width * 0.22)
+            .background(classic ? TeaTheme.wood : TeaTheme.modernTileGoldBadge,
+                        in: RoundedRectangle(cornerRadius: 2))
+            // Straddle the top edge so the lower corner of the badge stays clear of the ink.
+            .offset(y: -width * 0.075)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     private var artwork: some View {

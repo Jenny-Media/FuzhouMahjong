@@ -192,9 +192,9 @@ The built-in ImageGen prompts used the same layout with solid pips and plain gly
 
 [Marking atlases](App/Assets.xcassets/TileMarkings/) · [Atlas generator](Artwork/TileFaces/render-markings.swift)
 
-Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. Classic and Ornate Traditional use the approved markings to complete the character and bamboo suits. Minimal uses solid circles and plain bamboo strokes with blue, green, and red groupings by rank. It uses the simplified 万 glyph, with the bird and white dragon frame from its approved sheet. The two joined 八條 groups follow the physical layout in all three sets.
+Run `swift Artwork/TileFaces/render-markings.swift` from the project root on macOS to rebuild all three atlases. Classic and Ornate Traditional use the approved artwork for their pictorial markings. Minimal uses solid circles and plain bamboo strokes with blue, green, and red groupings by rank. It uses the simplified 万 glyph, with the bird and white dragon frame from its approved sheet. The two joined 八條 groups follow the physical layout in all three sets.
 
-The generated Chinese glyphs share a scale within each style. Classic and Ornate Traditional use the same cobalt ink for the sampled 伍, 六 and 東 brush shapes and the other blue glyphs. Their 蘭 and 夏 use a lighter stroke to keep the narrow gaps readable on small tiles. Both styles use an artwork-only subset of [LXGW WenKai TC Medium v1.530](https://github.com/lxgw/LxgwWenkaiTC/releases/tag/v1.530), included with its [font license](Artwork/TileFaces/TileCalligraphy-OFL.txt). Minimal uses PingFang TC Semibold.
+Classic and Ornate Traditional draw all their lettering, including 伍、六、萬 and 東, from one artwork-only subset of [LXGW WenKai TC Medium v1.530](https://github.com/lxgw/LxgwWenkaiTC/releases/tag/v1.530), included with its [font license](Artwork/TileFaces/TileCalligraphy-OFL.txt). Each style sets its own scale and stroke weight. 蘭 and 夏 use a lighter stroke to keep their narrow gaps readable on small tiles. Minimal uses PingFang TC Semibold.
 
 Each atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
 
