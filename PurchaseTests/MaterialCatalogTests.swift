@@ -164,9 +164,7 @@ final class MaterialCatalogTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(gap, 11, face)
                 numeralCenters.append(Double(top + bottom) / 2)
             }
-            if style != .traditional {
-                XCTAssertEqual(numeralCenters[0], numeralCenters[2], accuracy: 6, style.rawValue)
-            }
+            XCTAssertEqual(numeralCenters[0], numeralCenters[2], accuracy: 6, style.rawValue)
         }
     }
 

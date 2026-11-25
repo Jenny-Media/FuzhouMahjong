@@ -440,7 +440,7 @@ func render(_ style: Style) throws {
     let oneStrokeOffset: CGFloat = switch style {
     case .photoMatched: 2
     case .minimal: 1
-    case .traditional: -16
+    case .traditional: 8
     }
 
     for index in 0..<(columns * rows) {
