@@ -272,7 +272,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         } else {
             dealer = dealer.advanced(1)
             dealerTurns += 1
-            continuation = result.winner == nil ? continuation + 1 : 0
+            continuation = 0
         }
         roundNumber += 1
         var random = SystemRandomNumberGenerator()
@@ -309,7 +309,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         }
         // Reveal before replacing flowers when honors can be gold, so dealt copies of the
         // indicator stay in players' racks instead of being counted as flowers.
-        if goldIndicators != .suitedOnly {
+        if goldIndicators.revealsBeforeFlowers {
             guard let indicator = revealGold() else { settle(.draw); return }
             gold = indicator
         }

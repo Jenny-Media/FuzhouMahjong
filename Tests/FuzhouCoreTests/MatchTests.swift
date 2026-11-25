@@ -376,6 +376,23 @@ final class MatchTests: XCTestCase {
         }
     }
 
+    func testMidMatchDrawChangesTheStreakOnlyForTheReturningDealer() throws {
+        for keepDealer in [false, true] {
+            let rules = FuzhouHouseRules(name: "测试", keepDealerOnDraw: keepDealer)
+            let encoder = JSONEncoder()
+            let game = FuzhouMatch(houseRules: rules)
+            var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(game)) as? [String: Any])
+            saved["continuation"] = 2
+            saved["step"] = "finished"
+            saved["result"] = try JSONSerialization.jsonObject(with: encoder.encode(RoundResult.draw))
+            var match = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: saved))
+            match.nextRound()
+            XCTAssertEqual(match.dealer, keepDealer ? .east : .south)
+            XCTAssertEqual(match.continuation, keepDealer ? 3 : 0)
+            XCTAssertEqual(match.roundNumber, 2)
+        }
+    }
+
     func testCustomDrawCanRepeatFinalDealerAndRulesSurviveSaveAndNewMatch() throws {
         let encoder = JSONEncoder()
         for keepDealer in [false, true] {

@@ -923,7 +923,9 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(skip.waitForNonExistence(timeout: 3))
             capture("settled-\(orientation.rawValue)")
             assertFrames([table.frame, rack.frame], match: openingFrames, labels: ["board", "rack"])
-            if actions.exists { XCTAssertTrue(table.frame.contains(actions.frame)) }
+            if let actionFrame = try? actions.snapshot().frame {
+                XCTAssertTrue(table.frame.contains(actionFrame))
+            }
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
                 .firstMatch.waitForExistence(timeout: 3))
             app.terminate()
@@ -1050,6 +1052,58 @@ final class TableFlowTests: XCTestCase {
         app.terminate()
     }
 
+    func testSettledHistoryKeepsClaimedAndWinningDiscardsInOrder() throws {
+        var game = try match(seed: 35, after: 41)
+        while game.result == nil { try playFixtureMove(in: &game) }
+        let table = game.table(for: .south)
+        let timeline = try XCTUnwrap(table.discardTimeline)
+        let claimed = try XCTUnwrap(timeline.first { discard in table.players.contains { player in
+            player.melds.contains { $0.from == discard.seat && $0.tiles.contains(discard.tile) }
+        } })
+        let winning = try XCTUnwrap(game.result?.winningTile)
+        let app = try launchSavedMatch(game)
+        app.buttons["view-scorecard"].tap()
+        app.buttons["return-to-table"].tap()
+        app.buttons["table-history"].tap()
+        XCTAssertTrue(app.navigationBars["出牌与亮牌记录"].waitForExistence(timeout: 5))
+        for (id, action) in [(claimed.id, ""), (winning.id, "胡")] {
+            let row = element("history-discard-\(id)", in: app)
+            for _ in 0..<12 where !row.exists { app.swipeUp() }
+            XCTAssertTrue(row.exists)
+            XCTAssertTrue(row.label.contains("打出"))
+            if !action.isEmpty { XCTAssertTrue(row.label.contains(action)) }
+            else { XCTAssertTrue(["吃", "碰", "杠"].contains { row.label.contains($0) }) }
+        }
+    }
+
+    func testOlderSaveDisplaysDiscardsMissingFromItsTimeline() throws {
+        var game = try match(seed: 35, after: 41)
+        while game.result == nil { try playFixtureMove(in: &game) }
+        let data = try JSONEncoder().encode(game)
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        old.removeValue(forKey: "discardTimeline")
+        let saved = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: old))
+        let app = try launchSavedMatch(saved)
+        app.buttons["table-history"].tap()
+        XCTAssertTrue(app.staticTexts["早前打出的牌（按座位）"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["按出牌顺序"].exists)
+        XCTAssertFalse(app.staticTexts["本局还没有出牌"].exists)
+    }
+
+    func testLargeTextClaimShowsTheDiscardAndOpensTheChowChoice() throws {
+        let game = try match(seed: 193, after: 1)
+        let app = try launchSavedMatch(game, arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let discard = element("latest-discard", in: app)
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        XCTAssertTrue(discard.label.contains("六万"))
+        XCTAssertTrue(element("seat-score-\(game.current.id)", in: app).exists)
+        let chow = app.buttons["table-move-吃"]
+        XCTAssertFalse(discard.frame.intersects(chow.frame))
+        capture("largest-text-claim")
+        chow.tap()
+        XCTAssertTrue(app.buttons["confirm-meld"].waitForExistence(timeout: 5))
+    }
+
     func testWinRevealAndScorecardFollowTheSameHand() throws {
         continueAfterFailure = false
         defer { XCUIDevice.shared.orientation = .portrait }
@@ -1071,10 +1125,7 @@ final class TableFlowTests: XCTestCase {
             XCTAssertEqual(result.winner, fixture.winner)
             let app = try launchSavedMatch(before)
             XCTAssertFalse(app.buttons["skip-opening"].exists)
-            let sideSeats = [Seat.south.advanced(1), Seat.south.advanced(3)].map {
-                element("seat-score-\($0.id)", in: app)
-            }
-            var liveSideFrames: [CGRect]?
+            let liveBoard = element("table-surface", in: app).frame
 
             if before.result == nil, fixture.winner == .south {
                 let board = element("table-surface", in: app)
@@ -1090,7 +1141,6 @@ final class TableFlowTests: XCTestCase {
                 let pass = app.buttons["table-move-过"]
                 XCTAssertGreaterThan(win.frame.width, pass.frame.width)
                 XCTAssertGreaterThan(win.frame.height, pass.frame.height)
-                if !landscape { liveSideFrames = sideSeats.map(\.frame) }
                 win.tap()
             }
 
@@ -1109,19 +1159,21 @@ final class TableFlowTests: XCTestCase {
             if let winner = result.winner {
                 let reveal = app.scrollViews["winning-hand-scroll"]
                 XCTAssertTrue(reveal.exists)
-                if landscape {
-                    XCTAssertEqual(settledFrame.height - reveal.frame.height, 20, accuracy: 2,
-                                   "The landscape reveal should fill the table inside its top and bottom insets.")
-                } else {
-                    XCTAssertEqual(scorecard.frame.minY - reveal.frame.maxY, 8, accuracy: 2,
-                                   "Only the result controls' top padding should separate them from the reveal.")
-                    if let liveSideFrames {
-                        for (seat, liveFrame) in zip(sideSeats, liveSideFrames) {
-                            let settledFrame = seat.frame
-                            XCTAssertEqual(settledFrame.midX, liveFrame.midX, accuracy: 1, "Side seat moved horizontally.")
-                            XCTAssertEqual(settledFrame.midY, liveFrame.midY, accuracy: 1, "Side seat moved vertically.")
-                        }
+                if winner == .south {
+                    XCTAssertFalse(element("table-rack", in: app).exists)
+                    if element("table-region", in: app).exists {
+                        XCTAssertFalse(board.frame.intersects(reveal.frame))
+                        XCTAssertTrue(app.frame.contains(reveal.frame))
+                    } else {
+                        XCTAssertGreaterThan(reveal.frame.width, settledFrame.width * 0.85)
+                        XCTAssertTrue(board.frame.contains(reveal.frame))
                     }
+                    XCTAssertFalse(reveal.frame.intersects(scorecard.frame))
+                } else if landscape {
+                    XCTAssertTrue(element("table-rack", in: app).exists)
+                    // The accessibility container follows its children inside the decorative rail.
+                    XCTAssertEqual(reveal.frame.minY, settledFrame.minY, accuracy: 2)
+                    XCTAssertEqual(reveal.frame.maxY, settledFrame.maxY, accuracy: 2)
                 }
                 XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "revealed-winning-tile").count, 1)
                 XCTAssertTrue(element("winning-pair", in: app).exists)
@@ -1165,7 +1217,7 @@ final class TableFlowTests: XCTestCase {
                 skip.tap()
                 XCTAssertTrue(skip.waitForNonExistence(timeout: 3))
                 XCTAssertFalse(scorecard.exists)
-                assertFrames([board.frame], match: [settledFrame])
+                assertFrames([board.frame], match: [liveBoard])
             }
             app.terminate()
         }
@@ -1215,9 +1267,9 @@ final class TableFlowTests: XCTestCase {
         return ["-play-access.archive.v1", "", "-solo-match.v2", "<\(save)>"]
     }
 
-    private func launchSavedMatch(_ match: FuzhouMatch) throws -> XCUIApplication {
+    private func launchSavedMatch(_ match: FuzhouMatch, arguments: [String] = []) throws -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = try savedMatchArguments(match)
+        app.launchArguments = try savedMatchArguments(match) + arguments
         app.launch()
         let practice = app.buttons["practice-entry"]
         XCTAssertTrue(practice.waitForExistence(timeout: 5))

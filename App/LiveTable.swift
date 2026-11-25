@@ -54,6 +54,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     let size: CGSize
     let showsDrawDock: Bool
     var showsInlineResultActions = true
+    var revealInHandPane = false
     let flyingDiscard: Tile.ID?
     let flyingClaim: Tile.ID?
     @Binding var inspectedSeat: Seat?
@@ -77,7 +78,25 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         let width = max(0, size.width - inset * 2)
         let height = max(0, size.height - inset * 2)
         Group {
-            if !showsDrawDock, width >= 455, width > height {
+            if opening == nil, table.result == nil, typeSize.isAccessibilitySize {
+                accessibleLiveTable(width: width)
+            } else if let result = table.result, result.winner == table.viewer, !revealInHandPane {
+                VStack(spacing: gap) {
+                    if typeSize.isAccessibilitySize {
+                        ScrollView(.horizontal) { seatSummaries.fixedSize() }
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if width < 450 {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: gap) {
+                            ForEach(Seat.allCases) { seat in seatSummary(seat) }
+                        }
+                    } else {
+                        seatSummaries
+                    }
+                    WinningHandReveal(table: table, result: result, winner: table.viewer,
+                                      name: name(of: table.viewer), width: width)
+                    if showsInlineResultActions { controls() }
+                }
+            } else if !showsDrawDock, width >= 455, width > height {
                 wideTable(width: width, height: height)
             } else {
                 seatedTable(width: width, height: height)
@@ -90,7 +109,6 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             if opening != nil { $0[.felt] = $1 }
         }
         .accessibilityElement(children: .contain)
-        .contentShape(.accessibility, Rectangle())
         .accessibilityIdentifier("table-surface")
         .modifier(Felt(gameTable: true))
         .onChange(of: table.roundNumber) { inspectedSeat = nil }
@@ -136,6 +154,80 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             }
             .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var seatSummaries: some View {
+        HStack(spacing: gap) {
+            ForEach(Seat.allCases) { seat in seatSummary(seat) }
+        }
+    }
+
+    private func accessibleLiveTable(width: CGFloat) -> some View {
+        let wide = width >= 520 && width > size.height
+        let layout = wide ? AnyLayout(HStackLayout(spacing: gap)) : AnyLayout(VStackLayout(spacing: gap))
+        return layout {
+            ScrollView {
+                VStack(alignment: .leading, spacing: gap) {
+                    if let latest {
+                        HStack(spacing: 8) {
+                            TileFace(kind: latest.tile.kind, gold: table.isGold(latest.tile))
+                                .frame(width: 38, height: 52)
+                                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                                    if table.step == .claim { onOfferedTileFrame(latest.id, frame) }
+                                }
+                                .anchorPreference(key: TableAnchors.self, value: .bounds) { [.latestDiscard: $0] }
+                                .opacity(flyingDiscard == latest.id || flyingClaim == latest.id ? 0 : 1)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading) {
+                                Text("\(name(of: latest.seat))打出\(latest.tile.kind.spokenName)")
+                                    .font(.headline)
+                                if let claim = table.claim(of: latest) {
+                                    Text("\(name(of: claim.seat))\(claim.action)").font(.subheadline)
+                                }
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("latest-discard")
+                    }
+                    ForEach(0..<4) { offset in
+                        seatSummary(table.current.advanced(offset))
+                    }
+                    wallSources
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            HStack(alignment: .bottom, spacing: gap) {
+                if showsDrawDock { drawDock() }
+                ViewThatFits(in: .horizontal) {
+                    controls().fixedSize()
+                    ScrollView(.horizontal) { controls().fixedSize() }
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: wide ? width * 0.46 : .infinity, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder
+    private func seatSummary(_ seat: Seat) -> some View {
+        if let player = table.players.first(where: { $0.seat == seat }) {
+            let role = table.result?.winner == seat ? "胡牌" : table.step == .turn && table.current == seat ? "当前回合" : nil
+            Button { inspectedSeat = seat } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(table.wind(for: seat).wind) · \(name(of: seat))").font(.subheadline.weight(.semibold))
+                    Text([role, table.dealer == seat ? "庄" : nil, "\(player.score)分"].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption.monospacedDigit()).foregroundStyle(board.ink)
+                }
+                .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget, alignment: .leading)
+                .padding(.horizontal, 6)
+                .background(board.seatSurface, in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("seat-score-\(seat.id)")
+            .accessibilityHint("查看这位玩家的亮牌")
+            .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { $0[.player(seat)] = $1 }
         }
     }
 
@@ -426,7 +518,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     Group {
                         if index < previous.count {
                             let discard = previous[index]
-                            let claimed = claimedBy(discard) != nil
+                            let claimed = table.claim(of: discard) != nil
                             TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
                                 .opacity(claimed ? 0.55 : 1)
                                 .accessibilityLabel("\(name(of: discard.seat))打出的\(discard.tile.kind.spokenName)\(claimed ? "，已被别人拿走" : "")")
@@ -485,7 +577,10 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         let labelWidth = stacked ? width - 8 : width * 0.55
         let layout = stacked ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
         return ZStack {
-            if let result = table.result, let winner = result.winner {
+            if revealInHandPane, let result = table.result {
+                Text("\(name(of: table.viewer)) · \(result.winTitle)")
+                    .font(.headline).foregroundStyle(board.accent)
+            } else if let result = table.result, let winner = result.winner {
                 WinningHandReveal(table: table, result: result, winner: winner, name: name(of: winner),
                                   width: max(0, width - 8))
             } else if table.result != nil {
@@ -493,11 +588,11 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("drawn-hand")
             } else if let latest {
-                let claim = claimedBy(latest)
+                let claim = table.claim(of: latest)
                 let isGold = table.isGold(latest.tile)
                 let owner = "\(name(of: latest.seat))打出"
                 let tileName = latest.tile.kind.spokenName
-                let claimDetail = claim.map { "\(name(of: $0.seat)) · \($0.kind.label)" }
+                let claimDetail = claim.map { "\(name(of: $0.seat)) · \($0.action)" }
                 let detail = claimDetail ?? (isGold ? "金牌" : nil)
                 let compact = !stacked && height < 54
                 let singleLine = !stacked && height < 38
@@ -558,10 +653,16 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         displayName(seat, viewer: table.viewer, names: names)
     }
 
-    private func claimedBy(_ discard: TableDiscard) -> (seat: Seat, kind: MeldKind)? {
-        for player in table.players {
+}
+
+extension TableState {
+    func claim(of discard: TableDiscard) -> (seat: Seat, action: String)? {
+        if let result, result.kind == .discard, result.winningTile?.id == discard.id, let winner = result.winner {
+            return (winner, "胡")
+        }
+        for player in players {
             if let meld = player.melds.first(where: { $0.from == discard.seat && $0.tiles.contains(discard.tile) }) {
-                return (player.seat, meld.kind)
+                return (player.seat, meld.kind == .addedKong ? "碰（后加杠）" : meld.kind.label)
             }
         }
         return nil

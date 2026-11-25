@@ -56,6 +56,7 @@ struct PurchaseView: View {
                         .accessibilityAddTraits(.isHeader)
                     Text(access.statusTitle).font(.headline).foregroundStyle(TeaTheme.brass)
                         .accessibilityIdentifier("access-status")
+                    Text("免费版也能离线玩单机。").font(.subheadline)
                     Text(access.soloAllowanceText).font(.subheadline).foregroundStyle(TeaTheme.muted)
                 }
                 .padding(20)
@@ -64,10 +65,12 @@ struct PurchaseView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     feature("单机不限局数", detail: "随时和三位电脑玩家一起打牌。", icon: "person.fill")
                     feature("自己创建牌桌", detail: "你当房主，附近的牌友可以免费加入。", icon: "person.3.fill")
-                    feature("离线也能玩", detail: "先联网开启体验或购买，之后可以离线玩。", icon: "wifi.slash")
                 }
                 .padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 .teaPanel()
+
+                Text("开启体验或购买完整版时需要联网。激活后，已解锁的功能也能离线使用。")
+                    .font(.footnote).foregroundStyle(TeaTheme.muted)
 
                 if access.tier == .lifetime {
                     Label("已拥有完整版，无需再次购买", systemImage: "checkmark.seal.fill")

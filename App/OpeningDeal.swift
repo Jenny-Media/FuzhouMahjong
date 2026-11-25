@@ -26,8 +26,8 @@ struct OpeningDeal: View {
         case stacking(Date)
         case deal(Date)
         case settled
-        case flowers
-        case revealGold
+        case flowers(goldRevealed: Bool)
+        case revealGold(flowersShown: Bool)
 
         var title: String {
             switch self {
@@ -51,7 +51,30 @@ struct OpeningDeal: View {
             }
         }
 
-        var showsFlowers: Bool { self == .flowers || self == .revealGold }
+        var showsFlowers: Bool {
+            switch self {
+            case .flowers: true
+            case .revealGold(let flowersShown): flowersShown
+            default: false
+            }
+        }
+
+        var showsGold: Bool {
+            switch self {
+            case .revealGold: true
+            case .flowers(let goldRevealed): goldRevealed
+            default: false
+            }
+        }
+
+        static func afterDeal(at table: TableState) -> [Self] {
+            let hasFlowers = table.players.contains { $0.flowerCount > 0 }
+            let hasGold = table.gold != nil
+            let goldFirst = table.houseRules?.goldIndicators.revealsBeforeFlowers == true
+            let flowers: Self? = hasFlowers ? .flowers(goldRevealed: hasGold && goldFirst) : nil
+            let gold: Self? = hasGold ? .revealGold(flowersShown: hasFlowers && !goldFirst) : nil
+            return (goldFirst ? [gold, flowers] : [flowers, gold]).compactMap { $0 }
+        }
 
         func landed(for seat: Seat, dealer: Seat, at time: Date) -> Int {
             switch self {

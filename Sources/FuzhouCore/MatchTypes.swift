@@ -28,6 +28,8 @@ public struct FuzhouHouseRules: Codable, Hashable, Identifiable, Sendable {
         public var includesWinds: Bool { self == .includeWinds || self == .includeHonors }
         public var includesDragons: Bool { self == .includeDragons || self == .includeHonors }
 
+        public var revealsBeforeFlowers: Bool { self != .suitedOnly }
+
         func allows(_ kind: TileKind) -> Bool {
             switch kind.suit {
             case .wind: includesWinds

@@ -85,7 +85,7 @@ struct RuleGuide: View {
                         .frame(maxWidth: wide ? 360 : .infinity)
 
                         VStack(alignment: .leading, spacing: 10) {
-                            Text(lesson.explanation(claim: claim))
+                            Text(lesson.explanation(claim: claim, ruleset: ruleset, indicators: houseRules?.goldIndicators ?? .suitedOnly))
                             Text(lesson.detail(for: ruleset, houseRules: houseRules))
                                 .font(.subheadline).foregroundStyle(TeaTheme.muted)
                         }
@@ -248,9 +248,16 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
         }
     }
 
-    fileprivate func explanation(claim: Claim) -> String {
+    fileprivate func explanation(claim: Claim, ruleset: FuzhouRuleset, indicators: FuzhouHouseRules.GoldIndicators) -> String {
         switch self {
-        case .turn: "开局每人拿 16 张牌，庄家再拿一张，叫坎门。接着补花、开金。平时轮到你时，通常是先摸一张，再打一张。"
+        case .turn:
+            if ruleset == .legacy {
+                "开局每人拿 16 张牌，补花、开金后由庄家先摸牌。平时轮到你时，通常是先摸一张，再打一张。"
+            } else {
+                "开局每人拿 16 张牌，庄家再拿一张，叫坎门。" +
+                    (indicators.revealsBeforeFlowers ? "先开金，再补花。本局作金的字牌留在手中。" : "接着补花，再开金。") +
+                    "平时轮到你时，通常是先摸一张，再打一张。"
+            }
         case .flowers: "东南西北、中发白、梅兰竹菊、春夏秋冬通常都算花牌。摸到花牌时，先亮出来，再从牌尾补一张。图中亮出的是梅，补到的是三筒。"
         case .claims: claim.explanation
         case .gold: "开局翻一张牌来定本局的金牌。胡牌时，手里的金牌可以代替别的牌。图中用二筒金代替七万，组成六万、七万、八万的顺子。"

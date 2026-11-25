@@ -5,6 +5,26 @@ import XCTest
 
 @MainActor
 final class TablePresentationTests: XCTestCase {
+    func testOpeningStagesShowOnlyWhatHasHappenedUnderTheHouseRules() {
+        for indicators in FuzhouHouseRules.GoldIndicators.allCases {
+            let rules = FuzhouHouseRules(name: "测试", goldIndicators: indicators)
+            var table = FuzhouMatch(houseRules: rules).table(for: .east)
+            table.players[0].flowerCount = 1
+            let stages = OpeningDeal.Stage.afterDeal(at: table)
+            if indicators == .suitedOnly {
+                XCTAssertEqual(stages, [.flowers(goldRevealed: false), .revealGold(flowersShown: true)])
+                XCTAssertFalse(stages[0].showsGold)
+            } else {
+                XCTAssertEqual(stages, [.revealGold(flowersShown: false), .flowers(goldRevealed: true)])
+                XCTAssertFalse(stages[0].showsFlowers)
+            }
+            XCTAssertTrue(stages[1].showsGold)
+            XCTAssertTrue(stages[1].showsFlowers)
+            for index in table.players.indices { table.players[index].flowerCount = 0 }
+            XCTAssertEqual(OpeningDeal.Stage.afterDeal(at: table), [.revealGold(flowersShown: false)])
+        }
+    }
+
     func testRackEndSwipeKeepsTrackingWhenItCurvesInward() {
         for direction in [LayoutDirection.leftToRight, .rightToLeft] {
             for edge in [HorizontalEdge.leading, .trailing] {
