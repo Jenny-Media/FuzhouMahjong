@@ -614,7 +614,8 @@ struct MatchView<Session: MatchSession>: View {
             let divisions = FoldRegions.divisions(in: geometry)
             Group {
                 #if canImport(SwiftUI, _version: 8.0.85)
-                if #available(iOS 27.1, *), !divisions.isEmpty {
+                if #available(iOS 27.1, *),
+                   FoldRegions.hasInteriorDivision(in: geometry.size, divisions: divisions) {
                     ArrangementView {
                         VStack(spacing: 6) {
                             header(table)
@@ -639,10 +640,10 @@ struct MatchView<Session: MatchSession>: View {
                     }
                     .arrangementViewStyle(.split)
                 } else {
-                    flatBoard(table, size: geometry.size)
+                    singlePaneBoard(table, size: geometry.size, divisions: divisions)
                 }
                 #else
-                flatBoard(table, size: geometry.size)
+                singlePaneBoard(table, size: geometry.size, divisions: divisions)
                 #endif
             }
             .overlayPreferenceValue(TableAnchors.self) { anchors in
@@ -756,6 +757,18 @@ struct MatchView<Session: MatchSession>: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func singlePaneBoard(_ table: TableState, size: CGSize, divisions: [CGRect]) -> some View {
+        if divisions.isEmpty {
+            flatBoard(table, size: size)
+        } else {
+            let frame = FoldRegions.contentFrame(in: size, avoiding: divisions)
+            flatBoard(table, size: frame.size)
+                .frame(width: frame.width, height: frame.height)
+                .position(x: frame.midX, y: frame.midY)
+        }
     }
 
     private func flatBoard(_ table: TableState, size: CGSize) -> some View {
