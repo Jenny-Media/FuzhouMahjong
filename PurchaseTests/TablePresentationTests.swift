@@ -5,6 +5,45 @@ import XCTest
 
 @MainActor
 final class TablePresentationTests: XCTestCase {
+    func testRackEndSwipeKeepsTrackingWhenItCurvesInward() {
+        for direction in [LayoutDirection.leftToRight, .rightToLeft] {
+            for edge in [HorizontalEdge.leading, .trailing] {
+                let inward: CGFloat = (edge == .leading) == (direction == .leftToRight) ? 1 : -1
+                var swipe = RackTile.DiscardSwipe()
+                let diagonal = CGSize(width: inward * 62, height: -62)
+                swipe.track(diagonal, edge: edge, direction: direction)
+                XCTAssertTrue(swipe.canRelease(diagonal, predictedEnd: diagonal))
+
+                let curveEnd = CGSize(width: inward * 120, height: -62)
+                swipe.track(curveEnd, edge: edge, direction: direction)
+                XCTAssertTrue(swipe.canRelease(curveEnd, predictedEnd: curveEnd))
+                XCTAssertFalse(swipe.canRelease(CGSize(width: inward * 20, height: -14), predictedEnd: .zero))
+            }
+        }
+    }
+
+    func testRackDiscardSwipeRequiresAnUpwardStartAndEnoughRise() {
+        let rejected: [(HorizontalEdge?, CGSize)] = [
+            (.leading, CGSize(width: 100, height: -10)),
+            (.trailing, CGSize(width: 62, height: -62)),
+            (nil, CGSize(width: 62, height: -62))
+        ]
+        for (edge, translation) in rejected {
+            var swipe = RackTile.DiscardSwipe()
+            swipe.track(translation, edge: edge, direction: .leftToRight)
+            XCTAssertFalse(swipe.isTracking)
+            XCTAssertFalse(swipe.canRelease(translation, predictedEnd: translation))
+        }
+
+        var swipe = RackTile.DiscardSwipe()
+        let short = CGSize(width: 4, height: -16)
+        swipe.track(short, edge: .leading, direction: .leftToRight)
+        XCTAssertTrue(swipe.isTracking)
+        XCTAssertFalse(swipe.canRelease(short, predictedEnd: CGSize(width: 8, height: -100)))
+        let flick = CGSize(width: 10, height: -24)
+        XCTAssertTrue(swipe.canRelease(flick, predictedEnd: CGSize(width: 16, height: -80)))
+    }
+
     func testFoldAtAWindowEdgeKeepsTheTableAndRackInOnePane() {
         let size = CGSize(width: 350, height: 600)
         let examples: [(CGRect, CGRect)] = [
