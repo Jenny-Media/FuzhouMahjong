@@ -454,13 +454,10 @@ func render(_ style: Style) throws {
         switch index {
         case 0...8:
             let numeral = numerals[index]
-            // Give 四 more height and keep the enclosed counters open.
+            // Offset the extra weight from enlarging 四 while preserving its counters.
             let (scaleAdjustment, strokeReduction): (CGFloat, CGFloat) = switch (style, index) {
-            case (.photoMatched, 3): (1.22, 4.4)
-            case (.traditional, 3): (1.22, 5.25)
-            case (.traditional, 4): (1, 2.6)
-            case (.minimal, 3): (1.055, 3.4)
-            case (_, 4): (1, 1.8)
+            case (.photoMatched, 3), (.traditional, 3): (1.22, 1)
+            case (.minimal, 3): (1.055, 0)
             default: (1, 0)
             }
             let scale = numeralScale * scaleAdjustment
