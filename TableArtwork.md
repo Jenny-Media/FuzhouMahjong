@@ -196,7 +196,7 @@ Run `swift Artwork/TileFaces/render-markings.swift` from the project root on mac
 
 Classic and Ornate Traditional draw all their lettering, including 伍、六、萬 and 東, from one artwork-only subset of [LXGW WenKai TC Medium v1.530](https://github.com/lxgw/LxgwWenkaiTC/releases/tag/v1.530), included with its [font license](Artwork/TileFaces/TileCalligraphy-OFL.txt). Each style sets its own scale and stroke weight. 蘭 and 夏 use a lighter stroke to keep their narrow gaps readable on small tiles. Minimal uses PingFang TC Semibold.
 
-Each atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
+Each full atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The generator balances the denser 四 and 五 or 伍 with optical stroke adjustments and draws the straight bamboo stalks from one sample per style. A separate five-column atlas supplies simpler rosettes and a stronger 白板 frame for Ornate Traditional faces up to 18 pt wide. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
 
 ### Original full-tile sprites
 

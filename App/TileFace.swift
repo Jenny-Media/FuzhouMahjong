@@ -119,7 +119,7 @@ struct TileFace: View {
             default: TeaTheme.modernTileSelection
             }
             ZStack {
-                artwork
+                artwork(width: width)
                 if gold && tileMaterial == .classic {
                     shape.fill(TeaTheme.goldShade.opacity(0.46)).blendMode(.multiply)
                 }
@@ -170,13 +170,13 @@ struct TileFace: View {
             .accessibilityHidden(true)
     }
 
-    private var artwork: some View {
+    private func artwork(width: CGFloat) -> some View {
         Image(decorative: tileMaterial.frontArtwork)
             .resizable()
             .saturation(tileMaterial == .porcelain ? 0.28 : 1)
             .brightness(tileMaterial == .porcelain ? 0.05 : 0)
             .overlay {
-                if let markings = TileMarkings.image(for: kind, style: faceStyle) {
+                if let markings = TileMarkings.image(for: kind, style: faceStyle, compact: width <= 18) {
                     Image(uiImage: markings)
                         .resizable()
                         .aspectRatio(Self.artworkAspectRatio, contentMode: .fit)
@@ -202,16 +202,20 @@ private struct GoldTileCorner: Shape {
 enum TileMarkings {
     private static let cache = NSCache<NSString, UIImage>()
 
-    static func image(for kind: TileKind, style: TileFaceStyle) -> UIImage? {
-        let artwork = style.markingsArtwork
-        let index = kind.markingsIndex
-        let key = "\(artwork)-\(index)" as NSString
+    static func image(for kind: TileKind, style: TileFaceStyle, compact: Bool = false) -> UIImage? {
+        let atlas: (artwork: String, index: Int, columns: Int, rows: Int)
+        if style == .traditional && compact && (kind.suit == .circles || (kind.suit == .dragon && kind.rank == 3)) {
+            atlas = ("TraditionalCompactMarkings", kind.suit == .circles ? kind.rank - 1 : 9, 5, 2)
+        } else {
+            atlas = (style.markingsArtwork, kind.markingsIndex, 7, 6)
+        }
+        let key = "\(atlas.artwork)-\(atlas.index)" as NSString
         if let markings = cache.object(forKey: key) { return markings }
-        guard let source = UIImage(named: artwork)?.cgImage else { return nil }
-        // Each atlas has seven columns and six rows in Tile.fullSet's suit and rank order.
-        let width = source.width / 7
-        let height = source.height / 6
-        guard let output = source.cropping(to: CGRect(x: index % 7 * width, y: index / 7 * height,
+        guard let source = UIImage(named: atlas.artwork)?.cgImage else { return nil }
+        let width = source.width / atlas.columns
+        let height = source.height / atlas.rows
+        guard let output = source.cropping(to: CGRect(x: atlas.index % atlas.columns * width,
+                                                      y: atlas.index / atlas.columns * height,
                                                       width: width, height: height)) else { return nil }
         let markings = UIImage(cgImage: output)
         cache.setObject(markings, forKey: key)
