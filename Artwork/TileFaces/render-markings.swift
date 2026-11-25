@@ -363,6 +363,27 @@ func drawCompactWhiteDragon(on context: CGContext) {
     context.strokePath()
 }
 
+func spaceCirclePips(_ sample: CGImage, at centersInImage: [(CGFloat, CGFloat)]) -> CGImage {
+    let context = bitmap(cellWidth, cellHeight)
+    let width = CGFloat(cellWidth)
+    let height = CGFloat(cellHeight)
+    let centers = centersInImage.map { x, y in CGPoint(x: x, y: height - y) }
+    // Isolate each round pip at the midpoint to its closest neighbor, then inset
+    // the artwork around its own center to retain the physical set's arrangement.
+    for center in centers {
+        let radius = centers.filter { $0 != center }
+            .map { hypot($0.x - center.x, $0.y - center.y) }.min()! / 2
+        context.saveGState()
+        context.translateBy(x: center.x, y: center.y)
+        context.scaleBy(x: 0.89, y: 0.89)
+        context.addEllipse(in: CGRect(x: -radius, y: -radius, width: 2 * radius, height: 2 * radius))
+        context.clip()
+        context.draw(sample, in: CGRect(x: -center.x, y: -center.y, width: width, height: height))
+        context.restoreGState()
+    }
+    return context.makeImage()!
+}
+
 func separateLowerCircleRows(_ sample: CGImage, top: Int, split: Int) -> CGImage {
     // Keep the upper pips in place and open a gap between the two lower pairs.
     let tile = bitmap(cellWidth, cellHeight)
@@ -407,9 +428,18 @@ func render(_ style: Style) throws {
         guard style != .minimal || index == 18 || index == 33 else { return nil }
         let sample = tileSample(board, column: position % 5, row: position / 5)
         let artwork = switch (style, index) {
-        case (.photoMatched, 15): separateLowerCircleRows(sample, top: 139, split: 187)
+        case (.photoMatched, 14): spaceCirclePips(sample, at: [(62, 77.5), (130.5, 78),
+                                                            (67, 151), (124.5, 151.5), (67, 201.5), (124.5, 202)])
         case (.traditional, 14): separateLowerCircleRows(sample, top: 121, split: 176)
+        case (.photoMatched, 15), (.traditional, 15):
+            spaceCirclePips(sample, at: [(style == .photoMatched ? 58.5 : 55.5, 64.5),
+                                         (style == .photoMatched ? 102 : 100.5, 90), (145, 114),
+                                         (69, 163), (123, 163), (69, 210.5), (123, 210.5)])
+        case (.photoMatched, 16):
+            spaceCirclePips(sample, at: [62.0, 110, 159, 207].flatMap { y in [(68, y), (126, y)] })
         case (.traditional, 16): separateTraditionalEightCircles(sample)
+        case (.photoMatched, 17), (.traditional, 17):
+            spaceCirclePips(sample, at: [74.5, 138, 195.5].flatMap { y in [(46.5, y), (97.5, y), (148, y)] })
         default: sample
         }
         return (index, artwork)
@@ -454,13 +484,11 @@ func render(_ style: Style) throws {
         switch index {
         case 0...8:
             let numeral = numerals[index]
-            // Give 四 more height and keep the enclosed counters open.
+            // Balance the boxed 四 and dense 伍 against the full numeral row.
             let (scaleAdjustment, strokeReduction): (CGFloat, CGFloat) = switch (style, index) {
-            case (.photoMatched, 3): (1.22, 4.4)
-            case (.traditional, 3): (1.22, 5.25)
-            case (.traditional, 4): (1, 2.6)
-            case (.minimal, 3): (1.055, 3.4)
-            case (_, 4): (1, 1.8)
+            case (.photoMatched, 3), (.traditional, 3): (1.15, 1.85)
+            case (.minimal, 3): (1.01, 0.8)
+            case (.photoMatched, 4), (.traditional, 4): (1, 0.75)
             default: (1, 0)
             }
             let scale = numeralScale * scaleAdjustment

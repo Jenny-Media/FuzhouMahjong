@@ -196,7 +196,16 @@ Run `swift Artwork/TileFaces/render-markings.swift` from the project root on mac
 
 Classic and Ornate Traditional draw all their lettering, including 伍、六、萬 and 東, from one artwork-only subset of [LXGW WenKai TC Medium v1.530](https://github.com/lxgw/LxgwWenkaiTC/releases/tag/v1.530), included with its [font license](Artwork/TileFaces/TileCalligraphy-OFL.txt). Each style sets its own scale and stroke weight. 蘭 and 夏 use a lighter stroke to keep their narrow gaps readable on small tiles. Minimal uses PingFang TC Semibold.
 
-Each full atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The generator balances the denser 四 and 五 or 伍 with optical stroke adjustments and draws the straight bamboo stalks from one sample per style. A separate five-column atlas supplies simpler rosettes and a stronger 白板 frame for Ornate Traditional faces up to 18 pt wide. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
+Each full atlas has seven columns and six rows of 192 × 268 cells in suit and rank order. The generator balances 四 and 伍 with scale and stroke adjustments, opens gaps between crowded circle pips, and draws the straight bamboo stalks from one sample per style. A separate five-column atlas supplies simpler rosettes and a stronger 白板 frame for Ornate Traditional faces up to 18 pt wide. The app overlays the selected atlas cell on the chosen tile material. The material also controls the back, sound and haptics.
+
+### Tile face review rule
+
+Review the complete group in rank order within one style before adjusting any face. Repeat the same review after regenerating the atlases. For a full audit, cover all 42 faces in each style, grouped as characters (万), circles (饼), bamboo (条), winds, dragons, flowers and seasons.
+
+1. Render each complete group through `TileFace` at representative gameplay widths of 41 pt for hands, 17 pt for discards and 12 pt for compact strips. Use a light material (白釉瓷) and a dark material (缎面黑漆) at each width so the comparison includes the compact artwork and the material's actual ink treatment.
+2. For lettering, compare font source, optical alignment, visible width and height, stroke weight and ink coverage. Judge each numeral separately from the shared 万 or 萬 suffix. Compare similarly shaped characters for visual weight and check that enclosed gaps stay readable. Treat bounds and ink coverage as evidence alongside the full-row render. A box such as 四 naturally covers more area than a horizontal stroke such as 一.
+3. For circles and bamboo, verify the rank, color pattern, orientation, spacing and scale of repeated marks. Check that circles stay round, adjacent pips and stalks stay distinct, and the bird on 一条 and the two joined shapes on 八条 read clearly. Compare 白板 with the other dragons for visual balance and verify that its border stays readable at compact size.
+4. After a change, compare the full groups before and after at the same size and material. Check the regenerated atlas cells to confirm the intended faces changed, then repeat the group review for visual weight, spacing and legibility. Include the side-by-side renders with the review.
 
 ### Original full-tile sprites
 

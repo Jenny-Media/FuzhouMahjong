@@ -139,12 +139,15 @@ final class MaterialCatalogTests: XCTestCase {
     func testCharacterNumeralPlacement() throws {
         for style in TileFaceStyle.allCases {
             var numeralCenters: [Double] = []
+            var numeralWidths: [Int] = []
             for rank in 1...9 {
                 let context = try markingBitmap(for: TileKind(.characters, rank), style: style)
                 let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
                 let width = context.width
                 var numeralTop: Int?
                 var numeralBottom: Int?
+                var numeralLeft = width
+                var numeralRight = -1
                 var wanTop: Int?
                 for index in 0..<(width * context.height) {
                     let pixel = pixels.advanced(by: index * 4)
@@ -152,8 +155,11 @@ final class MaterialCatalogTests: XCTestCase {
                     let red = Int(pixel[0]), green = Int(pixel[1]), blue = Int(pixel[2])
                     if blue > max(red, green) + 15 {
                         let row = index / width
+                        let column = index % width
                         if numeralTop == nil { numeralTop = row }
                         numeralBottom = row
+                        numeralLeft = min(numeralLeft, column)
+                        numeralRight = max(numeralRight, column)
                     }
                     if red > max(blue, green) + 15 && wanTop == nil { wanTop = index / width }
                 }
@@ -163,13 +169,16 @@ final class MaterialCatalogTests: XCTestCase {
                 let gap = try XCTUnwrap(wanTop, face) - bottom - 1
                 XCTAssertGreaterThanOrEqual(gap, 11, face)
                 numeralCenters.append(Double(top + bottom) / 2)
+                numeralWidths.append(numeralRight - numeralLeft + 1)
             }
             XCTAssertEqual(numeralCenters[0], numeralCenters[2], accuracy: 6, style.rawValue)
+            XCTAssertLessThanOrEqual(numeralWidths[3], max(numeralWidths[4], numeralWidths[8]), style.rawValue)
         }
     }
 
     func testLowerRedPipRowsStaySeparate() throws {
-        let samples: [(TileFaceStyle, Int)] = [(.photoMatched, 7), (.traditional, 6)]
+        let samples: [(TileFaceStyle, Int)] = [(.photoMatched, 6), (.photoMatched, 7),
+                                              (.traditional, 6), (.traditional, 7)]
         for (style, rank) in samples {
             let context = try markingBitmap(for: TileKind(.circles, rank), style: style)
             let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
