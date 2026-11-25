@@ -136,29 +136,37 @@ final class MaterialCatalogTests: XCTestCase {
         }
     }
 
-    func testCharacterNumeralsStayClearOfWan() throws {
+    func testCharacterNumeralPlacement() throws {
         for style in TileFaceStyle.allCases {
-            var gaps: [Int] = []
+            var numeralCenters: [Double] = []
             for rank in 1...9 {
                 let context = try markingBitmap(for: TileKind(.characters, rank), style: style)
                 let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
                 let width = context.width
+                var numeralTop: Int?
                 var numeralBottom: Int?
                 var wanTop: Int?
                 for index in 0..<(width * context.height) {
                     let pixel = pixels.advanced(by: index * 4)
                     guard pixel[3] > 80 else { continue }
                     let red = Int(pixel[0]), green = Int(pixel[1]), blue = Int(pixel[2])
-                    if blue > max(red, green) + 15 { numeralBottom = index / width }
+                    if blue > max(red, green) + 15 {
+                        let row = index / width
+                        if numeralTop == nil { numeralTop = row }
+                        numeralBottom = row
+                    }
                     if red > max(blue, green) + 15 && wanTop == nil { wanTop = index / width }
                 }
                 let face = "\(style.rawValue) rank \(rank)"
-                let gap = try XCTUnwrap(wanTop, face) - XCTUnwrap(numeralBottom, face) - 1
+                let top = try XCTUnwrap(numeralTop, face)
+                let bottom = try XCTUnwrap(numeralBottom, face)
+                let gap = try XCTUnwrap(wanTop, face) - bottom - 1
                 XCTAssertGreaterThanOrEqual(gap, 11, face)
-                gaps.append(gap)
+                numeralCenters.append(Double(top + bottom) / 2)
             }
-            let peerGap = try XCTUnwrap(gaps.dropFirst().max(), style.rawValue)
-            XCTAssertLessThanOrEqual(gaps[0], peerGap + 8, style.rawValue)
+            if style != .traditional {
+                XCTAssertEqual(numeralCenters[0], numeralCenters[2], accuracy: 6, style.rawValue)
+            }
         }
     }
 

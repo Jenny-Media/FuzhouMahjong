@@ -436,10 +436,10 @@ func render(_ style: Style) throws {
         .map { glyphPath($0, font: font) }
     let numeralScale = sharedScale(for: numerals, in: style.numeralBox, addedStroke: style.addedStroke)
     let honorScale = sharedScale(for: honors, in: style.honorBox, addedStroke: style.addedStroke)
-    // A single stroke needs a lower optical center than the taller numerals.
+    // Center the single stroke within each style's upper numeral area.
     let oneStrokeOffset: CGFloat = switch style {
-    case .photoMatched: -20
-    case .minimal: -30
+    case .photoMatched: 2
+    case .minimal: 1
     case .traditional: -16
     }
 
