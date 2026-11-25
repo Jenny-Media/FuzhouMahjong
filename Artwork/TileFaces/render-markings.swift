@@ -448,16 +448,23 @@ func render(_ style: Style) throws {
         switch index {
         case 0...8:
             let numeral = numerals[index]
-            let (scaleAdjustment, strokeReduction): (CGFloat, CGFloat) = switch index {
-            case 3: (1.055, 3.4)
-            case 4: (1, 1.8)
+            // 四 can grow without gaining visual weight. 伍 already fills the numeral area.
+            let (scaleAdjustment, strokeReduction): (CGFloat, CGFloat) = switch (style, index) {
+            case (.traditional, 3): (1.22, 6.3)
+            case (.traditional, 4): (1, 3.6)
+            case (_, 3): (1.055, 3.4)
+            case (_, 4): (1, 1.8)
             default: (1, 0)
             }
             let scale = numeralScale * scaleAdjustment
             let stroke = style.addedStroke - strokeReduction
             let height = numeral.boundingBoxOfPath.height * scale + stroke
-            let bottom = style.numeralBox.midY - height / 2
-            let box = style.numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
+            // Bring the single stroke of 一 closer to 萬 while preserving their clearance.
+            let numeralBox = style == .traditional && index == 0
+                ? style.numeralBox.offsetBy(dx: 0, dy: -16)
+                : style.numeralBox
+            let bottom = numeralBox.midY - height / 2
+            let box = numeralBox.offsetBy(dx: 0, dy: max(0, minimumNumeralBottom - bottom))
             drawGlyph(numeral, color: blue, in: box, scale: scale, addedStroke: stroke, on: tile)
             tile.draw(wan, in: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight))
         case 9...17:
@@ -466,15 +473,18 @@ func render(_ style: Style) throws {
             bamboo.draw(index - 17, on: tile)
         case 27...32, 34...41:
             let color = index == 31 || index >= 38 ? red : index >= 32 ? green : blue
+            // 西 is naturally shorter than the other winds.
+            let scale = style == .traditional && index == 29 ? honorScale * 1.09 : honorScale
             // Keep the narrow gaps in 蘭 and 夏 open at bonus-strip size.
             let stroke: CGFloat = switch (style, index) {
+            case (.traditional, 29): 3.2
             case (.minimal, 35): -2.1
             case (.minimal, 39): -2.0
             case (_, 35): style.addedStroke * 0.2
             case (_, 39): style.addedStroke * 0.4
             default: style.addedStroke
             }
-            drawGlyph(honors[index - 27], color: color, in: style.honorBox, scale: honorScale,
+            drawGlyph(honors[index - 27], color: color, in: style.honorBox, scale: scale,
                       addedStroke: stroke, on: tile)
         default:
             preconditionFailure("Missing tile \(index)")
