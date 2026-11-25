@@ -5,6 +5,31 @@ import XCTest
 
 @MainActor
 final class TablePresentationTests: XCTestCase {
+    func testFoldAtAWindowEdgeKeepsTheTableAndRackInOnePane() {
+        let size = CGSize(width: 350, height: 600)
+        let examples: [(CGRect, CGRect)] = [
+            (CGRect(x: -14, y: -30, width: 28, height: 660), CGRect(x: 14, y: 0, width: 336, height: 600)),
+            (CGRect(x: 336, y: -30, width: 28, height: 660), CGRect(x: 0, y: 0, width: 336, height: 600)),
+            (CGRect(x: 1, y: -30, width: 16, height: 660), CGRect(x: 17, y: 0, width: 333, height: 600)),
+            (CGRect(x: -30, y: 586, width: 410, height: 28), CGRect(x: 0, y: 0, width: 350, height: 586)),
+            (CGRect(x: -28, y: -30, width: 28, height: 660), CGRect(origin: .zero, size: size))
+        ]
+        for (division, expectedFrame) in examples {
+            XCTAssertFalse(FoldRegions.hasInteriorDivision(in: size, divisions: [division]))
+            XCTAssertEqual(FoldRegions.contentFrame(in: size, avoiding: [division]), expectedFrame)
+        }
+    }
+
+    func testFoldAcrossTheWindowPreservesBookAndTabletopPanes() {
+        let book = CGSize(width: 660, height: 600)
+        let vertical = CGRect(x: 321, y: -28, width: 18, height: 656)
+        XCTAssertTrue(FoldRegions.hasInteriorDivision(in: book, divisions: [vertical]))
+
+        let tabletop = CGSize(width: 660, height: 660)
+        let horizontal = CGRect(x: -28, y: 321, width: 716, height: 18)
+        XCTAssertTrue(FoldRegions.hasInteriorDivision(in: tabletop, divisions: [horizontal]))
+    }
+
     func testConsecutiveFlowerRevealsKeepTheirOwnExpiry() throws {
         let start = ContinuousClock.now
         let flowers = Array(Tile.fullSet.lazy.filter { $0.kind.isFlower }.prefix(10))

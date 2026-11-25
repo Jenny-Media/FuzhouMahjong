@@ -12,10 +12,23 @@ enum FoldRegions {
         return []
     }
 
-    static func contentFrame(in geometry: GeometryProxy) -> CGRect {
-        // Auxiliary screens use the largest clear pane; the game uses both panes.
-        var frames = [CGRect(origin: .zero, size: geometry.size)]
-        for division in divisions(in: geometry) {
+    static func hasInteriorDivision(in size: CGSize, divisions: [CGRect]) -> Bool {
+        let bounds = CGRect(origin: .zero, size: size)
+        return divisions.contains { division in
+            let overlap = bounds.intersection(division)
+            guard !overlap.isEmpty else { return false }
+            // Multitasking can expose a hinge reservation that only clips the window edge.
+            let horizontal = division.width > division.height
+            let roomOnEachSide = horizontal
+                ? min(overlap.minY, bounds.maxY - overlap.maxY)
+                : min(overlap.minX, bounds.maxX - overlap.maxX)
+            return roomOnEachSide >= TeaTheme.hitTarget
+        }
+    }
+
+    static func contentFrame(in size: CGSize, avoiding divisions: [CGRect]) -> CGRect {
+        var frames = [CGRect(origin: .zero, size: size)]
+        for division in divisions {
             frames = frames.flatMap { frame in
                 let intersection = frame.intersection(division)
                 guard !intersection.isNull, intersection.width > 0, intersection.height > 0 else { return [frame] }
@@ -36,7 +49,7 @@ enum FoldRegions {
 struct HingeSafeContent: ViewModifier {
     func body(content: Content) -> some View {
         GeometryReader { geometry in
-            let frame = FoldRegions.contentFrame(in: geometry)
+            let frame = FoldRegions.contentFrame(in: geometry.size, avoiding: FoldRegions.divisions(in: geometry))
             content
                 .frame(width: frame.width, height: frame.height)
                 .position(x: frame.midX, y: frame.midY)
