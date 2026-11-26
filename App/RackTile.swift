@@ -14,19 +14,30 @@ struct RackTile: View {
     let select: () -> Void
     let discard: () -> Void
     var throwDiscard: ((CGRect, CGRect) -> Void)? = nil
-    var meldAction: (label: String, perform: () -> Void)? = nil
+    var meldAction: (label: String, preview: [RackDragPreview.Face]?, perform: () -> Void)? = nil
     var isRobGoldCandidate = false
     var swipeReady: (() -> Void)? = nil
     var reposition: ((CGPoint) -> Void)? = nil
     var moveEarlier: (() -> Void)? = nil
     var moveLater: (() -> Void)? = nil
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @GestureState private var isDragging = false
     // Keep discard intent available to the release handler when gesture state resets.
     @State private var drag = TileDrag()
     @State private var faceFrame: CGRect?
+
+    private var reduceMotion: Bool {
+        #if DEBUG
+        if let simulated = Self.uiTestReduceMotion { return simulated }
+        #endif
+        return systemReduceMotion
+    }
+
+    #if DEBUG
+    private static let uiTestReduceMotion = UserDefaults.standard.string(forKey: "ui-test-rack-reduce-motion").flatMap(Bool.init)
+    #endif
 
     private struct TileDrag {
         var offset: CGSize = .zero
@@ -94,7 +105,9 @@ struct RackTile: View {
         let isMeldCandidate = meldAction != nil
         let isCandidate = isMeldCandidate || isRobGoldCandidate
         let offset = isDragging ? drag.offset : .zero
-        let showsPreview = (isMeldCandidate || (throwDiscard != nil && canDiscard)) && !reduceMotion && offset != .zero
+        let meldFaces = meldAction?.preview
+        let showsPreview = offset != .zero
+            && (meldFaces != nil || (!reduceMotion && (isMeldCandidate || (throwDiscard != nil && canDiscard))))
 
         return Button(action: select) {
             TileFace(kind: tile.kind, gold: isGold, selected: isSelected || offset != .zero)
@@ -107,15 +120,24 @@ struct RackTile: View {
                             .allowsHitTesting(false)
                     }
                 }
+                .anchorPreference(key: RackDragPreview.Key.self, value: .bounds) { anchor in
+                    RackDragPreview.Preferences(rackFaces: isMeldCandidate ? [tile.id: anchor] : [:])
+                }
                 .offset(x: reduceMotion || showsPreview ? 0 : offset.width,
                         y: reduceMotion ? 0 : (showsPreview ? 0 : offset.height) - (isSelected || isCandidate ? 3 : 0))
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                     if throwDiscard != nil { faceFrame = frame }
                 }
-                .anchorPreference(key: DiscardDragPreview.Key.self, value: .bounds) { anchor in
-                    showsPreview ? DiscardDragPreview(tile: tile, isGold: isGold, source: anchor, translation: offset) : nil
+                .transformAnchorPreference(key: RackDragPreview.Key.self, value: .bounds) { preferences, anchor in
+                    preferences.preview = showsPreview ? RackDragPreview(
+                        faces: meldFaces ?? [.init(tile: tile, isGold: isGold)],
+                        grabbedID: tile.id,
+                        source: anchor,
+                        translation: offset,
+                        stationary: reduceMotion
+                    ) : nil
                 }
-                .opacity(showsPreview ? 0 : 1)
+                .opacity(showsPreview && !reduceMotion && meldFaces == nil ? 0 : 1)
                 .frame(width: cellWidth, height: max(TeaTheme.hitTarget, face.height))
                 .contentShape(Rectangle())
         }

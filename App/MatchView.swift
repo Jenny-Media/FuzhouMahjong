@@ -696,21 +696,13 @@ struct MatchView<Session: MatchSession>: View {
                     }
                 }
             }
-            .overlayPreferenceValue(DiscardDragPreview.Key.self) { preview in
-                if !reduceMotion, active, let preview {
-                    GeometryReader { overlay in
-                        let origin = overlay[preview.source]
-                        let frame = DiscardFlight.inside(origin.offsetBy(dx: preview.translation.width,
-                                                                       dy: preview.translation.height),
-                                                        size: overlay.size)
-                        TileFace(kind: preview.tile.kind, gold: preview.isGold, selected: true)
-                            .frame(width: frame.width, height: frame.height)
-                            .shadow(color: .black.opacity(0.46), radius: 6, y: 4)
-                            .position(x: frame.midX, y: frame.midY)
-                            .mask { motionArea(overlay.size, excluding: divisions) }
-                    }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+            .overlayPreferenceValue(RackDragPreview.Key.self) { drag in
+                if active, let preview = drag.preview {
+                    RackDragOverlay(preview: preview, rackFaces: drag.rackFaces,
+                                    rackBounds: drag.rackBounds, divisions: divisions)
+                        .mask { motionArea(geometry.size, excluding: divisions) }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
             .onChange(of: geometry.size) { _, _ in
@@ -1015,6 +1007,7 @@ struct MatchView<Session: MatchSession>: View {
                 .strokeBorder(boardStyle.trayEdge.opacity(0.65))
                 .allowsHitTesting(false)
         }
+        .transformAnchorPreference(key: RackDragPreview.Key.self, value: .bounds) { $0.rackBounds = $1 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("手牌")
         .accessibilityIdentifier("table-rack")
@@ -1157,10 +1150,11 @@ struct MatchView<Session: MatchSession>: View {
         let canSelect = canSwap || !options.isEmpty || canDiscard || (canPlayOrdinaryTile && table.moves.contains(.replaceFlower(tile.id)))
         let swipeReady: (() -> Void)? = playsHaptics && (canDiscard || options.count == 1)
             ? { playHaptic(.selection) } : nil
-        let meldAction: (label: String, perform: () -> Void)? = if options.isEmpty {
+        let meldAction: (label: String, preview: [RackDragPreview.Face]?, perform: () -> Void)? = if options.isEmpty {
             nil
         } else {
-            (options.count == 1 ? title(options[0], table: table) : "选择牌组", {
+            (options.count == 1 ? title(options[0], table: table) : "选择牌组",
+             RackDragPreview.meldFaces(for: options, table: table, showsGold: showsGoldIndicator), {
                 handleRackMelds(options, from: table, commitWhenUnique: true)
             })
         }
@@ -1435,27 +1429,13 @@ struct MatchView<Session: MatchSession>: View {
 
     private func meldTilesPreview(_ move: Move, table: TableState) -> some View {
         HStack(spacing: 1) {
-            ForEach(meldTiles(for: move, table: table)) { tile in
+            ForEach(table.tiles(inMeld: move)) { tile in
                 TileFace(kind: tile.kind, gold: table.isGold(tile))
                     .frame(width: 16, height: 16 / TileFace.artworkAspectRatio)
                     .opacity(tile.id == table.offeredTile?.id ? 0.76 : 1)
                     .accessibilityHidden(true)
             }
         }
-    }
-
-    private func meldTiles(for move: Move, table: TableState) -> [Tile] {
-        guard let meld = move.meld else { return [] }
-        let rack = table.hand + [table.drawn].compactMap { $0 }
-        let used = rack.filter { meld.ids.contains($0.id) }
-        if meld.kind == .addedKong, let tile = used.first,
-           let pung = table.players.first(where: { $0.seat == table.viewer })?.melds.first(where: {
-               $0.kind == .pung && $0.tiles.first?.kind == tile.kind
-           }) {
-            return pung.tiles + used
-        }
-        let offered = table.step == .claim ? [table.offeredTile].compactMap { $0 } : []
-        return (used + offered).sorted { $0.kind < $1.kind }
     }
 
     private func moveButton(_ move: Move, label: String, table: TableState) -> some View {
@@ -1506,7 +1486,7 @@ struct MatchView<Session: MatchSession>: View {
             }
         case .pass: return "过"
         case .meld(let kind, _):
-            let tiles = meldTiles(for: move, table: table)
+            let tiles = table.tiles(inMeld: move)
             if kind == .chow {
                 return "吃 \(tiles.map(\.kind.spokenName).joined(separator: "、"))"
             } else {
@@ -1820,6 +1800,22 @@ private extension Move {
     }
 
     var discardClaimLabel: String { meld?.kind.actionLabel ?? "胡" }
+}
+
+extension TableState {
+    func tiles(inMeld move: Move) -> [Tile] {
+        guard let meld = move.meld else { return [] }
+        let rack = hand + [drawn].compactMap { $0 }
+        let used = rack.filter { meld.ids.contains($0.id) }
+        if meld.kind == .addedKong, let tile = used.first,
+           let pung = players.first(where: { $0.seat == viewer })?.melds.first(where: {
+               $0.kind == .pung && $0.tiles.first?.kind == tile.kind
+           }) {
+            return pung.tiles + used
+        }
+        let offered = step == .claim ? [offeredTile].compactMap { $0 } : []
+        return (used + offered).sorted { $0.kind < $1.kind }
+    }
 }
 
 private extension DiscardClaimFeedback {

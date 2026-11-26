@@ -1,8 +1,11 @@
 import FuzhouCore
+import UIKit
 import XCTest
 
 @MainActor
 final class TableFlowTests: XCTestCase {
+    private var heldDragScreenshot: XCUIScreenshot?
+
     func testFaceAndMaterialCombinationsAtPlaySize() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -571,9 +574,16 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(discard.waitForExistence(timeout: 5))
         let anchors = [table, rack] + Seat.allCases.map { element("seat-score-\($0.id)", in: app) }
         let frames = anchors.map(\.frame)
-        XCTAssertTrue(table.frame.contains(actions.frame))
-        XCTAssertTrue(table.frame.contains(dock.frame))
-        XCTAssertGreaterThan(dock.frame.midX, table.frame.midX)
+        let isSplit = element("table-region", in: app).exists
+        assertContains(table.frame, actions.frame)
+        if isSplit {
+            assertContains(app.windows.firstMatch.frame, dock.frame)
+            XCTAssertFalse(table.frame.intersects(dock.frame))
+        } else {
+            assertContains(table.frame, dock.frame)
+        }
+        let handCenterX = isSplit ? rack.frame.midX : table.frame.midX
+        XCTAssertGreaterThan(dock.frame.midX, handCenterX)
         XCTAssertLessThan(dock.frame.maxY, rack.frame.minY)
         capture("turn-actions-and-drawn-dock")
 
@@ -594,9 +604,9 @@ final class TableFlowTests: XCTestCase {
         app.alerts.buttons["取消"].tap()
         XCTAssertTrue(goldTile.exists)
 
-        let inward = table.frame.midX - drawnTile.frame.midX
-        let towardFelt = CGVector(dx: inward, dy: -abs(inward) * 0.62)
-        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(towardFelt),
+        let inward = handCenterX - drawnTile.frame.midX
+        let inwardSwipe = CGVector(dx: inward, dy: -abs(inward) * 0.62)
+        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(inwardSwipe),
                           withVelocity: .slow, thenHoldForDuration: 0.15)
         XCTAssertTrue(drawnTile.waitForNonExistence(timeout: 3))
         XCTAssertTrue(element("latest-discard", in: app).label.contains("你打出"))
@@ -876,7 +886,18 @@ final class TableFlowTests: XCTestCase {
             let swipe = CGVector(dx: 0, dy: -92)
             let center = CGVector(dx: 0.5, dy: 0.5)
             let start = (startsWithSharedTile ? sharedTile : uniqueTile).coordinate(withNormalizedOffset: center)
-            start.press(forDuration: 0.08, thenDragTo: start.withOffset(swipe))
+            if !startsWithSharedTile {
+                XCTAssertTrue(app.buttons["table-move-过"].waitForExistence(timeout: 5))
+                let rack = element("table-rack", in: app)
+                let rackFrame = rack.frame
+                start.press(forDuration: 0.08, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -18)),
+                            withVelocity: .slow, thenHoldForDuration: 0.2)
+                XCTAssertTrue(uniqueTile.exists)
+                XCTAssertFalse(confirm.exists)
+                assertFrames([rack.frame], match: [rackFrame], labels: ["rack"])
+            }
+            start.press(forDuration: 0.08, thenDragTo: start.withOffset(swipe),
+                        withVelocity: .default, thenHoldForDuration: 0.9)
 
             if startsWithSharedTile {
                 XCTAssertTrue(app.buttons["meld-option-0"].waitForExistence(timeout: 5))
@@ -886,13 +907,222 @@ final class TableFlowTests: XCTestCase {
                 XCTAssertTrue(confirm.waitForExistence(timeout: 5))
                 assertHighlighted(Set(target), in: state.hand, app: app)
                 let selected = sharedTile.coordinate(withNormalizedOffset: center)
-                selected.press(forDuration: 0.08, thenDragTo: selected.withOffset(swipe))
+                selected.press(forDuration: 0.08, thenDragTo: selected.withOffset(swipe),
+                               withVelocity: .default, thenHoldForDuration: 0.9)
             }
 
             XCTAssertTrue(app.buttons["discard-action"].waitForExistence(timeout: 5))
             for id in target { XCTAssertFalse(app.buttons["tile-\(id)"].exists) }
             app.terminate()
         }
+    }
+
+    func testHeldChowRendersTheGroupAndKeepsItsHandTilesVisible() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 56, after: 47)
+        let table = fixture.table(for: .south)
+        let offered = try XCTUnwrap(table.offeredTile)
+        let hand = try XCTUnwrap(table.moves.compactMap { move -> [Tile]? in
+            guard case .meld(.chow, let ids) = move else { return nil }
+            let tiles = table.hand.filter { ids.contains($0.id) }.sorted { $0.kind < $1.kind }
+            return tiles.first.map { $0.kind.rank > offered.kind.rank } == true ? tiles : nil
+        }.first)
+        let partner = try XCTUnwrap(hand.first)
+        let grabbed = try XCTUnwrap(hand.last)
+        let firstID = try XCTUnwrap(table.hand.first?.id)
+        let lastID = try XCTUnwrap(table.hand.last?.id)
+
+        for reduceMotion in [true, false] {
+            let arguments = [
+                "-appearance.mode", "light", "-table.boardStyle", "snowWhite", "-table.tileStyle", "porcelain",
+                "-ui-test-rack-reduce-motion", String(reduceMotion),
+            ]
+            let app = try launchSavedMatch(fixture, arguments: arguments)
+            let pass = app.buttons["table-move-过"]
+            XCTAssertTrue(pass.waitForExistence(timeout: 5))
+            let firstFrame = app.buttons["tile-\(firstID)"].frame
+            let lastFrame = app.buttons["tile-\(lastID)"].frame
+            let hasTwoRows = lastFrame.midY > firstFrame.maxY
+            let grabbedSlot = hasTwoRows ? FuzhouMatch.rackSize / 2 + 3 : 4
+            let arrange = app.buttons["rack-arrange"]
+            func toggleArrangement(_ title: String) {
+                if arrange.exists {
+                    arrange.tap()
+                } else {
+                    app.buttons["TopOverflowBarButtonItem"].tap()
+                    app.buttons[title].tap()
+                }
+            }
+            toggleArrangement("理牌")
+            var order = table.hand.map(\.id)
+            for (tile, destination) in [(grabbed, grabbedSlot), (partner, 3)] {
+                let source = try XCTUnwrap(order.firstIndex(of: tile.id))
+                guard source != destination else { continue }
+                app.buttons["tile-\(tile.id)"].tap()
+                app.buttons["tile-\(order[destination])"].tap()
+                order.remove(at: source)
+                order.insert(tile.id, at: destination)
+            }
+            toggleArrangement("完成")
+            XCTAssertTrue(pass.waitForExistence(timeout: 5))
+            let rack = element("table-rack", in: app).frame
+            let window = app.windows.firstMatch.frame
+            let partnerFrame = app.buttons["tile-\(partner.id)"].frame
+            let grabbedTile = app.buttons["tile-\(grabbed.id)"]
+            let grabbedFrame = grabbedTile.frame
+            if hasTwoRows {
+                XCTAssertEqual(partnerFrame.midX, grabbedFrame.midX, accuracy: 1)
+                XCTAssertGreaterThan(grabbedFrame.midY, partnerFrame.maxY)
+            } else {
+                XCTAssertEqual(partnerFrame.midY, grabbedFrame.midY, accuracy: 1)
+                XCTAssertGreaterThan(grabbedFrame.midX, partnerFrame.midX)
+            }
+
+            let start = grabbedTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            // Move sideways far enough to distinguish the motion modes at the rack's vertical limit.
+            let displacement = CGVector(dx: 12, dy: reduceMotion ? -18 : -60)
+            let width = grabbedFrame.width - 1.5
+            let height = width * 268 / 192
+            let centerAboveRack = rack.minY - 6 - height / 2
+            let centerY = reduceMotion ? centerAboveRack : min(centerAboveRack, grabbedFrame.midY + displacement.dy)
+            let grabbedEdge = grabbedFrame.midX - width / 2 + (reduceMotion ? 0 : displacement.dx)
+            let stride = width * 1.065
+            let candidateColor: UInt32 = 0x22614D
+            let rackColor: UInt32 = 0x215D61
+            let previewColor: UInt32 = 0x176F88
+            let before = try uprightImage(from: XCUIScreen.main.screenshot())
+            let during = try screenshotDuringDrag(from: start, displacement: displacement)
+            capture(reduceMotion ? "held-chow-reduce-motion" : "held-chow", screenshot: during)
+            let heldImage = try uprightImage(from: during)
+            func edge(_ x: CGFloat, y: CGFloat, color: UInt32, in image: CGImage = heldImage) throws -> Double {
+                try matchingStroke(at: CGPoint(x: x, y: y), color: color, in: image, window: window)
+            }
+
+            let discardEdge = grabbedEdge - 2 * stride
+            let discardStroke = try edge(discardEdge, y: centerY, color: rackColor)
+            XCTAssertGreaterThan(discardStroke, 0.2, "Expected a dashed claim outline at (\(discardEdge), \(centerY))")
+            XCTAssertLessThan(discardStroke, 0.85, "The claimed tile outline has gaps")
+            for tileEdge in [grabbedEdge - stride, grabbedEdge] {
+                XCTAssertGreaterThan(try edge(tileEdge, y: centerY, color: previewColor), 0.85,
+                                     "Each hand tile has a solid outline in the preview")
+            }
+            for frame in [partnerFrame, grabbedFrame] {
+                XCTAssertGreaterThan(try edge(frame.midX - width / 2, y: frame.midY, color: rackColor), 0.85,
+                                     "The contributing tile remains highlighted in the rack")
+                let topBand = CGRect(x: frame.midX - 6, y: frame.midY - height / 2 - 5, width: 12, height: 10)
+                let tileTop = try firstStrokeRow(candidateColor, in: topBand, image: before, window: window)
+                let highlightTop = try firstStrokeRow(rackColor, in: topBand, image: heldImage, window: window)
+                XCTAssertEqual(Double(highlightTop), Double(tileTop), accuracy: 3,
+                               "The highlight follows the actual top edge of the contributing tile")
+                let interior = CGRect(x: frame.midX - width * 0.3, y: frame.midY - height * 0.32,
+                                      width: width * 0.6, height: height * 0.64)
+                XCTAssertGreaterThan(try artworkMatch(in: interior, before: before, held: heldImage, window: window), 0.9,
+                                     "The original tile artwork remains visible in the rack")
+            }
+            if reduceMotion {
+                let canceled = pass.waitForExistence(timeout: 5)
+                let afterRelease = XCUIScreen.main.screenshot()
+                if !canceled { capture("short-chow-after-release", screenshot: afterRelease) }
+                XCTAssertTrue(canceled, "The short drag cancels")
+                XCTAssertTrue(grabbedTile.exists)
+                let afterCancel = try uprightImage(from: afterRelease)
+                XCTAssertLessThan(try edge(grabbedEdge, y: centerY, color: previewColor, in: afterCancel), 0.1)
+            } else {
+                XCTAssertTrue(grabbedTile.waitForNonExistence(timeout: 5), "The full swipe commits the chow")
+            }
+            app.terminate()
+        }
+    }
+
+    @objc private func captureHeldDrag(_ timer: Timer) {
+        heldDragScreenshot = XCUIScreen.main.screenshot()
+    }
+
+    private func screenshotDuringDrag(from start: XCUICoordinate, displacement: CGVector) throws -> XCUIScreenshot {
+        heldDragScreenshot = nil
+        // XCTest pumps the main run loop while it holds the synthesized touch down.
+        let timer = Timer(timeInterval: 1.5, target: self, selector: #selector(captureHeldDrag(_:)),
+                          userInfo: nil, repeats: false)
+        RunLoop.main.add(timer, forMode: .common)
+        defer { timer.invalidate() }
+        start.press(forDuration: 0.08, thenDragTo: start.withOffset(displacement),
+                    withVelocity: .default, thenHoldForDuration: 2.5)
+        return try XCTUnwrap(heldDragScreenshot, "Expected a screenshot while the drag was held")
+    }
+
+    private func uprightImage(from screenshot: XCUIScreenshot) throws -> CGImage {
+        let image = screenshot.image
+        if image.imageOrientation == .up { return try XCTUnwrap(image.cgImage) }
+        // The folded Duo can return portrait pixels with landscape orientation metadata.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = true
+        format.preferredRange = .standard
+        let upright = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        return try XCTUnwrap(upright.cgImage)
+    }
+
+    private func matchingStroke(at point: CGPoint, color: UInt32, in image: CGImage, window: CGRect) throws -> Double {
+        let area = CGRect(x: point.x - 3, y: point.y - 9, width: 6, height: 18)
+        let sample = try screenshotPixels(in: area, image: image, window: window)
+        let rows = (0..<sample.height).filter { y in
+            (0..<sample.width).contains { x in
+                matchesColor(color, in: sample.bytes, at: (y * sample.width + x) * 4)
+            }
+        }
+        return Double(rows.count) / Double(sample.height)
+    }
+
+    private func firstStrokeRow(_ color: UInt32, in area: CGRect, image: CGImage, window: CGRect) throws -> Int {
+        let sample = try screenshotPixels(in: area, image: image, window: window)
+        // The preview's shadow can darken the stroke where it approaches the rack.
+        let row = (0..<sample.height).first { y in
+            let hits = (0..<sample.width).filter { x in
+                matchesColor(color, in: sample.bytes, at: (y * sample.width + x) * 4, tolerance: 16)
+            }
+            return hits.count * 4 >= sample.width * 3
+        }
+        return try XCTUnwrap(row, "Expected a stroke in \(area)")
+    }
+
+    private func artworkMatch(in area: CGRect, before: CGImage, held: CGImage, window: CGRect) throws -> Double {
+        let baseline = try screenshotPixels(in: area, image: before, window: window)
+        let during = try screenshotPixels(in: area, image: held, window: window)
+        guard baseline.width == during.width, baseline.height == during.height else { return 0 }
+        let matches = stride(from: 0, to: baseline.bytes.count, by: 4).filter { index in
+            (0..<3).allSatisfy { channel in
+                abs(Int(baseline.bytes[index + channel]) - Int(during.bytes[index + channel])) <= 24
+            }
+        }
+        return Double(matches.count) / Double(baseline.width * baseline.height)
+    }
+
+    private func matchesColor(_ color: UInt32, in pixels: [UInt8], at index: Int, tolerance: Int = 8) -> Bool {
+        let red = Int((color >> 16) & 255)
+        let green = Int((color >> 8) & 255)
+        let blue = Int(color & 255)
+        return abs(Int(pixels[index]) - red) <= tolerance
+            && abs(Int(pixels[index + 1]) - green) <= tolerance
+            && abs(Int(pixels[index + 2]) - blue) <= tolerance
+    }
+
+    private func screenshotPixels(in area: CGRect, image: CGImage, window: CGRect)
+        throws -> (bytes: [UInt8], width: Int, height: Int) {
+        let scale = CGFloat(image.width) / window.width
+        let crop = try XCTUnwrap(image.cropping(to: area.applying(CGAffineTransform(scaleX: scale, y: scale)).integral))
+        let stride = crop.width * 4
+        var pixels = [UInt8](repeating: 0, count: stride * crop.height)
+        try pixels.withUnsafeMutableBytes { bytes in
+            let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: crop.width, height: crop.height,
+                                                bitsPerComponent: 8, bytesPerRow: stride, space: space,
+                                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+        }
+        return (pixels, crop.width, crop.height)
     }
 
     func testDrawnWindJoinsTheVisibleFlowersAndTheReplacementReachesTheRack() throws {

@@ -207,6 +207,90 @@ final class TablePresentationTests: XCTestCase {
         XCTAssertFalse(swipe.canRelease(CGSize(width: 0, height: -21), predictedEnd: CGSize(width: 0, height: -80)))
     }
 
+    func testMeldDragPreviewShowsOneLegalGroupAndMarksItsSourceTiles() throws {
+        let fourths = Tile.fullSet.filter { $0.kind == TileKind(.characters, 4) }
+        let left = try XCTUnwrap(Tile.fullSet.first { $0.kind == TileKind(.characters, 3) })
+        let right = try XCTUnwrap(Tile.fullSet.first { $0.kind == TileKind(.characters, 5) })
+        let offered = fourths[3]
+        var table = FuzhouMatch().table(for: .south)
+        table.hand = [right, left] + fourths.prefix(3)
+        table.drawn = nil
+        table.gold = nil
+        table.offeredTile = offered
+        table.step = .claim
+
+        let chow = Move.meld(.chow, [left.id, right.id])
+        let pung = Move.meld(.pung, fourths.prefix(2).map(\.id))
+        let openKong = Move.meld(.openKong, fourths.prefix(3).map(\.id))
+        XCTAssertNil(RackDragPreview.meldFaces(for: [chow, pung], table: table, showsGold: true))
+        for (move, count) in [(chow, 3), (pung, 3), (openKong, 4)] {
+            let faces = try XCTUnwrap(RackDragPreview.meldFaces(for: [move], table: table, showsGold: true))
+            XCTAssertEqual(faces.count, count)
+            XCTAssertEqual(faces.filter { !$0.fromRack }.map(\.id), [offered.id])
+        }
+        let chowFaces = try XCTUnwrap(RackDragPreview.meldFaces(for: [chow], table: table, showsGold: true))
+        XCTAssertEqual(chowFaces.map(\.id), [left.id, offered.id, right.id])
+    }
+
+    func testKongDragPreviewUsesRackAndPreviouslyExposedTiles() throws {
+        let tiles = Tile.fullSet.filter { $0.kind == TileKind(.characters, 4) }
+        var table = FuzhouMatch().table(for: .south)
+        table.hand = Array(tiles.prefix(3))
+        table.drawn = tiles[3]
+        table.step = .turn
+        let concealed = Move.meld(.concealedKong, tiles.map(\.id))
+        let concealedFaces = try XCTUnwrap(RackDragPreview.meldFaces(for: [concealed], table: table, showsGold: true))
+        XCTAssertEqual(concealedFaces.map(\.id), tiles.map(\.id))
+        XCTAssertTrue(concealedFaces.allSatisfy(\.fromRack))
+
+        let player = try XCTUnwrap(table.players.firstIndex { $0.seat == table.viewer })
+        table.players[player].melds = [Meld(kind: .pung, tiles: table.hand, from: .east)]
+        table.hand = []
+        let added = Move.meld(.addedKong, [tiles[3].id])
+        let addedFaces = try XCTUnwrap(RackDragPreview.meldFaces(for: [added], table: table, showsGold: true))
+        XCTAssertEqual(addedFaces.map(\.id), tiles.map(\.id))
+        XCTAssertEqual(addedFaces.filter(\.fromRack).map(\.id), [tiles[3].id])
+    }
+
+    func testMeldDragLayoutKeepsTheWholeGroupInTheGrabbedTilePane() {
+        let size = CGSize(width: 420, height: 600)
+        let divider = CGRect(x: 180, y: 0, width: 20, height: 600)
+        let source = CGRect(x: 124, y: 420, width: 40, height: 56)
+        let bounds = FoldRegions.contentFrame(in: size, avoiding: [divider],
+                                             containing: CGPoint(x: source.midX, y: source.midY))
+        XCTAssertEqual(bounds.maxX, divider.minX)
+        let layout = RackDragPreview.Layout(source: source, translation: CGSize(width: 14, height: -80),
+                                            count: 4, grabbedIndex: 0, bounds: bounds)
+        XCTAssertEqual(layout.frame.maxX, divider.minX, accuracy: 0.001)
+        XCTAssertEqual(layout.frame.midY, source.midY - 80, accuracy: 0.001)
+        XCTAssertEqual(layout.frame.width, 4 * layout.tileSize.width + 3 * layout.spacing, accuracy: 0.001)
+    }
+
+    func testStationaryMeldPreviewFitsAboveTheRackWithinTheHandPane() {
+        let pane = CGRect(x: 220, y: 155, width: 240, height: 250)
+        let source = CGRect(x: 320, y: 273, width: 40, height: 56)
+        let rackTop: CGFloat = 200
+        let layout = RackDragPreview.Layout(source: source, translation: CGSize(width: 90, height: -20),
+                                            count: 3, grabbedIndex: 1, bounds: pane, rackTop: rackTop, stationary: true)
+        XCTAssertEqual(layout.frame.minY, pane.minY, accuracy: 0.001)
+        XCTAssertEqual(layout.frame.maxY, rackTop - 6, accuracy: 0.001)
+        XCTAssertEqual(layout.frame.midX, source.midX, accuracy: 0.001)
+        XCTAssertTrue(pane.insetBy(dx: -0.001, dy: -0.001).contains(layout.frame))
+    }
+
+    func testMovingMeldPreviewClearsTheWholeRackBeforeFollowingTheFingerUp() {
+        let pane = CGRect(x: 0, y: 0, width: 390, height: 700)
+        let source = CGRect(x: 160, y: 569, width: 43, height: 60)
+        let rackTop: CGFloat = 500
+        for rise: CGFloat in [18, 64, 157] {
+            let layout = RackDragPreview.Layout(source: source, translation: CGSize(width: 8, height: -rise),
+                                                count: 3, grabbedIndex: 1, bounds: pane, rackTop: rackTop)
+            XCTAssertEqual(layout.frame.maxY, min(rackTop - 6, source.maxY - rise), accuracy: 0.001)
+            XCTAssertEqual(layout.frame.midX, source.midX + 8, accuracy: 0.001)
+            XCTAssertEqual(layout.tileSize, source.size)
+        }
+    }
+
     func testFoldAtAWindowEdgeKeepsTheTableAndRackInOnePane() {
         let size = CGSize(width: 350, height: 600)
         let examples: [(CGRect, CGRect)] = [
