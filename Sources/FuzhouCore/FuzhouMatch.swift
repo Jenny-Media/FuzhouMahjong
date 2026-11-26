@@ -184,17 +184,49 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         } else {
             // With equal payments a score above the minimum proves a prior win.
             // With a single payer only a positive balance proves one.
-            otherWinners = Seat.allCases.count { $0 != dealer && priorScores[$0.id] > floor }
+            let ahead = Seat.allCases.count { $0 != dealer && priorScores[$0.id] > floor }
+            // If this seat won and still has no gain, somebody else must also have won.
+            otherWinners = max(ahead, priorScores[dealer.id] <= 0 ? 1 : 0)
         }
         let otherDealerWins = max(0, otherWinners - possibleNonDealerWins)
         let limit = min(continuation, max(0, dealerWins - otherDealerWins))
-        guard equalPayments, hasSeatWithoutWin else { return limit }
-        // Relative to a seat that never won, each win adds four times its face value.
-        var wonPoints = (priorScores[dealer.id] - floor) / Seat.allCases.count
-        for streak in 0..<limit {
-            let minimumWin = FuzhouScoring.basePoints + FuzhouScoring.pointsPerDealerRepeat * streak
-            if wonPoints < minimumWin { return streak }
-            wonPoints -= minimumWin
+        guard limit > 0 else { return 0 }
+        func minimumWin(repeatsBack: Int) -> Int {
+            FuzhouScoring.basePoints + FuzhouScoring.pointsPerDealerRepeat * (continuation - repeatsBack)
+        }
+        let wonPoints: [Int]
+        if equalPayments, hasSeatWithoutWin {
+            // Relative to a seat that never won, each win adds four times its face value.
+            wonPoints = priorScores.map { ($0 - floor) / Seat.allCases.count }
+        } else if dealerWins == 1, possibleNonDealerWins == 0 {
+            // With just one payment, the losses identify whether one or three opponents paid.
+            let payers = priorScores.count { $0 < 0 }
+            guard payers == 1 || payers == 3 else { return limit }
+            wonPoints = priorScores.map { max(0, $0) / payers }
+        } else {
+            if limit == dealerWins, possibleNonDealerWins == 0 {
+                // To claim every paid hand, this dealer must have received every transfer.
+                // Each payer had to lose at least the cheapest of those final wins.
+                let losses = priorScores.filter { $0 < 0 }.map { -$0 }
+                let cheapest = minimumWin(repeatsBack: limit)
+                let minimumTotal = (1...limit).reduce(0) { $0 + minimumWin(repeatsBack: $1) }
+                // More payers than wins requires at least one three-way payment.
+                let sharedPayment = losses.count > limit ? 2 * cheapest : 0
+                if losses.contains(where: { $0 < cheapest }) || priorScores[dealer.id] < minimumTotal + sharedPayment {
+                    return limit - 1
+                }
+            }
+            return limit
+        }
+        let otherWinCapacity = Seat.allCases.filter { $0 != dealer }
+            .reduce(0) { $0 + wonPoints[$1.id] / FuzhouScoring.basePoints }
+        let winsToAccountFor = max(0, dealerWins - otherWinCapacity)
+        var remaining = wonPoints[dealer.id]
+        for repeats in 1...limit {
+            // These are the last hands in the stored streak, even if it spans a dealer change.
+            remaining -= minimumWin(repeatsBack: repeats)
+            let earlierWins = max(0, winsToAccountFor - repeats)
+            if remaining < earlierWins * FuzhouScoring.basePoints { return repeats - 1 }
         }
         return limit
     }

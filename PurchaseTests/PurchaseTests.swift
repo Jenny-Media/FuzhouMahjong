@@ -16,9 +16,9 @@ final class SoloSaveMigrationTests: XCTestCase {
         saved["dealerTurns"] = 1
         let even = [0, 0, 0, 0]
         for (round, stored, scores, expected) in [
-            (2, 1, even, 0), (4, 2, even, 2), (4, 3, even, 2),
+            (2, 1, even, 0), (4, 2, even, 2), (4, 3, even, 1),
             (3, 2, [30, -10, -10, -10], 0), // East won, then a draw passed the deal.
-            (3, 2, [-10, 30, -10, -10], 1), // A draw passed the deal, then South won.
+            (3, 2, [-12, 36, -12, -12], 1), // A draw passed the deal, then South won at the old +2 bonus.
         ] {
             let suite = "DealerRestoreTests." + UUID().uuidString
             let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -400,20 +400,48 @@ final class MatchTests: XCTestCase {
         resolveOpening(&ready)
         let encoder = JSONEncoder()
         var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(ready)) as? [String: Any])
-        // Four draws passed the deal around the table. All other past hands were dealer wins.
-        saved["dealerTurns"] = 4
         let payAll = FuzhouHouseRules(name: "三家付分", discardPayment: .allOpponents)
         let payAllRules = try JSONSerialization.jsonObject(with: encoder.encode(payAll))
         XCTAssertTrue(ready.apply(.win, by: .east))
         let basePoints = try XCTUnwrap(ready.result).points
 
-        for (scores, wins, equalPayments, repeats) in [
-            ([0, 10, -10, 0], 1, false, 0), ([10, 0, -10, 0], 1, false, 1),
-            ([-22, 66, -22, -22], 2, true, 0), ([66, -22, -22, -22], 2, true, 2),
-            ([8, 56, -32, -32], 3, true, 1), ([0, 0, 0, 0], 4, true, 1),
-        ] {
-            saved["roundNumber"] = 5 + wins
-            saved["continuation"] = 4 + wins
+        // Replay the old counter and payouts to construct reachable archives. A win
+        // with no explicit face value uses the minimum then payable to that dealer.
+        enum PastHand { case draw, win(Int? = nil) }
+        let scenarios: [([PastHand], Bool, Int)] = [
+            ([.draw, .win(), .draw, .draw, .draw], false, 0),
+            ([.win(), .draw, .draw, .draw, .draw], false, 0),
+            ([.draw, .draw, .draw, .draw, .win()], false, 1),
+            ([.win(), .win(), .draw, .draw, .draw, .draw], false, 1),
+            ([.draw, .draw, .draw, .draw, .win(), .win()], false, 2),
+            ([.draw, .win(), .win(), .draw, .draw, .draw], true, 0),
+            ([.win(), .win(), .draw, .draw, .draw, .draw], true, 0),
+            ([.draw, .draw, .draw, .draw, .win(), .win()], true, 2),
+            ([.win(), .draw, .draw, .draw, .draw, .win()], true, 1),
+            ([.draw, .win(), .win(), .draw, .draw, .draw, .win()], true, 1),
+            ([.draw, .win(24), .draw, .win(24), .draw, .win(24), .draw, .win(24)], true, 1),
+        ]
+        for (history, equalPayments, repeats) in scenarios {
+            var dealerTurns = 0
+            var scores = Array(repeating: 0, count: Seat.allCases.count)
+            for (index, hand) in history.enumerated() {
+                switch hand {
+                case .draw: dealerTurns += 1
+                case .win(let faceValue):
+                    let winner = Seat.east.advanced(dealerTurns)
+                    let minimum = 10 + 2 * index
+                    let points = faceValue ?? minimum
+                    XCTAssertGreaterThanOrEqual(points, minimum)
+                    for payer in Seat.allCases where payer != winner && (equalPayments || payer == .west) {
+                        scores[payer.id] -= points
+                        scores[winner.id] += points
+                    }
+                }
+            }
+            XCTAssertEqual(Seat.east.advanced(dealerTurns), ready.dealer)
+            saved["dealerTurns"] = dealerTurns
+            saved["roundNumber"] = history.count + 1
+            saved["continuation"] = history.count
             saved["houseRules"] = equalPayments ? payAllRules : nil
             saved["scores"] = scores
             let data = try JSONSerialization.data(withJSONObject: saved)
