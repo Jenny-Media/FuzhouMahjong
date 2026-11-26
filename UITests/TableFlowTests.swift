@@ -21,10 +21,14 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(allowance.waitForExistence(timeout: 5))
         let initialAllowance = allowance.label
         let solo = app.buttons["practice-entry"]
+        XCTAssertTrue(app.buttons["home-gesture-practice"].isHittable)
         solo.tap()
         let offer = app.buttons["solo-gesture-practice"]
         XCTAssertTrue(offer.waitForExistence(timeout: 5))
         offer.tap()
+        let basic = app.buttons["gesture-practice-lesson-basic"]
+        XCTAssertTrue(basic.waitForExistence(timeout: 5))
+        basic.tap()
 
         let step = app.staticTexts["gesture-practice-step"]
         let instruction = app.staticTexts["gesture-practice-instruction"]
@@ -96,6 +100,7 @@ final class TableFlowTests: XCTestCase {
         expectStep("向上滑出一张牌")
         XCTAssertTrue(seven.exists)
         app.buttons["gesture-practice-close"].tap()
+        app.buttons["gesture-practice-picker-close"].tap()
         app.buttons["cancel-solo-setup"].tap()
         XCTAssertTrue(allowance.waitForExistence(timeout: 5))
         XCTAssertEqual(allowance.label, initialAllowance)
@@ -105,6 +110,8 @@ final class TableFlowTests: XCTestCase {
         app.buttons["rules-entry"].tap()
         app.buttons["rule-contents"].tap()
         app.buttons["rule-contents-gesture-practice"].tap()
+        XCTAssertTrue(basic.waitForExistence(timeout: 5))
+        basic.tap()
         expectStep("向上滑出一张牌")
         action.tap()
         expectStep("出牌成功")
@@ -141,7 +148,156 @@ final class TableFlowTests: XCTestCase {
         action.tap()
         expectStep("吃牌成功")
         action.tap()
+        XCTAssertTrue(basic.waitForExistence(timeout: 5))
+        app.buttons["gesture-practice-picker-close"].tap()
         XCTAssertTrue(app.staticTexts["rule-lesson-title"].waitForExistence(timeout: 5))
+    }
+
+    func testHomeGesturePracticeRemainsAvailableWithASavedGame() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let saved = try match(seed: 1, after: 1)
+        let drawn = try XCTUnwrap(saved.table(for: .south).drawn)
+        let app = XCUIApplication()
+        app.launchArguments = try savedMatchArguments(saved) +
+            ["-solo-match.second.v1", "", "-solo.gesturePracticeSeen", "true"]
+        app.launch()
+
+        let practice = app.buttons["home-gesture-practice"]
+        let resume = app.buttons["practice-entry"]
+        XCTAssertTrue(practice.waitForExistence(timeout: 5))
+        XCTAssertTrue(practice.isHittable)
+        XCTAssertTrue(resume.label.contains("继续单机"))
+        XCTAssertGreaterThan(practice.frame.minY, app.buttons["new-solo-game"].frame.maxY)
+        XCTAssertLessThan(practice.frame.maxY, app.buttons["nearby-entry"].frame.minY)
+        let allowance = app.buttons["solo-remaining"].label
+
+        practice.tap()
+        let basic = app.buttons["gesture-practice-lesson-basic"]
+        XCTAssertTrue(basic.waitForExistence(timeout: 5))
+        basic.tap()
+        let close = app.buttons["gesture-practice-close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["gesture-practice-step"].label, "向上滑出一张牌")
+        close.tap()
+        XCTAssertTrue(basic.waitForExistence(timeout: 5))
+        app.buttons["gesture-practice-picker-close"].tap()
+        XCTAssertTrue(practice.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["solo-remaining"].label, allowance)
+        resume.tap()
+        XCTAssertTrue(app.buttons["tile-\(drawn.id)"].waitForExistence(timeout: 5))
+    }
+
+    func testGesturePracticeMultipleChowsAcceptsEitherSequence() throws {
+        continueAfterFailure = false
+        let app = openHomeGesturePractice()
+        let lesson = app.buttons["gesture-practice-lesson-multipleChows"]
+        let step = app.staticTexts["gesture-practice-step"]
+        let action = app.buttons["gesture-practice-action"]
+        let low = app.buttons["gesture-practice-choice-lowChow"]
+        let high = app.buttons["gesture-practice-choice-highChow"]
+        let tableTiles = element("gesture-practice-table-tiles", in: app)
+        let four = try XCTUnwrap(Tile.fullSet.first { $0.kind == TileKind(.circles, 4) })
+        let fourButton = app.buttons["tile-\(four.id)"]
+
+        lesson.tap()
+        XCTAssertTrue(fourButton.waitForExistence(timeout: 5))
+        swipePracticeTile(fourButton)
+        XCTAssertTrue(low.waitForExistence(timeout: 5))
+        XCTAssertTrue(high.exists)
+        XCTAssertFalse(action.isEnabled)
+        app.buttons["gesture-practice-cancel-choice"].tap()
+        XCTAssertTrue(low.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(fourButton.exists)
+        action.tap()
+
+        low.tap()
+        XCTAssertTrue(low.isSelected)
+        high.tap()
+        XCTAssertTrue(high.isSelected)
+        XCTAssertEqual(action.label, "确认吃牌")
+        capture("practice-chow-choices")
+        action.tap()
+        XCTAssertEqual(step.label, "吃牌成功")
+        XCTAssertEqual(tableTiles.value as? String, "四筒、五筒、六筒")
+        XCTAssertFalse(fourButton.exists)
+        action.tap()
+
+        XCTAssertTrue(lesson.waitForExistence(timeout: 5))
+        lesson.tap()
+        action.tap()
+        low.tap()
+        action.tap()
+        XCTAssertEqual(step.label, "吃牌成功")
+        XCTAssertEqual(tableTiles.value as? String, "三筒、四筒、五筒")
+    }
+
+    func testGesturePracticeKongAutomaticallyDrawsAReplacementBeforeDiscard() throws {
+        continueAfterFailure = false
+        let app = openHomeGesturePractice()
+        let lesson = app.buttons["gesture-practice-lesson-kong"]
+        XCTAssertTrue(lesson.waitForExistence(timeout: 5))
+        capture("gesture-practice-picker")
+        lesson.tap()
+        let step = app.staticTexts["gesture-practice-step"]
+        let action = app.buttons["gesture-practice-action"]
+        let pung = app.buttons["gesture-practice-choice-pung"]
+        let kong = app.buttons["gesture-practice-choice-kong"]
+        let tableTiles = element("gesture-practice-table-tiles", in: app)
+        let fives = Tile.fullSet.filter { $0.kind == TileKind(.circles, 5) }
+        let fiveButtons = fives.dropFirst().map { app.buttons["tile-\($0.id)"] }
+        let seven = try XCTUnwrap(Tile.fullSet.first { $0.kind == TileKind(.bamboo, 7) })
+        let replacement = app.buttons["tile-\(seven.id)"]
+
+        XCTAssertTrue(fiveButtons[0].waitForExistence(timeout: 5))
+        swipePracticeTile(fiveButtons[0])
+        XCTAssertTrue(pung.waitForExistence(timeout: 5))
+        XCTAssertTrue(kong.exists)
+        XCTAssertFalse(action.isEnabled)
+        pung.tap()
+        XCTAssertEqual(action.label, "确认碰牌")
+        action.tap()
+        XCTAssertEqual(step.label, "碰牌成功")
+        XCTAssertEqual(tableTiles.value as? String, "五筒、五筒、五筒")
+        XCTAssertEqual(fiveButtons.filter(\.exists).count, 1)
+        XCTAssertFalse(replacement.exists)
+
+        XCTAssertEqual(action.label, "试试明杠")
+        action.tap()
+        XCTAssertTrue(fiveButtons.allSatisfy(\.exists))
+        fiveButtons[0].tap()
+        kong.tap()
+        XCTAssertEqual(action.label, "确认明杠")
+        action.tap()
+        XCTAssertEqual(step.label, "明杠后补摸")
+        XCTAssertEqual(tableTiles.value as? String, "五筒、五筒、五筒、五筒")
+        XCTAssertTrue(fiveButtons.allSatisfy { !$0.exists })
+        XCTAssertTrue(replacement.waitForExistence(timeout: 5))
+        XCTAssertEqual(replacement.label, "杠后补摸，七条")
+        capture("practice-kong-replacement")
+        swipePracticeTile(replacement)
+        XCTAssertEqual(step.label, "补摸后出牌成功")
+        XCTAssertFalse(replacement.exists)
+        XCTAssertEqual(element("gesture-practice-replacement-discard", in: app).value as? String, "七条")
+        action.tap()
+        XCTAssertTrue(lesson.waitForExistence(timeout: 5))
+    }
+
+    private func openHomeGesturePractice() -> XCUIApplication {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["-play-access.archive.v1", "", "-solo-match.v2", "", "-solo-match.second.v1", ""]
+        app.launch()
+        let practice = app.buttons["home-gesture-practice"]
+        XCTAssertTrue(practice.waitForExistence(timeout: 5))
+        practice.tap()
+        return app
+    }
+
+    private func swipePracticeTile(_ tile: XCUIElement) {
+        let start = tile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.08, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -76)),
+                    withVelocity: .slow, thenHoldForDuration: 0.4)
     }
 
     func testFaceAndMaterialCombinationsAtPlaySize() throws {
