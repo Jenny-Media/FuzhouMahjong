@@ -14,7 +14,7 @@ struct RackTile: View {
     let select: () -> Void
     let discard: () -> Void
     var throwDiscard: ((CGRect, CGRect) -> Void)? = nil
-    var meldAction: (label: String, perform: () -> Void)? = nil
+    var meldAction: (label: String, preview: [RackDragPreview.Face]?, perform: () -> Void)? = nil
     var isRobGoldCandidate = false
     var swipeReady: (() -> Void)? = nil
     var reposition: ((CGPoint) -> Void)? = nil
@@ -94,7 +94,9 @@ struct RackTile: View {
         let isMeldCandidate = meldAction != nil
         let isCandidate = isMeldCandidate || isRobGoldCandidate
         let offset = isDragging ? drag.offset : .zero
-        let showsPreview = (isMeldCandidate || (throwDiscard != nil && canDiscard)) && !reduceMotion && offset != .zero
+        let meldFaces = meldAction?.preview
+        let showsPreview = offset != .zero
+            && (meldFaces != nil || (!reduceMotion && (isMeldCandidate || (throwDiscard != nil && canDiscard))))
 
         return Button(action: select) {
             TileFace(kind: tile.kind, gold: isGold, selected: isSelected || offset != .zero)
@@ -112,10 +114,16 @@ struct RackTile: View {
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                     if throwDiscard != nil { faceFrame = frame }
                 }
-                .anchorPreference(key: DiscardDragPreview.Key.self, value: .bounds) { anchor in
-                    showsPreview ? DiscardDragPreview(tile: tile, isGold: isGold, source: anchor, translation: offset) : nil
+                .anchorPreference(key: RackDragPreview.Key.self, value: .bounds) { anchor in
+                    let preview = showsPreview ? RackDragPreview(
+                        faces: meldFaces ?? [.init(tile: tile, isGold: isGold)],
+                        grabbedID: tile.id,
+                        source: anchor,
+                        translation: reduceMotion ? CGSize(width: 0, height: -face.height - 6) : offset
+                    ) : nil
+                    return RackDragPreview.Preferences(preview: preview, rackFaces: isMeldCandidate ? [tile.id: anchor] : [:])
                 }
-                .opacity(showsPreview ? 0 : 1)
+                .opacity(showsPreview && !reduceMotion && meldFaces == nil ? 0 : 1)
                 .frame(width: cellWidth, height: max(TeaTheme.hitTarget, face.height))
                 .contentShape(Rectangle())
         }

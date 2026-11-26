@@ -26,7 +26,7 @@ enum FoldRegions {
         }
     }
 
-    static func contentFrame(in size: CGSize, avoiding divisions: [CGRect]) -> CGRect {
+    static func contentFrame(in size: CGSize, avoiding divisions: [CGRect], containing point: CGPoint? = nil) -> CGRect {
         var frames = [CGRect(origin: .zero, size: size)]
         for division in divisions {
             frames = frames.flatMap { frame in
@@ -40,7 +40,8 @@ enum FoldRegions {
                 ].filter { $0.width > 0 && $0.height > 0 }
             }
         }
-        return frames.max {
+        let containingFrames = point.map { point in frames.filter { $0.contains(point) } } ?? []
+        return (containingFrames.isEmpty ? frames : containingFrames).max {
             ($0.width * $0.height, $0.midY, $0.midX) < ($1.width * $1.height, $1.midY, $1.midX)
         } ?? .zero
     }

@@ -571,9 +571,16 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(discard.waitForExistence(timeout: 5))
         let anchors = [table, rack] + Seat.allCases.map { element("seat-score-\($0.id)", in: app) }
         let frames = anchors.map(\.frame)
-        XCTAssertTrue(table.frame.contains(actions.frame))
-        XCTAssertTrue(table.frame.contains(dock.frame))
-        XCTAssertGreaterThan(dock.frame.midX, table.frame.midX)
+        let isSplit = element("table-region", in: app).exists
+        assertContains(table.frame, actions.frame)
+        if isSplit {
+            assertContains(app.windows.firstMatch.frame, dock.frame)
+            XCTAssertFalse(table.frame.intersects(dock.frame))
+        } else {
+            assertContains(table.frame, dock.frame)
+        }
+        let handCenterX = isSplit ? rack.frame.midX : table.frame.midX
+        XCTAssertGreaterThan(dock.frame.midX, handCenterX)
         XCTAssertLessThan(dock.frame.maxY, rack.frame.minY)
         capture("turn-actions-and-drawn-dock")
 
@@ -594,9 +601,9 @@ final class TableFlowTests: XCTestCase {
         app.alerts.buttons["取消"].tap()
         XCTAssertTrue(goldTile.exists)
 
-        let inward = table.frame.midX - drawnTile.frame.midX
-        let towardFelt = CGVector(dx: inward, dy: -abs(inward) * 0.62)
-        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(towardFelt),
+        let inward = handCenterX - drawnTile.frame.midX
+        let inwardSwipe = CGVector(dx: inward, dy: -abs(inward) * 0.62)
+        drawnCenter.press(forDuration: 0.1, thenDragTo: drawnCenter.withOffset(inwardSwipe),
                           withVelocity: .slow, thenHoldForDuration: 0.15)
         XCTAssertTrue(drawnTile.waitForNonExistence(timeout: 3))
         XCTAssertTrue(element("latest-discard", in: app).label.contains("你打出"))
@@ -876,7 +883,18 @@ final class TableFlowTests: XCTestCase {
             let swipe = CGVector(dx: 0, dy: -92)
             let center = CGVector(dx: 0.5, dy: 0.5)
             let start = (startsWithSharedTile ? sharedTile : uniqueTile).coordinate(withNormalizedOffset: center)
-            start.press(forDuration: 0.08, thenDragTo: start.withOffset(swipe))
+            if !startsWithSharedTile {
+                XCTAssertTrue(app.buttons["table-move-过"].waitForExistence(timeout: 5))
+                let rack = element("table-rack", in: app)
+                let rackFrame = rack.frame
+                start.press(forDuration: 0.08, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -18)),
+                            withVelocity: .slow, thenHoldForDuration: 0.2)
+                XCTAssertTrue(uniqueTile.exists)
+                XCTAssertFalse(confirm.exists)
+                assertFrames([rack.frame], match: [rackFrame], labels: ["rack"])
+            }
+            start.press(forDuration: 0.08, thenDragTo: start.withOffset(swipe),
+                        withVelocity: .default, thenHoldForDuration: 0.9)
 
             if startsWithSharedTile {
                 XCTAssertTrue(app.buttons["meld-option-0"].waitForExistence(timeout: 5))
@@ -886,7 +904,8 @@ final class TableFlowTests: XCTestCase {
                 XCTAssertTrue(confirm.waitForExistence(timeout: 5))
                 assertHighlighted(Set(target), in: state.hand, app: app)
                 let selected = sharedTile.coordinate(withNormalizedOffset: center)
-                selected.press(forDuration: 0.08, thenDragTo: selected.withOffset(swipe))
+                selected.press(forDuration: 0.08, thenDragTo: selected.withOffset(swipe),
+                               withVelocity: .default, thenHoldForDuration: 0.9)
             }
 
             XCTAssertTrue(app.buttons["discard-action"].waitForExistence(timeout: 5))

@@ -1,17 +1,105 @@
 import FuzhouCore
 import SwiftUI
 
-struct DiscardDragPreview {
-    let tile: Tile
-    let isGold: Bool
+struct RackDragPreview {
+    struct Face: Identifiable {
+        let tile: Tile
+        let isGold: Bool
+        var fromRack = true
+        var id: Tile.ID { tile.id }
+    }
+
+    struct Preferences {
+        var preview: RackDragPreview?
+        var rackFaces: [Tile.ID: Anchor<CGRect>] = [:]
+    }
+
+    let faces: [Face]
+    let grabbedID: Tile.ID
     let source: Anchor<CGRect>
     let translation: CGSize
 
     struct Key: PreferenceKey {
-        static var defaultValue: DiscardDragPreview? { nil }
+        static var defaultValue: Preferences { Preferences() }
 
-        static func reduce(value: inout DiscardDragPreview?, nextValue: () -> DiscardDragPreview?) {
-            if let next = nextValue() { value = next }
+        static func reduce(value: inout Preferences, nextValue: () -> Preferences) {
+            let next = nextValue()
+            if let preview = next.preview { value.preview = preview }
+            value.rackFaces.merge(next.rackFaces) { _, latest in latest }
+        }
+    }
+
+    static func meldFaces(for options: [Move], table: TableState, showsGold: Bool) -> [Face]? {
+        guard options.count == 1, case .meld(_, let ids) = options[0] else { return nil }
+        return table.tiles(inMeld: options[0]).map { tile in
+            Face(tile: tile, isGold: showsGold && table.isGold(tile), fromRack: ids.contains(tile.id))
+        }
+    }
+
+    struct Layout {
+        let tileSize: CGSize
+        let spacing: CGFloat
+        let frame: CGRect
+
+        init(source: CGRect, translation: CGSize, count: Int, grabbedIndex: Int, bounds: CGRect) {
+            let gap = count > 1 ? source.width * 0.065 : 0
+            let width = source.width * CGFloat(count) + gap * CGFloat(count - 1)
+            let scale = min(1, bounds.width / width, bounds.height / source.height)
+            tileSize = CGSize(width: source.width * scale, height: source.height * scale)
+            spacing = gap * scale
+            let x = source.midX + translation.width - tileSize.width / 2 - CGFloat(grabbedIndex) * (tileSize.width + spacing)
+            let y = source.midY + translation.height - tileSize.height / 2
+            let desired = CGRect(x: x - bounds.minX, y: y - bounds.minY, width: width * scale, height: tileSize.height)
+            frame = DiscardFlight.inside(desired, size: bounds.size).offsetBy(dx: bounds.minX, dy: bounds.minY)
+        }
+    }
+}
+
+struct RackDragOverlay: View {
+    let preview: RackDragPreview
+    let rackFaces: [Tile.ID: Anchor<CGRect>]
+    let divisions: [CGRect]
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    var body: some View {
+        GeometryReader { geometry in
+            let source = geometry[preview.source]
+            if !source.isEmpty, let grabbed = preview.faces.firstIndex(where: { $0.id == preview.grabbedID }) {
+                let group = preview.faces.count > 1
+                let bounds = group
+                    ? FoldRegions.contentFrame(in: geometry.size, avoiding: divisions,
+                                               containing: CGPoint(x: source.midX, y: source.midY))
+                    : CGRect(origin: .zero, size: geometry.size)
+                let index = layoutDirection == .rightToLeft ? preview.faces.count - 1 - grabbed : grabbed
+                let layout = RackDragPreview.Layout(source: source, translation: preview.translation,
+                                                    count: preview.faces.count, grabbedIndex: index, bounds: bounds)
+                if group {
+                    ForEach(preview.faces.filter(\.fromRack)) { face in
+                        if let anchor = rackFaces[face.id] {
+                            let rect = geometry[anchor]
+                            RoundedRectangle(cornerRadius: rect.width * 0.13)
+                                .strokeBorder(TeaTheme.brass, lineWidth: 2.5)
+                                .frame(width: rect.width, height: rect.height)
+                                .position(x: rect.midX, y: rect.midY)
+                        }
+                    }
+                }
+                HStack(spacing: layout.spacing) {
+                    ForEach(preview.faces) { face in
+                        TileFace(kind: face.tile.kind, gold: face.isGold, selected: face.fromRack)
+                            .frame(width: layout.tileSize.width, height: layout.tileSize.height)
+                            .overlay {
+                                if !face.fromRack {
+                                    RoundedRectangle(cornerRadius: layout.tileSize.width * 0.13)
+                                        .strokeBorder(TeaTheme.brass, style: StrokeStyle(lineWidth: 2, dash: [3, 2]))
+                                }
+                            }
+                    }
+                }
+                .fixedSize()
+                .shadow(color: .black.opacity(0.46), radius: 6, y: 4)
+                .position(x: layout.frame.midX, y: layout.frame.midY)
+            }
         }
     }
 }
