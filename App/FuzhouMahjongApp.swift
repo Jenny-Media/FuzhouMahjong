@@ -95,6 +95,7 @@ private struct HomeView: View {
                 case .soloSetup:
                     SoloSetup(ruleset: ruleset, customID: customRulesetID,
                               replacesUnfinishedGame: session.table?.matchFinished == false,
+                              offersGesturePractice: !session.canResume,
                               start: prepareSoloGame)
                 case .purchase(let reason): PurchaseSheet(reason: reason)
                 }
@@ -342,17 +343,32 @@ private struct SoloSetup: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(GameAccess.self) private var access
     @Environment(RulesetLibrary.self) private var library
+    @AppStorage("solo.gesturePracticeSeen") private var hasSeenGesturePractice = false
     @State var ruleset: FuzhouRuleset
     @State var customID: String
     let replacesUnfinishedGame: Bool
+    let offersGesturePractice: Bool
     let start: (FuzhouRuleset, String) -> Bool
     @State private var confirmsRestart = false
     @State private var showsPurchase = false
+    @State private var showsGesturePractice = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    if offersGesturePractice && !hasSeenGesturePractice {
+                        Button { showsGesturePractice = true } label: {
+                            HStack {
+                                Label("手势练习", systemImage: "hand.draw")
+                                Spacer(minLength: 8)
+                                Text("试一下")
+                                    .foregroundStyle(TeaTheme.brass)
+                            }
+                        }
+                        .buttonStyle(TeaButtonStyle(prominent: false))
+                        .accessibilityIdentifier("solo-gesture-practice")
+                    }
                     RulesetPicker(title: "选择规则", selection: $ruleset, selectedCustomID: $customID)
                     Button(action: requestStart) {
                         Text("开局").frame(maxWidth: .infinity)
@@ -384,6 +400,7 @@ private struct SoloSetup: View {
                 Text("新牌局采用「\(title)」，从东一局开始。当前单机牌局的进度会被清除。")
             }
             .sheet(isPresented: $showsPurchase) { PurchaseSheet(reason: .solo) }
+            .fullScreenCover(isPresented: $showsGesturePractice) { GesturePractice() }
         }
         .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
     }
@@ -396,8 +413,12 @@ private struct SoloSetup: View {
     }
 
     private func begin() {
-        if start(ruleset, customID) { dismiss() }
-        else { showsPurchase = true }
+        if start(ruleset, customID) {
+            hasSeenGesturePractice = true
+            dismiss()
+        } else {
+            showsPurchase = true
+        }
     }
 }
 

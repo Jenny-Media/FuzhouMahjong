@@ -6,6 +6,144 @@ import XCTest
 final class TableFlowTests: XCTestCase {
     private var heldDragScreenshot: XCUIScreenshot?
 
+    func testGesturePracticeTeachesDiscardAndChowWithoutStartingAHand() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-play-access.archive.v1", "", "-solo-match.v2", "", "-solo.gesturePracticeSeen", "false",
+            "-appearance.mode", "light", "-table.boardStyle", "snowWhite", "-table.tileStyle", "porcelain",
+            "-ui-test-rack-reduce-motion", "false",
+        ]
+        app.launch()
+
+        let allowance = app.buttons["solo-remaining"]
+        XCTAssertTrue(allowance.waitForExistence(timeout: 5))
+        let initialAllowance = allowance.label
+        let solo = app.buttons["practice-entry"]
+        solo.tap()
+        let offer = app.buttons["solo-gesture-practice"]
+        XCTAssertTrue(offer.waitForExistence(timeout: 5))
+        offer.tap()
+
+        let step = app.staticTexts["gesture-practice-step"]
+        let instruction = app.staticTexts["gesture-practice-instruction"]
+        let action = app.buttons["gesture-practice-action"]
+        func expectStep(_ title: String) {
+            XCTAssertTrue(step.waitForExistence(timeout: 5))
+            XCTAssertEqual(step.label, title)
+        }
+        func handTile(_ suit: Suit, _ rank: Int) throws -> XCUIElement {
+            let id = try XCTUnwrap(Tile.fullSet.first { $0.kind == TileKind(suit, rank) }).id
+            return app.buttons["tile-\(id)"]
+        }
+        func drag(_ tile: XCUIElement, rise: CGFloat) {
+            let start = tile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.08, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -rise)),
+                        withVelocity: .slow, thenHoldForDuration: 0.4)
+        }
+
+        expectStep("向上滑出一张牌")
+        let seven = try handTile(.bamboo, 7)
+        drag(seven, rise: 76)
+        expectStep("出牌成功")
+        XCTAssertFalse(seven.exists)
+        action.tap()
+        expectStep("先预览，再取消")
+        let three = try handTile(.circles, 3)
+        let four = try handTile(.circles, 4)
+        drag(four, rise: 76)
+        expectStep("先预览，再取消")
+        XCTAssertTrue(instruction.label.contains("太远或太快"))
+        XCTAssertTrue(three.exists && four.exists)
+
+        let rack = element("gesture-practice-rack", in: app).frame
+        let window = app.windows.firstMatch.frame
+        let grabbed = four.frame
+        let width = grabbed.width - 1.5
+        let height = width * 268 / 192
+        let centerY = rack.minY - 6 - height / 2
+        let stride = width * 1.065
+        let grabbedEdge = grabbed.midX - width / 2
+        let start = four.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let during = try screenshotDuringDrag(from: start, displacement: CGVector(dx: 0, dy: -18))
+        capture("practice-held-chow", screenshot: during)
+        let heldImage = try uprightImage(from: during)
+        expectStep("现在试试吃牌")
+        XCTAssertTrue(instruction.label.contains("再向上滑远一些"))
+        XCTAssertTrue(three.exists && four.exists)
+        let releasedImage = try uprightImage(from: XCUIScreen.main.screenshot())
+
+        let offeredEdge = CGPoint(x: grabbedEdge - 2 * stride, y: centerY)
+        let offeredColor: UInt32 = 0x215D61
+        let offeredStroke = try matchingStroke(at: offeredEdge, color: offeredColor, in: heldImage, window: window)
+        XCTAssertGreaterThan(offeredStroke, 0.2, "The offered tile appears in the held preview")
+        XCTAssertLessThan(offeredStroke, 0.85, "The offered tile has a dashed outline")
+        XCTAssertLessThan(try matchingStroke(at: offeredEdge, color: offeredColor, in: releasedImage, window: window), 0.1)
+        for x in [grabbedEdge - stride, grabbedEdge] {
+            let edge = CGPoint(x: x, y: centerY)
+            let color: UInt32 = 0x176F88
+            XCTAssertGreaterThan(try matchingStroke(at: edge, color: color, in: heldImage, window: window), 0.85,
+                                 "Each contributing tile appears in the held preview")
+            XCTAssertLessThan(try matchingStroke(at: edge, color: color, in: releasedImage, window: window), 0.1,
+                              "Each preview tile disappears when the drag is canceled")
+        }
+
+        drag(four, rise: 76)
+        expectStep("吃牌成功")
+        XCTAssertFalse(three.exists || four.exists)
+        app.buttons["gesture-practice-restart"].tap()
+        expectStep("向上滑出一张牌")
+        XCTAssertTrue(seven.exists)
+        app.buttons["gesture-practice-close"].tap()
+        app.buttons["cancel-solo-setup"].tap()
+        XCTAssertTrue(allowance.waitForExistence(timeout: 5))
+        XCTAssertEqual(allowance.label, initialAllowance)
+        XCTAssertTrue(solo.label.contains("开始新牌局"))
+
+        app.buttons["home-more"].tap()
+        app.buttons["rules-entry"].tap()
+        app.buttons["rule-contents"].tap()
+        app.buttons["rule-contents-gesture-practice"].tap()
+        expectStep("向上滑出一张牌")
+        action.tap()
+        expectStep("出牌成功")
+        action.tap()
+        expectStep("先预览，再取消")
+        XCTAssertEqual(action.label, "预览牌组")
+        action.tap()
+        XCTAssertEqual(action.label, "取消预览")
+        let tableTiles = element("gesture-practice-table-tiles", in: app)
+        XCTAssertEqual(tableTiles.value as? String, "牌友打出的牌是二筒。手牌是三筒、四筒。")
+        let tapFrame = tableTiles.frame
+        let tapWidth: CGFloat = 32
+        let tapStride = tapWidth + 2
+        let tapCenterY = tapFrame.maxY - tapWidth * 268 / 192 / 2
+        let tapScreenshot = XCUIScreen.main.screenshot()
+        capture("practice-tap-chow", screenshot: tapScreenshot)
+        let tapImage = try uprightImage(from: tapScreenshot)
+        let tapOfferedEdge = CGPoint(x: tapFrame.midX - tapStride - tapWidth / 2, y: tapCenterY)
+        let tapOfferedStroke = try matchingStroke(at: tapOfferedEdge, color: offeredColor, in: tapImage, window: window)
+        XCTAssertGreaterThan(tapOfferedStroke, 0.2, "The tap preview marks the offered tile")
+        XCTAssertLessThan(tapOfferedStroke, 0.85, "The tap preview uses a dashed outline")
+        for offset in [tapWidth / 2, tapStride + tapWidth / 2] {
+            let edge = CGPoint(x: tapFrame.midX + offset, y: tapCenterY)
+            XCTAssertLessThan(try matchingStroke(at: edge, color: offeredColor, in: tapImage, window: window), 0.1,
+                              "The tap preview leaves the hand tiles unmarked")
+        }
+        action.tap()
+        expectStep("现在试试吃牌")
+        XCTAssertTrue(three.exists && four.exists)
+        XCTAssertEqual(tableTiles.value as? String, "二筒")
+        three.tap()
+        XCTAssertEqual(action.label, "确认吃牌")
+        XCTAssertEqual(instruction.label, "点「确认吃牌」，把这组顺子摆到桌面上。")
+        action.tap()
+        expectStep("吃牌成功")
+        action.tap()
+        XCTAssertTrue(app.staticTexts["rule-lesson-title"].waitForExistence(timeout: 5))
+    }
+
     func testFaceAndMaterialCombinationsAtPlaySize() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
