@@ -851,7 +851,8 @@ struct MatchView<Session: MatchSession>: View {
                       scrollsInShortWindows: scrollsInShortWindows,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,
-                      inspectedSeat: $inspectedSeat, onOfferedTileFrame: rememberOfferedTileFrame) {
+                      inspectedSeat: $inspectedSeat, onOfferedTileFrame: rememberOfferedTileFrame,
+                      onClaimAnimationUnavailable: { offeredTileFrame = nil }) {
                 tableActions(table, showsResultActions: showsResultActions)
             } drawDock: {
                 drawSlot(table.drawn, table: table)
@@ -1775,10 +1776,11 @@ private struct TableOverview: View {
             .padding(14)
             .teaPanel()
 
+            let recent = table.recentDiscards(excluding: table.result == nil ? latest : nil)
             VStack(alignment: .leading, spacing: 10) {
                 Button(action: showHistory) {
                     HStack {
-                        Text("最近出牌").font(.headline)
+                        Text(recent.isEmpty ? "出牌与亮牌记录" : "最近出牌").font(.headline)
                         Spacer(minLength: 4)
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                     }
@@ -1790,11 +1792,7 @@ private struct TableOverview: View {
                 .accessibilityHint("打开完整的出牌与亮牌记录")
                 .accessibilityIdentifier("overview-open-history")
 
-                let recent = table.recentDiscards(excluding: table.result == nil ? latest : nil)
-                if recent.isEmpty {
-                    Text(table.hasEarlierDiscardsOutsideTimeline ? "早前出牌按座位查看" : "暂无较早的出牌记录")
-                        .font(.subheadline).foregroundStyle(TeaTheme.muted)
-                } else {
+                if !recent.isEmpty {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 8) {
                         ForEach(recent.reversed()) { discard in recentTile(discard) }
                     }
@@ -1819,7 +1817,7 @@ private struct TableOverview: View {
             HStack(spacing: 2) {
                 Text(name(discard.seat))
                 if let claim {
-                    Text(claim.compactAction)
+                    Text("被\(claim.compactAction)")
                         .fontWeight(.semibold)
                         .foregroundStyle(TeaTheme.brass)
                         .fixedSize(horizontal: true, vertical: false)

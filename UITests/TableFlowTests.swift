@@ -1656,7 +1656,8 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["出牌与亮牌记录"].waitForExistence(timeout: 5))
         app.buttons["完成"].tap()
         XCTAssertTrue(discard.waitForExistence(timeout: 5))
-        assertFrames([surface.frame, rack.frame, discard.frame, actions.frame], match: before)
+        assertFrames([surface.frame, rack.frame, discard.frame, actions.frame], match: before,
+                     labels: ["board", "rack", "latest discard", "actions"])
     }
 
     func testSettledHistoryKeepsClaimedAndWinningDiscardsInOrder() throws {
@@ -1687,6 +1688,9 @@ final class TableFlowTests: XCTestCase {
     }
 
     func testOlderSaveDisplaysDiscardsMissingFromItsTimeline() throws {
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        if isIPad { XCUIDevice.shared.orientation = .landscapeLeft }
+        defer { if isIPad { XCUIDevice.shared.orientation = .portrait } }
         var game = try match(seed: 35, after: 41)
         while game.result == nil { try playFixtureMove(in: &game) }
         let data = try JSONEncoder().encode(game)
@@ -1694,7 +1698,14 @@ final class TableFlowTests: XCTestCase {
         old.removeValue(forKey: "discardTimeline")
         let saved = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: old))
         let app = try launchSavedMatch(saved)
-        app.buttons["table-history"].tap()
+        if isIPad && app.windows.firstMatch.frame.width >= 1_050 {
+            let overviewHistory = app.buttons["overview-open-history"]
+            XCTAssertTrue(overviewHistory.waitForExistence(timeout: 5))
+            XCTAssertTrue(overviewHistory.label.contains("出牌与亮牌记录"))
+            overviewHistory.tap()
+        } else {
+            app.buttons["table-history"].tap()
+        }
         XCTAssertTrue(app.staticTexts["早前打出的牌（按座位）"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["按出牌顺序"].exists)
         XCTAssertFalse(app.staticTexts["本局还没有出牌"].exists)
@@ -1993,6 +2004,10 @@ final class TableFlowTests: XCTestCase {
     private func assertFrames(_ frames: [CGRect], match expected: [CGRect],
                               labels: [String] = ["board"],
                               file: StaticString = #filePath, line: UInt = #line) {
+        guard frames.count == expected.count, frames.count == labels.count else {
+            XCTFail("Every frame comparison needs an expected frame and a label", file: file, line: line)
+            return
+        }
         for (label, (actual, original)) in zip(labels, zip(frames, expected)) {
             let difference = "\(label) moved from \(original) to \(actual)"
             XCTAssertEqual(actual.minX, original.minX, accuracy: 1, difference, file: file, line: line)
