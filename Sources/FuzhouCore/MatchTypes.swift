@@ -30,7 +30,7 @@ public struct FuzhouHouseRules: Codable, Hashable, Identifiable, Sendable {
 
         public var revealsBeforeFlowers: Bool { self != .suitedOnly }
 
-        func allows(_ kind: TileKind) -> Bool {
+        public func allows(_ kind: TileKind) -> Bool {
             switch kind.suit {
             case .wind: includesWinds
             case .dragon: includesDragons
@@ -141,8 +141,12 @@ public struct RoundResult: Equatable, Codable, Sendable {
 
     public func delta(for seat: Seat) -> Int {
         guard let winner else { return 0 }
-        if seat == winner { return points * (source == nil ? 3 : 1) }
-        return source == nil || source == seat ? -points : 0
+        return points * Self.shares(for: seat, winner: winner, source: source)
+    }
+
+    static func shares(for seat: Seat, winner: Seat, source: Seat?) -> Int {
+        if seat == winner { return source == nil ? 3 : 1 }
+        return source == nil || source == seat ? -1 : 0
     }
 
     static let draw = Self(winner: nil, kind: nil, source: nil, winningTile: nil, lines: [])

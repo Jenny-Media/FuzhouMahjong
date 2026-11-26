@@ -72,13 +72,20 @@ final class TablePresentationTests: XCTestCase {
     }
 
     func testOldHostDefersDealerFlowersWithUnknownOrigins() throws {
-        let flower = try XCTUnwrap(Tile.fullSet.first { $0.kind.isFlower })
-        for indicators in [FuzhouHouseRules.GoldIndicators.suitedOnly, .includeHonors] {
+        let flower = try XCTUnwrap(Tile.fullSet.first { $0.kind.suit == .season })
+        let suitedGold = try XCTUnwrap(Tile.fullSet.first { $0.kind.suit == .circles })
+        let wind = try XCTUnwrap(Tile.fullSet.first { $0.kind.suit == .wind })
+        let dragon = try XCTUnwrap(Tile.fullSet.first { $0.kind.suit == .dragon })
+        for indicators in FuzhouHouseRules.GoldIndicators.allCases {
             let rules = FuzhouHouseRules(name: "测试", goldIndicators: indicators)
             var table = FuzhouMatch(houseRules: rules).table(for: .south)
             table.openingIndicatorFlowerIDs = nil
             table.lastDraw = nil
-            for i in table.players.indices { table.players[i].flowerCount = 0 }
+            table.gold = suitedGold
+            for i in table.players.indices {
+                table.players[i].exposedFlowers = []
+                table.players[i].flowerCount = 0
+            }
             table.players[table.dealer.id].flowerCount = 1
             table.players[table.dealer.id].exposedFlowers = [flower]
             let dealer = table.players[table.dealer.id]
@@ -91,6 +98,15 @@ final class TablePresentationTests: XCTestCase {
             XCTAssertEqual(atReveal.exposedFlowers, [])
             XCTAssertEqual(dealer.flowerCount, 1)
 
+            for (honor, eligible) in [(wind, indicators.includesWinds), (dragon, indicators.includesDragons)] {
+                table.players[table.dealer.id].exposedFlowers = [honor]
+                let stages = OpeningDeal.Stage.afterDeal(at: table)
+                let gold: OpeningDeal.Stage = .revealGold(flowersShown: false)
+                XCTAssertEqual(stages, eligible ? [gold, .flowers(goldRevealed: true)] : [gold])
+                let projection = stages.map { $0.presenting(table.players[table.dealer.id], indicatorFlowers: nil) }
+                XCTAssertEqual(projection.map { $0.exposedFlowers ?? [] }, eligible ? [[], [honor]] : [[]])
+            }
+            table.players[table.dealer.id].exposedFlowers = [flower]
             table.players[Seat.south.id].flowerCount = 1
             let guest = table.players[Seat.south.id]
             XCTAssertEqual(table.openingIndicatorCredits(for: guest.seat), [])

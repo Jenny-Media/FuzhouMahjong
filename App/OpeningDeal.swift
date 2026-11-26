@@ -72,6 +72,10 @@ struct OpeningDeal: View {
                 if let credits = table.openingIndicatorCredits(for: player.seat) {
                     return player.flowerCount > credits.count
                 }
+                // An eligible indicator would have stopped the flip. If that kind
+                // is exposed as a flower, it must have come from the dealer's rack.
+                let indicators = table.houseRules?.goldIndicators ?? .suitedOnly
+                if player.exposedFlowers?.contains(where: { indicators.allows($0.kind) }) == true { return true }
                 return table.lastDraw?.isOpeningDeal == true && (table.lastDraw?.flowersReplaced ?? 0) > 0
             }
             let hasGold = table.gold != nil

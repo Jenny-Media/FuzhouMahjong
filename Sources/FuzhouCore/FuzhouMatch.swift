@@ -163,87 +163,14 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         return step != .claim
     }
 
-    /// Older saves could carry a streak across a draw that changed the dealer.
-    /// Use completed hands and known winners to rule out unearned repeats.
-    private var boundedDealerStreak: Int {
-        guard continuation > 0, dealerTurns > 0, houseRules?.keepDealerOnDraw != true else { return continuation }
-        let priorHands = max(1, roundNumber) - 1
-        let dealerWins = max(0, priorHands - dealerTurns)
-        // A non-dealer win reset the streak even in the old format. Any such win
-        // preceded the saved streak and used up one change of dealer.
-        let possibleNonDealerWins = min(dealerTurns, max(0, priorHands - continuation))
-        let priorScores = Seat.allCases.map { scores[$0.id] - (result?.delta(for: $0) ?? 0) }
-        let equalPayments = houseRules?.discardPayment == .allOpponents
-        let floor = equalPayments ? priorScores.min() ?? 0 : 0
-        let possibleDealerWinners = min(dealerWins, dealerTurns + 1)
-        let hasSeatWithoutWin = possibleDealerWinners + possibleNonDealerWins < Seat.allCases.count
-        let otherWinners: Int
-        if equalPayments, priorScores[dealer.id] == floor {
-            // Equal payments put every seat that never won at the same minimum.
-            // If the dealer at that minimum won, all four seats must have won.
-            if hasSeatWithoutWin { return 0 }
-            otherWinners = Seat.allCases.count - 1
-        } else {
-            // With equal payments a score above the minimum proves a prior win.
-            // With a single payer only a positive balance proves one.
-            let ahead = Seat.allCases.count { $0 != dealer && priorScores[$0.id] > floor }
-            // If this seat won and still has no gain, somebody else must also have won.
-            otherWinners = max(ahead, priorScores[dealer.id] <= 0 ? 1 : 0)
-        }
-        let otherDealerWins = max(0, otherWinners - possibleNonDealerWins)
-        let limit = min(continuation, max(0, dealerWins - otherDealerWins))
-        guard limit > 0 else { return 0 }
-        func minimumWin(repeatsBack: Int) -> Int {
-            FuzhouScoring.basePoints + FuzhouScoring.pointsPerDealerRepeat * (continuation - repeatsBack)
-        }
-        if !equalPayments {
-            let opponents = Seat.allCases.filter { $0 != dealer }
-            let knownOtherWinners = opponents.filter { priorScores[$0.id] > 0 }.count
-            let losses = opponents.filter { priorScores[$0.id] < 0 }.count
-            var minimumTotal = 0
-            for repeats in 1...limit {
-                let cheapest = minimumWin(repeatsBack: repeats)
-                minimumTotal += cheapest
-                let earlierWins = dealerWins + possibleNonDealerWins - repeats
-                // Only a previous winner could have paid out more than their net loss.
-                // If the other wins are all accounted for, every other seat only paid.
-                let nonWinners = opponents.filter { seat in
-                    let neverDealt = possibleNonDealerWins == 0 && seat.id > dealerTurns
-                    return neverDealt || (earlierWins == knownOtherWinners && priorScores[seat.id] <= 0)
-                }
-                let shortPayers = nonWinners.count { priorScores[$0.id] < 0 && priorScores[$0.id] > -cheapest }
-                let dealerPaidEarlier = priorScores[dealer.id] < minimumTotal
-                if earlierWins == 0 {
-                    let extra = losses > repeats ? 2 * cheapest : 0
-                    if shortPayers > 0 || priorScores[dealer.id] < minimumTotal + extra { return repeats - 1 }
-                } else if nonWinners.contains(where: { priorScores[$0.id] == 0 }) {
-                    // An unaffected seat rules out every three-way payment. Each seat
-                    // that could only have paid earlier therefore needs its own discard.
-                    let earlierPayers = shortPayers + (dealerPaidEarlier ? 1 : 0)
-                    if earlierPayers > earlierWins { return repeats - 1 }
-                }
-            }
-            return limit
-        }
-        guard hasSeatWithoutWin else { return limit }
-        // Relative to a seat that never won, each win adds four times its face value.
-        let wonPoints = priorScores.map { ($0 - floor) / Seat.allCases.count }
-        let otherWinCapacity = Seat.allCases.filter { $0 != dealer }
-            .reduce(0) { $0 + wonPoints[$1.id] / FuzhouScoring.basePoints }
-        let winsToAccountFor = max(0, dealerWins - otherWinCapacity)
-        var remaining = wonPoints[dealer.id]
-        for repeats in 1...limit {
-            // These are the last hands in the stored streak, even if it spans a dealer change.
-            remaining -= minimumWin(repeatsBack: repeats)
-            let earlierWins = max(0, winsToAccountFor - repeats)
-            if remaining < earlierWins * FuzhouScoring.basePoints { return repeats - 1 }
-        }
-        return limit
-    }
-
     @discardableResult private mutating func migrateDealerStreak() -> Bool {
         guard dealerStreakUsesCurrentRules != true else { return false }
-        continuation = boundedDealerStreak
+        if houseRules?.keepDealerOnDraw != true {
+            let beforeHand = Seat.allCases.map { scores[$0.id] - (result?.delta(for: $0) ?? 0) }
+            continuation = LegacyDealerStreak(dealer: dealer, dealerTurns: dealerTurns, priorHands: max(1, roundNumber) - 1,
+                                               continuation: continuation, priorScores: beforeHand,
+                                               equalPayments: houseRules?.discardPayment == .allOpponents).maximum
+        }
         dealerStreakUsesCurrentRules = true
         return true
     }

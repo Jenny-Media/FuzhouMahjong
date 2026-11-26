@@ -471,13 +471,17 @@ final class MatchTests: XCTestCase {
         saved.removeValue(forKey: "dealerStreakUsesCurrentRules")
         saved["dealer"] = Seat.south.id
         saved["current"] = Seat.south.id
-        saved["roundNumber"] = 4
         saved["dealerTurns"] = 1
-        saved["continuation"] = 3
-        for (scores, repeats) in [
-            ([22, -12, -10, 0], 0), // West paid East 10, South paid East 12, then a draw.
-            ([26, -12, -14, 0], 1), // South paid East 26, then a draw, then West paid South 14.
+        for (priorHands, scores, repeats) in [
+            (3, [22, -12, -10, 0], 0), // West paid East 10, South paid East 12, then a draw.
+            (3, [26, -12, -14, 0], 1), // South paid East 26, then a draw, then West paid South 14.
+            (3, [24, 0, -10, -14], 0), // West paid East 10, North paid East 14, then a draw.
+            (3, [42, -22, -10, -10], 0), // All paid East 10, South paid East another 12, then a draw.
+            (3, [16, 32, -24, -24], 1), // All paid East 10, a draw passed the deal, then all paid South 14.
+            (4, [36, -12, -10, -14], 0), // Three different discarders paid East, then a draw.
         ] {
+            saved["roundNumber"] = priorHands + 1
+            saved["continuation"] = priorHands
             saved["scores"] = scores
             let data = try JSONSerialization.data(withJSONObject: saved)
             var resumed = try JSONDecoder().decode(FuzhouMatch.self, from: data)
