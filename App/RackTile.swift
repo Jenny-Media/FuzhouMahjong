@@ -15,6 +15,8 @@ struct RackTile: View {
     let discard: () -> Void
     var throwDiscard: ((CGRect, CGRect) -> Void)? = nil
     var meldAction: (label: String, preview: [RackDragPreview.Face]?, perform: () -> Void)? = nil
+    var onMeldDragCanceled: (() -> Void)? = nil
+    var onMeldAccessibilityAction: (() -> Void)? = nil
     var isRobGoldCandidate = false
     var swipeReady: (() -> Void)? = nil
     var reposition: ((CGPoint) -> Void)? = nil
@@ -43,6 +45,7 @@ struct RackTile: View {
         var offset: CGSize = .zero
         var swipe = DiscardSwipe()
         var reachedRelease = false
+        var previewedMeld = false
     }
 
     struct DiscardSwipe {
@@ -155,7 +158,7 @@ struct RackTile: View {
         .accessibilityIdentifier("tile-\(tile.id)")
         .accessibilityActions {
             if canDiscard { Button("出牌", action: discard) }
-            if let meldAction { Button(meldAction.label, action: meldAction.perform) }
+            if let meldAction { Button(meldAction.label, action: onMeldAccessibilityAction ?? meldAction.perform) }
             if let moveEarlier { Button("前移", action: moveEarlier) }
             if let moveLater { Button("后移", action: moveLater) }
         }
@@ -170,8 +173,9 @@ struct RackTile: View {
                     return
                 }
                 var updated = drag
-                if meldAction != nil {
+                if let meldAction {
                     updated.offset = meldSwipe.isUpward(gesture.translation) ? gesture.translation : .zero
+                    if meldAction.preview != nil && updated.offset != .zero { updated.previewedMeld = true }
                 } else {
                     updated.swipe.track(gesture.translation, edge: rackEdge, direction: layoutDirection)
                     guard updated.swipe.isTracking else { return }
@@ -185,6 +189,7 @@ struct RackTile: View {
             }
             .onEnded { gesture in
                 var swipe = drag.swipe
+                let previewedMeld = drag.previewedMeld
                 drag = TileDrag()
                 if let reposition {
                     reposition(gesture.location)
@@ -193,7 +198,10 @@ struct RackTile: View {
                 if meldAction == nil {
                     swipe.track(gesture.translation, edge: rackEdge, direction: layoutDirection)
                 }
-                guard canRelease(gesture, swipe: swipe) else { return }
+                guard canRelease(gesture, swipe: swipe) else {
+                    if previewedMeld { onMeldDragCanceled?() }
+                    return
+                }
                 if let meldAction {
                     meldAction.perform()
                 } else if !reduceMotion, let frame = faceFrame, let throwDiscard {

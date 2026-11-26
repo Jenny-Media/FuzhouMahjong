@@ -39,6 +39,11 @@ struct RackDragPreview {
         }
     }
 
+    static func tableTileOutline(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: width * 0.13)
+            .strokeBorder(TeaTheme.brass, style: StrokeStyle(lineWidth: 2, dash: [3, 2]))
+    }
+
     struct Layout {
         let tileSize: CGSize
         let spacing: CGFloat
@@ -105,8 +110,7 @@ struct RackDragOverlay: View {
                             .frame(width: layout.tileSize.width, height: layout.tileSize.height)
                             .overlay {
                                 if !face.fromRack {
-                                    RoundedRectangle(cornerRadius: layout.tileSize.width * 0.13)
-                                        .strokeBorder(TeaTheme.brass, style: StrokeStyle(lineWidth: 2, dash: [3, 2]))
+                                    RackDragPreview.tableTileOutline(width: layout.tileSize.width)
                                 }
                             }
                     }

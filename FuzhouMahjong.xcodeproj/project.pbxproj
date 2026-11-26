@@ -25,6 +25,7 @@
 		47A2C90DD0E67CFDE1D36987 /* FuzhouAccess in Frameworks */ = {isa = PBXBuildFile; productRef = C57D5CD21420E23324757E6E /* FuzhouAccess */; };
 		4A0CC925A72854B6EE30715D /* discard.wav in Resources */ = {isa = PBXBuildFile; fileRef = 9FC73357F7C2FBE19391BA91 /* discard.wav */; };
 		6EC7C087998C0DF31AD49A13 /* FuzhouAccess in Frameworks */ = {isa = PBXBuildFile; productRef = 6C4C419B440A19680E9926F5 /* FuzhouAccess */; };
+		70A80988AE5F03CB65514D6C /* GesturePractice.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1A61E57372AD9C2B2A44A1 /* GesturePractice.swift */; };
 		70DA1DF79E62C7C0792A842D /* FuzhouNearby in Frameworks */ = {isa = PBXBuildFile; productRef = 5B77474B0063C3F5FB6BABC8 /* FuzhouNearby */; };
 		72F7B62793A2D71F2C0FC616 /* MatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB00A2E1053595CCED79231C /* MatchView.swift */; };
 		74EC06B1B65EF0B789A75A0E /* shuffle.wav in Resources */ = {isa = PBXBuildFile; fileRef = E7BFB09CE55A2BAA3057A8ED /* shuffle.wav */; };
@@ -99,6 +100,7 @@
 		AFDB6B3A490211EF317F5FDA /* RuleOdds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleOdds.swift; sourceTree = "<group>"; };
 		B144A418CDF5D8AA50827047 /* TableFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableFlowTests.swift; sourceTree = "<group>"; };
 		B4E33F096EF56DB090D04C00 /* InviteScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteScanner.swift; sourceTree = "<group>"; };
+		BA1A61E57372AD9C2B2A44A1 /* GesturePractice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GesturePractice.swift; sourceTree = "<group>"; };
 		BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldLayout.swift; sourceTree = "<group>"; };
 		D701A87529DDD1708E00402A /* TableHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableHaptics.swift; sourceTree = "<group>"; };
 		E3059DC43C7E3FFA403209A5 /* FuzhouMahjongApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzhouMahjongApp.swift; sourceTree = "<group>"; };
@@ -184,6 +186,7 @@
 				E40B293A1DA162DAFE3643A8 /* DrawPickup.swift */,
 				BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */,
 				E3059DC43C7E3FFA403209A5 /* FuzhouMahjongApp.swift */,
+				BA1A61E57372AD9C2B2A44A1 /* GesturePractice.swift */,
 				B4E33F096EF56DB090D04C00 /* InviteScanner.swift */,
 				4FB8BEF56EA7EFE126CC8C53 /* LiveTable.swift */,
 				0BCC1B56B038FE0DE31491E8 /* MatchResults.swift */,
@@ -401,6 +404,7 @@
 				3DF695986221511559E75CF7 /* DrawPickup.swift in Sources */,
 				B67863D0CB40D80C746E8CF8 /* FoldLayout.swift in Sources */,
 				8EC5E735AB50FDF6C0155301 /* FuzhouMahjongApp.swift in Sources */,
+				70A80988AE5F03CB65514D6C /* GesturePractice.swift in Sources */,
 				CD035E235820D8EE54117E53 /* InviteScanner.swift in Sources */,
 				33740972B56EF96D92CAECA3 /* LiveTable.swift in Sources */,
 				7A915A9C09D0426D611A5CC0 /* MatchResults.swift in Sources */,

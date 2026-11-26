@@ -37,6 +37,7 @@ struct RuleGuide: View {
     @State private var phase = 0
     @State private var replay = 0
     @State private var showsRulesetDetails = false
+    @State private var showsGesturePractice = false
     @AccessibilityFocusState private var lessonFocused: Bool
 
     init(startingAt lesson: RuleLesson = .turn, showsCloseButton: Bool = false,
@@ -90,6 +91,11 @@ struct RuleGuide: View {
                             Text(lesson.explanation(claim: claim, ruleset: ruleset, indicators: houseRules?.goldIndicators ?? .suitedOnly))
                             Text(lesson.detail(for: ruleset, houseRules: houseRules))
                                 .font(.subheadline).foregroundStyle(TeaTheme.muted)
+                            if lesson == .turn || lesson == .claims {
+                                Button("手势练习", systemImage: "hand.draw") { showsGesturePractice = true }
+                                    .buttonStyle(TeaButtonStyle(prominent: false))
+                                    .accessibilityIdentifier("rule-gesture-practice")
+                            }
                         }
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -115,6 +121,8 @@ struct RuleGuide: View {
                     ForEach(RuleLesson.allCases, id: \.self) { page in
                         Button(page.title) { open(page) }
                     }
+                    Button("手势练习", systemImage: "hand.draw") { showsGesturePractice = true }
+                        .accessibilityIdentifier("rule-contents-gesture-practice")
                     Button("规则详情") { showsRulesetDetails = true }
                         .accessibilityIdentifier("tutorial-ruleset-details")
                 }
@@ -124,6 +132,7 @@ struct RuleGuide: View {
         .navigationDestination(isPresented: $showsRulesetDetails) {
             RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules, resetsStreakOnPassingDraw: resetsStreakOnPassingDraw)
         }
+        .fullScreenCover(isPresented: $showsGesturePractice) { GesturePractice() }
         .safeAreaInset(edge: .bottom, spacing: 0) { navigation }
         .modifier(HingeSafeContent())
         .task(id: Playback(example: Example(lesson: lesson, claim: claim), replay: replay,
