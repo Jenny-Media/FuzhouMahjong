@@ -12,6 +12,7 @@ final class SoloSaveMigrationTests: XCTestCase {
         let game = FuzhouMatch()
         let encoder = JSONEncoder()
         var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(game)) as? [String: Any])
+        saved.removeValue(forKey: "dealerStreakUsesCurrentRules")
         saved["dealer"] = Seat.south.id
         saved["dealerTurns"] = 1
         let even = [0, 0, 0, 0]
@@ -19,6 +20,7 @@ final class SoloSaveMigrationTests: XCTestCase {
             (2, 1, even, 0), (4, 2, even, 2), (4, 3, even, 1),
             (3, 2, [30, -10, -10, -10], 0), // East won, then a draw passed the deal.
             (3, 2, [-12, 36, -12, -12], 1), // A draw passed the deal, then South won at the old +2 bonus.
+            (4, 3, [22, -12, -10, 0], 0), (4, 3, [26, -12, -14, 0], 1),
         ] {
             let suite = "DealerRestoreTests." + UUID().uuidString
             let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

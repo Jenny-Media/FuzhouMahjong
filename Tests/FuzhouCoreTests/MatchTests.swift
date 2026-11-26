@@ -400,6 +400,7 @@ final class MatchTests: XCTestCase {
         resolveOpening(&ready)
         let encoder = JSONEncoder()
         var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(ready)) as? [String: Any])
+        saved.removeValue(forKey: "dealerStreakUsesCurrentRules")
         let payAll = FuzhouHouseRules(name: "三家付分", discardPayment: .allOpponents)
         let payAllRules = try JSONSerialization.jsonObject(with: encoder.encode(payAll))
         XCTAssertTrue(ready.apply(.win, by: .east))
@@ -459,6 +460,40 @@ final class MatchTests: XCTestCase {
             alreadyPaid.nextRound()
             XCTAssertEqual(alreadyPaid.scores, paidScores)
             XCTAssertEqual(alreadyPaid.continuation, repeats + 1)
+        }
+    }
+
+    func testRestoringDealerBonusWithDifferentDiscardPayers() throws {
+        var ready = try fixture(hands: [.south: Array(completed.dropLast())], gold: .init(.bamboo, 9),
+                                draws: [try XCTUnwrap(completed.last)], ruleset: .pureSuit)
+        resolveOpening(&ready)
+        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(ready)) as? [String: Any])
+        saved.removeValue(forKey: "dealerStreakUsesCurrentRules")
+        saved["dealer"] = Seat.south.id
+        saved["current"] = Seat.south.id
+        saved["roundNumber"] = 4
+        saved["dealerTurns"] = 1
+        saved["continuation"] = 3
+        for (scores, repeats) in [
+            ([22, -12, -10, 0], 0), // West paid East 10, South paid East 12, then a draw.
+            ([26, -12, -14, 0], 1), // South paid East 26, then a draw, then West paid South 14.
+        ] {
+            saved["scores"] = scores
+            let data = try JSONSerialization.data(withJSONObject: saved)
+            var resumed = try JSONDecoder().decode(FuzhouMatch.self, from: data)
+            var settled = resumed
+            XCTAssertTrue(resumed.reconcileSavedHand())
+            XCTAssertEqual(resumed.continuation, repeats)
+            resumed = try JSONDecoder().decode(FuzhouMatch.self, from: JSONEncoder().encode(resumed))
+            XCTAssertFalse(resumed.reconcileSavedHand())
+            XCTAssertTrue(resumed.apply(.win, by: .south))
+            XCTAssertEqual(resumed.result?.delta(for: .south), (10 + 2 * repeats) * 3)
+
+            XCTAssertTrue(settled.apply(.win, by: .south))
+            let paidScores = settled.scores
+            settled.nextRound()
+            XCTAssertEqual(settled.scores, paidScores)
+            XCTAssertEqual(settled.continuation, repeats + 1)
         }
     }
 

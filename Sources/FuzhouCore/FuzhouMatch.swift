@@ -31,6 +31,8 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private var step = TableState.Step.turn
     private var offeredTile: Tile?
     private var matchRuleset: FuzhouRuleset?
+    // Missing in archives written before a passing draw reset the dealer's streak.
+    private var dealerStreakUsesCurrentRules: Bool? = true
 
     public private(set) var gold: Tile?
     public private(set) var current = Seat.east
@@ -194,30 +196,38 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         func minimumWin(repeatsBack: Int) -> Int {
             FuzhouScoring.basePoints + FuzhouScoring.pointsPerDealerRepeat * (continuation - repeatsBack)
         }
-        let wonPoints: [Int]
-        if equalPayments, hasSeatWithoutWin {
-            // Relative to a seat that never won, each win adds four times its face value.
-            wonPoints = priorScores.map { ($0 - floor) / Seat.allCases.count }
-        } else if dealerWins == 1, possibleNonDealerWins == 0 {
-            // With just one payment, the losses identify whether one or three opponents paid.
-            let payers = priorScores.count { $0 < 0 }
-            guard payers == 1 || payers == 3 else { return limit }
-            wonPoints = priorScores.map { max(0, $0) / payers }
-        } else {
-            if limit == dealerWins, possibleNonDealerWins == 0 {
-                // To claim every paid hand, this dealer must have received every transfer.
-                // Each payer had to lose at least the cheapest of those final wins.
-                let losses = priorScores.filter { $0 < 0 }.map { -$0 }
-                let cheapest = minimumWin(repeatsBack: limit)
-                let minimumTotal = (1...limit).reduce(0) { $0 + minimumWin(repeatsBack: $1) }
-                // More payers than wins requires at least one three-way payment.
-                let sharedPayment = losses.count > limit ? 2 * cheapest : 0
-                if losses.contains(where: { $0 < cheapest }) || priorScores[dealer.id] < minimumTotal + sharedPayment {
-                    return limit - 1
+        if !equalPayments {
+            let opponents = Seat.allCases.filter { $0 != dealer }
+            let knownOtherWinners = opponents.filter { priorScores[$0.id] > 0 }.count
+            let losses = opponents.filter { priorScores[$0.id] < 0 }.count
+            var minimumTotal = 0
+            for repeats in 1...limit {
+                let cheapest = minimumWin(repeatsBack: repeats)
+                minimumTotal += cheapest
+                let earlierWins = dealerWins + possibleNonDealerWins - repeats
+                // Only a previous winner could have paid out more than their net loss.
+                // If the other wins are all accounted for, every other seat only paid.
+                let nonWinners = opponents.filter { seat in
+                    let neverDealt = possibleNonDealerWins == 0 && seat.id > dealerTurns
+                    return neverDealt || (earlierWins == knownOtherWinners && priorScores[seat.id] <= 0)
+                }
+                let shortPayers = nonWinners.count { priorScores[$0.id] < 0 && priorScores[$0.id] > -cheapest }
+                let dealerPaidEarlier = priorScores[dealer.id] < minimumTotal
+                if earlierWins == 0 {
+                    let extra = losses > repeats ? 2 * cheapest : 0
+                    if shortPayers > 0 || priorScores[dealer.id] < minimumTotal + extra { return repeats - 1 }
+                } else if nonWinners.contains(where: { priorScores[$0.id] == 0 }) {
+                    // An unaffected seat rules out every three-way payment. Each seat
+                    // that could only have paid earlier therefore needs its own discard.
+                    let earlierPayers = shortPayers + (dealerPaidEarlier ? 1 : 0)
+                    if earlierPayers > earlierWins { return repeats - 1 }
                 }
             }
             return limit
         }
+        guard hasSeatWithoutWin else { return limit }
+        // Relative to a seat that never won, each win adds four times its face value.
+        let wonPoints = priorScores.map { ($0 - floor) / Seat.allCases.count }
         let otherWinCapacity = Seat.allCases.filter { $0 != dealer }
             .reduce(0) { $0 + wonPoints[$1.id] / FuzhouScoring.basePoints }
         let winsToAccountFor = max(0, dealerWins - otherWinCapacity)
@@ -231,11 +241,16 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         return limit
     }
 
+    @discardableResult private mutating func migrateDealerStreak() -> Bool {
+        guard dealerStreakUsesCurrentRules != true else { return false }
+        continuation = boundedDealerStreak
+        dealerStreakUsesCurrentRules = true
+        return true
+    }
+
     public mutating func reconcileSavedHand() -> Bool {
-        let previous = continuation
-        if result == nil { continuation = boundedDealerStreak }
-        let settled = settleRestoredDiscard()
-        return settled || previous != continuation
+        let migrated = result == nil && migrateDealerStreak()
+        return settleRestoredDiscard() || migrated
     }
 
     public func hasComputerMove(excluding humans: Set<Seat>) -> Bool {
@@ -346,11 +361,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             return
         }
         if repeatsDealer(after: result) {
-            continuation = boundedDealerStreak + 1
+            migrateDealerStreak()
+            continuation += 1
         } else {
             dealer = dealer.advanced(1)
             dealerTurns += 1
             continuation = 0
+            dealerStreakUsesCurrentRules = true
         }
         roundNumber += 1
         var random = SystemRandomNumberGenerator()
