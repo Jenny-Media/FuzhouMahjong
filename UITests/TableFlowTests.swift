@@ -928,9 +928,10 @@ final class TableFlowTests: XCTestCase {
             let tiles = table.hand.filter { ids.contains($0.id) }.sorted { $0.kind < $1.kind }
             return tiles.first.map { $0.kind.rank > offered.kind.rank } == true ? tiles : nil
         }.first)
-        let upper = try XCTUnwrap(hand.first)
-        let lower = try XCTUnwrap(hand.last)
-        let columns = FuzhouMatch.rackSize / 2
+        let partner = try XCTUnwrap(hand.first)
+        let grabbed = try XCTUnwrap(hand.last)
+        let firstID = try XCTUnwrap(table.hand.first?.id)
+        let lastID = try XCTUnwrap(table.hand.last?.id)
 
         for reduceMotion in [true, false] {
             let arguments = [
@@ -940,10 +941,14 @@ final class TableFlowTests: XCTestCase {
             let app = try launchSavedMatch(fixture, arguments: arguments)
             let pass = app.buttons["table-move-过"]
             XCTAssertTrue(pass.waitForExistence(timeout: 5))
+            let firstFrame = app.buttons["tile-\(firstID)"].frame
+            let lastFrame = app.buttons["tile-\(lastID)"].frame
+            let hasTwoRows = lastFrame.midY > firstFrame.maxY
+            let grabbedSlot = hasTwoRows ? FuzhouMatch.rackSize / 2 + 3 : 4
             let arrange = app.buttons["rack-arrange"]
             arrange.tap()
             var order = table.hand.map(\.id)
-            for (tile, destination) in [(lower, columns + 3), (upper, 3)] {
+            for (tile, destination) in [(grabbed, grabbedSlot), (partner, 3)] {
                 let source = try XCTUnwrap(order.firstIndex(of: tile.id))
                 guard source != destination else { continue }
                 app.buttons["tile-\(tile.id)"].tap()
@@ -955,19 +960,24 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(pass.waitForExistence(timeout: 5))
             let rack = element("table-rack", in: app).frame
             let window = app.windows.firstMatch.frame
-            let upperTile = app.buttons["tile-\(upper.id)"]
-            let lowerTile = app.buttons["tile-\(lower.id)"]
-            let upperFrame = upperTile.frame
-            let lowerFrame = lowerTile.frame
-            XCTAssertEqual(upperFrame.midX, lowerFrame.midX, accuracy: 1)
-            XCTAssertGreaterThan(lowerFrame.midY, upperFrame.maxY)
+            let partnerFrame = app.buttons["tile-\(partner.id)"].frame
+            let grabbedTile = app.buttons["tile-\(grabbed.id)"]
+            let grabbedFrame = grabbedTile.frame
+            if hasTwoRows {
+                XCTAssertEqual(partnerFrame.midX, grabbedFrame.midX, accuracy: 1)
+                XCTAssertGreaterThan(grabbedFrame.midY, partnerFrame.maxY)
+            } else {
+                XCTAssertEqual(partnerFrame.midY, grabbedFrame.midY, accuracy: 1)
+                XCTAssertGreaterThan(grabbedFrame.midX, partnerFrame.midX)
+            }
 
-            let start = lowerTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            let rise: CGFloat = reduceMotion ? 18 : 157
-            let width = lowerFrame.width - 1.5
+            let start = grabbedTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let rise: CGFloat = reduceMotion ? 18 : 60
+            let width = grabbedFrame.width - 1.5
             let height = width * 268 / 192
-            let centerY = reduceMotion ? rack.minY - 6 - height / 2 : lowerFrame.midY - rise
-            let grabbedEdge = lowerFrame.midX - width / 2
+            let centerAboveRack = rack.minY - 6 - height / 2
+            let centerY = reduceMotion ? centerAboveRack : min(centerAboveRack, grabbedFrame.midY - rise)
+            let grabbedEdge = grabbedFrame.midX - width / 2
             let stride = width * 1.065
             let rackColor: UInt32 = 0x215D61
             let previewColor: UInt32 = 0x176F88
@@ -986,17 +996,17 @@ final class TableFlowTests: XCTestCase {
                 XCTAssertGreaterThan(try edge(tileEdge, y: centerY, color: previewColor), 0.85,
                                      "Each hand tile has a solid outline in the preview")
             }
-            for frame in [upperFrame, lowerFrame] {
+            for frame in [partnerFrame, grabbedFrame] {
                 XCTAssertGreaterThan(try edge(frame.midX - width / 2, y: frame.midY, color: rackColor), 0.85,
                                      "The contributing tile remains highlighted in the rack")
             }
             if reduceMotion {
                 XCTAssertTrue(pass.exists, "The short drag cancels")
-                XCTAssertTrue(lowerTile.exists)
+                XCTAssertTrue(grabbedTile.exists)
                 let afterCancel = try uprightImage(from: XCUIScreen.main.screenshot())
                 XCTAssertLessThan(try edge(grabbedEdge, y: centerY, color: previewColor, in: afterCancel), 0.1)
             } else {
-                XCTAssertTrue(lowerTile.waitForNonExistence(timeout: 5), "The full swipe commits the chow")
+                XCTAssertTrue(grabbedTile.waitForNonExistence(timeout: 5), "The full swipe commits the chow")
             }
             app.terminate()
         }

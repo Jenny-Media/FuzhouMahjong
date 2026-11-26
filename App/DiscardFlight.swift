@@ -45,19 +45,19 @@ struct RackDragPreview {
         let frame: CGRect
 
         init(source: CGRect, translation: CGSize, count: Int, grabbedIndex: Int, bounds: CGRect,
-             stationaryAbove rackTop: CGFloat? = nil) {
+             rackTop: CGFloat? = nil, stationary: Bool = false) {
             let gap = count > 1 ? source.width * 0.065 : 0
             let width = source.width * CGFloat(count) + gap * CGFloat(count - 1)
             let bottom = rackTop.map { min(bounds.maxY, $0 - 6) } ?? bounds.maxY
-            let height = max(0, bottom - bounds.minY)
-            let scale = min(1, bounds.width / width, height / source.height)
+            let allowedSize = CGSize(width: bounds.width, height: max(0, bottom - bounds.minY))
+            let scale = min(1, allowedSize.width / width, allowedSize.height / source.height)
             tileSize = CGSize(width: source.width * scale, height: source.height * scale)
             spacing = gap * scale
-            let x = source.midX + (rackTop == nil ? translation.width : 0)
+            let x = source.midX + (stationary ? 0 : translation.width)
                 - tileSize.width / 2 - CGFloat(grabbedIndex) * (tileSize.width + spacing)
-            let y = rackTop == nil ? source.midY + translation.height - tileSize.height / 2 : bottom - tileSize.height
+            let y = stationary ? bottom - tileSize.height : source.midY + translation.height - tileSize.height / 2
             let desired = CGRect(x: x - bounds.minX, y: y - bounds.minY, width: width * scale, height: tileSize.height)
-            frame = DiscardFlight.inside(desired, size: bounds.size).offsetBy(dx: bounds.minX, dy: bounds.minY)
+            frame = DiscardFlight.inside(desired, size: allowedSize).offsetBy(dx: bounds.minX, dy: bounds.minY)
         }
     }
 }
@@ -82,12 +82,12 @@ struct RackDragOverlay: View {
                 let contributorRects = preview.faces.filter(\.fromRack).compactMap { face in
                     rackFaces[face.id].map { geometry[$0] }
                 }
-                let rackTop = preview.stationary
+                let rackTop = group
                     ? contributorRects.reduce(rackBounds.map { geometry[$0].minY } ?? source.minY) { min($0, $1.minY) }
                     : nil
                 let layout = RackDragPreview.Layout(source: source, translation: preview.translation,
                                                     count: preview.faces.count, grabbedIndex: index, bounds: bounds,
-                                                    stationaryAbove: rackTop)
+                                                    rackTop: rackTop, stationary: preview.stationary)
                 if group {
                     ForEach(preview.faces.filter(\.fromRack)) { face in
                         if let anchor = rackFaces[face.id] {

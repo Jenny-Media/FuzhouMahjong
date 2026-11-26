@@ -271,11 +271,24 @@ final class TablePresentationTests: XCTestCase {
         let source = CGRect(x: 320, y: 273, width: 40, height: 56)
         let rackTop: CGFloat = 200
         let layout = RackDragPreview.Layout(source: source, translation: CGSize(width: 90, height: -20),
-                                            count: 3, grabbedIndex: 1, bounds: pane, stationaryAbove: rackTop)
+                                            count: 3, grabbedIndex: 1, bounds: pane, rackTop: rackTop, stationary: true)
         XCTAssertEqual(layout.frame.minY, pane.minY, accuracy: 0.001)
         XCTAssertEqual(layout.frame.maxY, rackTop - 6, accuracy: 0.001)
         XCTAssertEqual(layout.frame.midX, source.midX, accuracy: 0.001)
         XCTAssertTrue(pane.insetBy(dx: -0.001, dy: -0.001).contains(layout.frame))
+    }
+
+    func testMovingMeldPreviewClearsTheWholeRackBeforeFollowingTheFingerUp() {
+        let pane = CGRect(x: 0, y: 0, width: 390, height: 700)
+        let source = CGRect(x: 160, y: 569, width: 43, height: 60)
+        let rackTop: CGFloat = 500
+        for rise: CGFloat in [18, 64, 157] {
+            let layout = RackDragPreview.Layout(source: source, translation: CGSize(width: 8, height: -rise),
+                                                count: 3, grabbedIndex: 1, bounds: pane, rackTop: rackTop)
+            XCTAssertEqual(layout.frame.maxY, min(rackTop - 6, source.maxY - rise), accuracy: 0.001)
+            XCTAssertEqual(layout.frame.midX, source.midX + 8, accuracy: 0.001)
+            XCTAssertEqual(layout.tileSize, source.size)
+        }
     }
 
     func testFoldAtAWindowEdgeKeepsTheTableAndRackInOnePane() {
