@@ -12,12 +12,14 @@ struct RackDragPreview {
     struct Preferences {
         var preview: RackDragPreview?
         var rackFaces: [Tile.ID: Anchor<CGRect>] = [:]
+        var rackBounds: Anchor<CGRect>?
     }
 
     let faces: [Face]
     let grabbedID: Tile.ID
     let source: Anchor<CGRect>
     let translation: CGSize
+    let stationary: Bool
 
     struct Key: PreferenceKey {
         static var defaultValue: Preferences { Preferences() }
@@ -26,6 +28,7 @@ struct RackDragPreview {
             let next = nextValue()
             if let preview = next.preview { value.preview = preview }
             value.rackFaces.merge(next.rackFaces) { _, latest in latest }
+            if let rackBounds = next.rackBounds { value.rackBounds = rackBounds }
         }
     }
 
@@ -41,14 +44,18 @@ struct RackDragPreview {
         let spacing: CGFloat
         let frame: CGRect
 
-        init(source: CGRect, translation: CGSize, count: Int, grabbedIndex: Int, bounds: CGRect) {
+        init(source: CGRect, translation: CGSize, count: Int, grabbedIndex: Int, bounds: CGRect,
+             stationaryAbove rackTop: CGFloat? = nil) {
             let gap = count > 1 ? source.width * 0.065 : 0
             let width = source.width * CGFloat(count) + gap * CGFloat(count - 1)
-            let scale = min(1, bounds.width / width, bounds.height / source.height)
+            let bottom = rackTop.map { min(bounds.maxY, $0 - 6) } ?? bounds.maxY
+            let height = max(0, bottom - bounds.minY)
+            let scale = min(1, bounds.width / width, height / source.height)
             tileSize = CGSize(width: source.width * scale, height: source.height * scale)
             spacing = gap * scale
-            let x = source.midX + translation.width - tileSize.width / 2 - CGFloat(grabbedIndex) * (tileSize.width + spacing)
-            let y = source.midY + translation.height - tileSize.height / 2
+            let x = source.midX + (rackTop == nil ? translation.width : 0)
+                - tileSize.width / 2 - CGFloat(grabbedIndex) * (tileSize.width + spacing)
+            let y = rackTop == nil ? source.midY + translation.height - tileSize.height / 2 : bottom - tileSize.height
             let desired = CGRect(x: x - bounds.minX, y: y - bounds.minY, width: width * scale, height: tileSize.height)
             frame = DiscardFlight.inside(desired, size: bounds.size).offsetBy(dx: bounds.minX, dy: bounds.minY)
         }
@@ -58,6 +65,7 @@ struct RackDragPreview {
 struct RackDragOverlay: View {
     let preview: RackDragPreview
     let rackFaces: [Tile.ID: Anchor<CGRect>]
+    let rackBounds: Anchor<CGRect>?
     let divisions: [CGRect]
     @Environment(\.layoutDirection) private var layoutDirection
 
@@ -71,8 +79,15 @@ struct RackDragOverlay: View {
                                                containing: CGPoint(x: source.midX, y: source.midY))
                     : CGRect(origin: .zero, size: geometry.size)
                 let index = layoutDirection == .rightToLeft ? preview.faces.count - 1 - grabbed : grabbed
+                let contributorRects = preview.faces.filter(\.fromRack).compactMap { face in
+                    rackFaces[face.id].map { geometry[$0] }
+                }
+                let rackTop = preview.stationary
+                    ? contributorRects.reduce(rackBounds.map { geometry[$0].minY } ?? source.minY) { min($0, $1.minY) }
+                    : nil
                 let layout = RackDragPreview.Layout(source: source, translation: preview.translation,
-                                                    count: preview.faces.count, grabbedIndex: index, bounds: bounds)
+                                                    count: preview.faces.count, grabbedIndex: index, bounds: bounds,
+                                                    stationaryAbove: rackTop)
                 if group {
                     ForEach(preview.faces.filter(\.fromRack)) { face in
                         if let anchor = rackFaces[face.id] {

@@ -3,6 +3,8 @@ import XCTest
 
 @MainActor
 final class TableFlowTests: XCTestCase {
+    private var heldDragScreenshot: XCUIScreenshot?
+
     func testFaceAndMaterialCombinationsAtPlaySize() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -912,6 +914,134 @@ final class TableFlowTests: XCTestCase {
             for id in target { XCTAssertFalse(app.buttons["tile-\(id)"].exists) }
             app.terminate()
         }
+    }
+
+    func testHeldChowRendersTheGroupAndKeepsItsHandTilesVisible() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixture = try match(seed: 56, after: 47)
+        let table = fixture.table(for: .south)
+        let offered = try XCTUnwrap(table.offeredTile)
+        let hand = try XCTUnwrap(table.moves.compactMap { move -> [Tile]? in
+            guard case .meld(.chow, let ids) = move else { return nil }
+            let tiles = table.hand.filter { ids.contains($0.id) }.sorted { $0.kind < $1.kind }
+            return tiles.first.map { $0.kind.rank > offered.kind.rank } == true ? tiles : nil
+        }.first)
+        let upper = try XCTUnwrap(hand.first)
+        let lower = try XCTUnwrap(hand.last)
+        let columns = FuzhouMatch.rackSize / 2
+
+        for reduceMotion in [true, false] {
+            let arguments = [
+                "-appearance.mode", "light", "-table.boardStyle", "snowWhite", "-table.tileStyle", "porcelain",
+                "-ui-test-rack-reduce-motion", String(reduceMotion),
+            ]
+            let app = try launchSavedMatch(fixture, arguments: arguments)
+            let pass = app.buttons["table-move-过"]
+            XCTAssertTrue(pass.waitForExistence(timeout: 5))
+            let arrange = app.buttons["rack-arrange"]
+            arrange.tap()
+            var order = table.hand.map(\.id)
+            for (tile, destination) in [(lower, columns + 3), (upper, 3)] {
+                let source = try XCTUnwrap(order.firstIndex(of: tile.id))
+                guard source != destination else { continue }
+                app.buttons["tile-\(tile.id)"].tap()
+                app.buttons["tile-\(order[destination])"].tap()
+                order.remove(at: source)
+                order.insert(tile.id, at: destination)
+            }
+            arrange.tap()
+            XCTAssertTrue(pass.waitForExistence(timeout: 5))
+            let rack = element("table-rack", in: app).frame
+            let window = app.windows.firstMatch.frame
+            let upperTile = app.buttons["tile-\(upper.id)"]
+            let lowerTile = app.buttons["tile-\(lower.id)"]
+            let upperFrame = upperTile.frame
+            let lowerFrame = lowerTile.frame
+            XCTAssertEqual(upperFrame.midX, lowerFrame.midX, accuracy: 1)
+            XCTAssertGreaterThan(lowerFrame.midY, upperFrame.maxY)
+
+            let start = lowerTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let rise: CGFloat = reduceMotion ? 18 : 157
+            let width = lowerFrame.width - 1.5
+            let height = width * 268 / 192
+            let centerY = reduceMotion ? rack.minY - 6 - height / 2 : start.screenPoint.y - rise
+            let grabbedEdge = lowerFrame.midX - width / 2
+            let stride = width * 1.065
+            let rackColor: UInt32 = 0x215D61
+            let previewColor: UInt32 = 0x176F88
+            let during = try screenshotDuringDrag(from: start, rise: rise)
+            capture(reduceMotion ? "held-chow-reduce-motion" : "held-chow", screenshot: during)
+            func edge(_ x: CGFloat, y: CGFloat, color: UInt32, in screenshot: XCUIScreenshot = during) throws -> Double {
+                try matchingStroke(at: CGPoint(x: x, y: y), color: color, in: screenshot, window: window)
+            }
+
+            let discardStroke = try edge(grabbedEdge - 2 * stride, y: centerY, color: rackColor)
+            XCTAssertGreaterThan(discardStroke, 0.2, "The claimed tile has a dashed outline")
+            XCTAssertLessThan(discardStroke, 0.85, "The claimed tile outline has gaps")
+            for tileEdge in [grabbedEdge - stride, grabbedEdge] {
+                XCTAssertGreaterThan(try edge(tileEdge, y: centerY, color: previewColor), 0.85,
+                                     "Each hand tile has a solid outline in the preview")
+            }
+            for frame in [upperFrame, lowerFrame] {
+                XCTAssertGreaterThan(try edge(frame.midX - width / 2, y: frame.midY, color: rackColor), 0.85,
+                                     "The contributing tile remains highlighted in the rack")
+            }
+            if reduceMotion {
+                XCTAssertTrue(pass.exists, "The short drag cancels")
+                XCTAssertTrue(lowerTile.exists)
+                XCTAssertLessThan(try edge(grabbedEdge, y: centerY, color: previewColor,
+                                           in: XCUIScreen.main.screenshot()), 0.1)
+            } else {
+                XCTAssertTrue(lowerTile.waitForNonExistence(timeout: 5), "The full swipe commits the chow")
+            }
+            app.terminate()
+        }
+    }
+
+    @objc private func captureHeldDrag(_ timer: Timer) {
+        heldDragScreenshot = XCUIScreen.main.screenshot()
+    }
+
+    private func screenshotDuringDrag(from start: XCUICoordinate, rise: CGFloat) throws -> XCUIScreenshot {
+        heldDragScreenshot = nil
+        // XCTest pumps the main run loop while it holds the synthesized touch down.
+        let timer = Timer(timeInterval: 1.5, target: self, selector: #selector(captureHeldDrag(_:)),
+                          userInfo: nil, repeats: false)
+        RunLoop.main.add(timer, forMode: .common)
+        defer { timer.invalidate() }
+        start.press(forDuration: 0.08, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -rise)),
+                    withVelocity: .default, thenHoldForDuration: 2.5)
+        return try XCTUnwrap(heldDragScreenshot, "Expected a screenshot while the drag was held")
+    }
+
+    private func matchingStroke(at point: CGPoint, color: UInt32, in screenshot: XCUIScreenshot,
+                                window: CGRect) throws -> Double {
+        let image = try XCTUnwrap(screenshot.image.cgImage)
+        let scale = CGFloat(image.width) / window.width
+        let area = CGRect(x: point.x - 3, y: point.y - 9, width: 6, height: 18)
+        let crop = try XCTUnwrap(image.cropping(to: area.applying(CGAffineTransform(scaleX: scale, y: scale)).integral))
+        let stride = crop.width * 4
+        var pixels = [UInt8](repeating: 0, count: stride * crop.height)
+        try pixels.withUnsafeMutableBytes { bytes in
+            let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: crop.width, height: crop.height,
+                                                bitsPerComponent: 8, bytesPerRow: stride, space: space,
+                                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+        }
+        let red = Int((color >> 16) & 255)
+        let green = Int((color >> 8) & 255)
+        let blue = Int(color & 255)
+        let rows = (0..<crop.height).filter { y in
+            (0..<crop.width).contains { x in
+                let index = y * stride + x * 4
+                return abs(Int(pixels[index]) - red) <= 8
+                    && abs(Int(pixels[index + 1]) - green) <= 8
+                    && abs(Int(pixels[index + 2]) - blue) <= 8
+            }
+        }
+        return Double(rows.count) / Double(crop.height)
     }
 
     func testDrawnWindJoinsTheVisibleFlowersAndTheReplacementReachesTheRack() throws {

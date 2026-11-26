@@ -698,7 +698,8 @@ struct MatchView<Session: MatchSession>: View {
             }
             .overlayPreferenceValue(RackDragPreview.Key.self) { drag in
                 if active, let preview = drag.preview {
-                    RackDragOverlay(preview: preview, rackFaces: drag.rackFaces, divisions: divisions)
+                    RackDragOverlay(preview: preview, rackFaces: drag.rackFaces,
+                                    rackBounds: drag.rackBounds, divisions: divisions)
                         .mask { motionArea(geometry.size, excluding: divisions) }
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
@@ -1006,6 +1007,7 @@ struct MatchView<Session: MatchSession>: View {
                 .strokeBorder(boardStyle.trayEdge.opacity(0.65))
                 .allowsHitTesting(false)
         }
+        .transformAnchorPreference(key: RackDragPreview.Key.self, value: .bounds) { $0.rackBounds = $1 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("手牌")
         .accessibilityIdentifier("table-rack")

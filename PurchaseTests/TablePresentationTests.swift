@@ -266,6 +266,18 @@ final class TablePresentationTests: XCTestCase {
         XCTAssertEqual(layout.frame.width, 4 * layout.tileSize.width + 3 * layout.spacing, accuracy: 0.001)
     }
 
+    func testStationaryMeldPreviewFitsAboveTheRackWithinTheHandPane() {
+        let pane = CGRect(x: 220, y: 155, width: 240, height: 250)
+        let source = CGRect(x: 320, y: 273, width: 40, height: 56)
+        let rackTop: CGFloat = 200
+        let layout = RackDragPreview.Layout(source: source, translation: CGSize(width: 90, height: -20),
+                                            count: 3, grabbedIndex: 1, bounds: pane, stationaryAbove: rackTop)
+        XCTAssertEqual(layout.frame.minY, pane.minY, accuracy: 0.001)
+        XCTAssertEqual(layout.frame.maxY, rackTop - 6, accuracy: 0.001)
+        XCTAssertEqual(layout.frame.midX, source.midX, accuracy: 0.001)
+        XCTAssertTrue(pane.insetBy(dx: -0.001, dy: -0.001).contains(layout.frame))
+    }
+
     func testFoldAtAWindowEdgeKeepsTheTableAndRackInOnePane() {
         let size = CGSize(width: 350, height: 600)
         let examples: [(CGRect, CGRect)] = [

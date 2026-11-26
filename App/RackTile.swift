@@ -21,12 +21,23 @@ struct RackTile: View {
     var moveEarlier: (() -> Void)? = nil
     var moveLater: (() -> Void)? = nil
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
     @GestureState private var isDragging = false
     // Keep discard intent available to the release handler when gesture state resets.
     @State private var drag = TileDrag()
     @State private var faceFrame: CGRect?
+
+    private var reduceMotion: Bool {
+        #if DEBUG
+        if let simulated = Self.uiTestReduceMotion { return simulated }
+        #endif
+        return systemReduceMotion
+    }
+
+    #if DEBUG
+    private static let uiTestReduceMotion = UserDefaults.standard.string(forKey: "ui-test-rack-reduce-motion").flatMap(Bool.init)
+    #endif
 
     private struct TileDrag {
         var offset: CGSize = .zero
@@ -119,7 +130,8 @@ struct RackTile: View {
                         faces: meldFaces ?? [.init(tile: tile, isGold: isGold)],
                         grabbedID: tile.id,
                         source: anchor,
-                        translation: reduceMotion ? CGSize(width: 0, height: -face.height - 6) : offset
+                        translation: offset,
+                        stationary: reduceMotion
                     ) : nil
                     return RackDragPreview.Preferences(preview: preview, rackFaces: isMeldCandidate ? [tile.id: anchor] : [:])
                 }
