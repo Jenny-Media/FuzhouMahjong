@@ -8,36 +8,36 @@ import XCTest
 
 @MainActor
 final class SoloSaveMigrationTests: XCTestCase {
-    func testResumingAfterADealerChangeOnlyRemovesImpossibleRepeats() throws {
-        let game = FuzhouMatch()
-        let encoder = JSONEncoder()
-        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(game)) as? [String: Any])
-        saved.removeValue(forKey: "dealerStreakUsesCurrentRules")
+    func testResumingAnOlderTableKeepsItsArchiveAndStartingNewUsesCurrentRules() throws {
+        let suite = "DealerRestoreTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let access = GameAccess(defaults: defaults, keychainService: nil)
+        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(FuzhouMatch())) as? [String: Any])
+        saved.removeValue(forKey: "resetsStreakOnPassingDraw")
         saved["dealer"] = Seat.south.id
         saved["dealerTurns"] = 1
-        let even = [0, 0, 0, 0]
-        for (round, stored, scores, expected) in [
-            (2, 1, even, 0), (4, 2, even, 2), (4, 3, even, 1),
-            (3, 2, [30, -10, -10, -10], 0), // East won, then a draw passed the deal.
-            (3, 2, [-12, 36, -12, -12], 1), // A draw passed the deal, then South won at the old +2 bonus.
-            (4, 3, [22, -12, -10, 0], 0), (4, 3, [26, -12, -14, 0], 1),
-        ] {
-            let suite = "DealerRestoreTests." + UUID().uuidString
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defer { defaults.removePersistentDomain(forName: suite) }
-            let access = GameAccess(defaults: defaults, keychainService: nil)
-            saved["roundNumber"] = round
-            saved["continuation"] = stored
-            saved["scores"] = scores
-            let key = SoloSaveSlot.first.rawValue
-            XCTAssertTrue(access.beginSoloHand(key: key, match: try JSONSerialization.data(withJSONObject: saved)))
-            let remaining = access.remainingSoloHands
-            let resumed = SoloMatch(access: access)
-            XCTAssertEqual(resumed.table?.continuation, expected)
-            let archive = try XCTUnwrap(access.soloSave(key: key))
-            XCTAssertEqual(try JSONDecoder().decode(FuzhouMatch.self, from: archive.match).continuation, expected)
-            XCTAssertEqual(access.remainingSoloHands, remaining)
-        }
+        saved["roundNumber"] = 4
+        saved["continuation"] = 3
+        saved["scores"] = [22, -12, -10, 0]
+        let data = try JSONSerialization.data(withJSONObject: saved)
+        let key = SoloSaveSlot.first.rawValue
+        XCTAssertTrue(access.beginSoloHand(key: key, match: data))
+        let remaining = access.remainingSoloHands
+
+        let solo = SoloMatch(access: access)
+        let resumed = try XCTUnwrap(solo.table)
+        XCTAssertNil(resumed.resetsStreakOnPassingDraw)
+        XCTAssertEqual(resumed.continuation, 3)
+        XCTAssertEqual(resumed.players.map(\.score), [22, -12, -10, 0])
+        XCTAssertEqual(access.soloSave(key: key)?.match, data)
+        XCTAssertEqual(access.remainingSoloHands, remaining)
+
+        XCTAssertTrue(solo.startNew())
+        let fresh = try XCTUnwrap(SoloMatch(access: access).table)
+        XCTAssertEqual(fresh.resetsStreakOnPassingDraw, true)
+        XCTAssertEqual(fresh.continuation, 0)
+        XCTAssertEqual(fresh.players.map(\.score), [0, 0, 0, 0])
     }
 
     func testCancelledComputerTurnDoesNotAdvanceOrOverwriteTheSave() async throws {

@@ -141,12 +141,8 @@ public struct RoundResult: Equatable, Codable, Sendable {
 
     public func delta(for seat: Seat) -> Int {
         guard let winner else { return 0 }
-        return points * Self.shares(for: seat, winner: winner, source: source)
-    }
-
-    static func shares(for seat: Seat, winner: Seat, source: Seat?) -> Int {
-        if seat == winner { return source == nil ? 3 : 1 }
-        return source == nil || source == seat ? -1 : 0
+        if seat == winner { return points * (source == nil ? 3 : 1) }
+        return source == nil || source == seat ? -points : 0
     }
 
     static let draw = Self(winner: nil, kind: nil, source: nil, winningTile: nil, lines: [])
@@ -216,6 +212,8 @@ public struct TableState: Equatable, Codable, Sendable {
     public var discardClaimFeedback: DiscardClaimFeedback? = nil
     /// Public flowers the dealer collected while flipping for gold, in reveal order.
     public var openingIndicatorFlowerIDs: [Tile.ID]? = nil
+    /// Absent on older tables that added to the streak on a draw, even when the deal passed.
+    public var resetsStreakOnPassingDraw: Bool? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? .legacy }
 

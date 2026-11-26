@@ -394,111 +394,59 @@ final class MatchTests: XCTestCase {
         }
     }
 
-    func testSavedDealerWinUsesOnlyRepeatsTheCurrentDealerCouldHaveEarned() throws {
+    func testOlderMatchFinishesUnderItsOriginalDealerRules() throws {
         var ready = try fixture(hands: [.east: Array(completed.dropLast())], gold: .init(.bamboo, 9),
                                 draws: [try XCTUnwrap(completed.last)], ruleset: .pureSuit)
         resolveOpening(&ready)
         let encoder = JSONEncoder()
-        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(ready)) as? [String: Any])
-        saved.removeValue(forKey: "dealerStreakUsesCurrentRules")
-        let payAll = FuzhouHouseRules(name: "三家付分", discardPayment: .allOpponents)
-        let payAllRules = try JSONSerialization.jsonObject(with: encoder.encode(payAll))
-        XCTAssertTrue(ready.apply(.win, by: .east))
-        let basePoints = try XCTUnwrap(ready.result).points
-
-        // Replay the old counter and payouts to construct reachable archives. A win
-        // with no explicit face value uses the minimum then payable to that dealer.
-        enum PastHand { case draw, win(Int? = nil) }
-        let scenarios: [([PastHand], Bool, Int)] = [
-            ([.draw, .win(), .draw, .draw, .draw], false, 0),
-            ([.win(), .draw, .draw, .draw, .draw], false, 0),
-            ([.draw, .draw, .draw, .draw, .win()], false, 1),
-            ([.win(), .win(), .draw, .draw, .draw, .draw], false, 1),
-            ([.draw, .draw, .draw, .draw, .win(), .win()], false, 2),
-            ([.draw, .win(), .win(), .draw, .draw, .draw], true, 0),
-            ([.win(), .win(), .draw, .draw, .draw, .draw], true, 0),
-            ([.draw, .draw, .draw, .draw, .win(), .win()], true, 2),
-            ([.win(), .draw, .draw, .draw, .draw, .win()], true, 1),
-            ([.draw, .win(), .win(), .draw, .draw, .draw, .win()], true, 1),
-            ([.draw, .win(24), .draw, .win(24), .draw, .win(24), .draw, .win(24)], true, 1),
-        ]
-        for (history, equalPayments, repeats) in scenarios {
-            var dealerTurns = 0
-            var scores = Array(repeating: 0, count: Seat.allCases.count)
-            for (index, hand) in history.enumerated() {
-                switch hand {
-                case .draw: dealerTurns += 1
-                case .win(let faceValue):
-                    let winner = Seat.east.advanced(dealerTurns)
-                    let minimum = 10 + 2 * index
-                    let points = faceValue ?? minimum
-                    XCTAssertGreaterThanOrEqual(points, minimum)
-                    for payer in Seat.allCases where payer != winner && (equalPayments || payer == .west) {
-                        scores[payer.id] -= points
-                        scores[winner.id] += points
-                    }
-                }
-            }
-            XCTAssertEqual(Seat.east.advanced(dealerTurns), ready.dealer)
-            saved["dealerTurns"] = dealerTurns
-            saved["roundNumber"] = history.count + 1
-            saved["continuation"] = history.count
-            saved["houseRules"] = equalPayments ? payAllRules : nil
-            saved["scores"] = scores
-            let data = try JSONSerialization.data(withJSONObject: saved)
-            var resumed = try JSONDecoder().decode(FuzhouMatch.self, from: data)
-            var alreadyPaid = resumed
-            XCTAssertTrue(resumed.reconcileSavedHand())
-            XCTAssertEqual(resumed.continuation, repeats)
-            XCTAssertTrue(resumed.apply(.win, by: .east))
-            XCTAssertEqual(resumed.result?.delta(for: .east), (basePoints + 2 * repeats) * 3)
-
-            // A settled save includes this win in its balances. Leave the payment in place,
-            // and carry only the earned streak into the next deal.
-            XCTAssertTrue(alreadyPaid.apply(.win, by: .east))
-            let paidScores = alreadyPaid.scores
-            alreadyPaid.nextRound()
-            XCTAssertEqual(alreadyPaid.scores, paidScores)
-            XCTAssertEqual(alreadyPaid.continuation, repeats + 1)
+        let decoder = JSONDecoder()
+        func archive(_ game: FuzhouMatch) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(game)) as? [String: Any])
         }
-    }
-
-    func testRestoringDealerBonusWithDifferentDiscardPayers() throws {
-        var ready = try fixture(hands: [.south: Array(completed.dropLast())], gold: .init(.bamboo, 9),
-                                draws: [try XCTUnwrap(completed.last)], ruleset: .pureSuit)
-        resolveOpening(&ready)
-        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(ready)) as? [String: Any])
-        saved.removeValue(forKey: "dealerStreakUsesCurrentRules")
-        saved["dealer"] = Seat.south.id
-        saved["current"] = Seat.south.id
-        saved["dealerTurns"] = 1
-        for (priorHands, scores, repeats) in [
-            (3, [22, -12, -10, 0], 0), // West paid East 10, South paid East 12, then a draw.
-            (3, [26, -12, -14, 0], 1), // South paid East 26, then a draw, then West paid South 14.
-            (3, [24, 0, -10, -14], 0), // West paid East 10, North paid East 14, then a draw.
-            (3, [42, -22, -10, -10], 0), // All paid East 10, South paid East another 12, then a draw.
-            (3, [16, 32, -24, -24], 1), // All paid East 10, a draw passed the deal, then all paid South 14.
-            (4, [36, -12, -10, -14], 0), // Three different discarders paid East, then a draw.
-        ] {
-            saved["roundNumber"] = priorHands + 1
-            saved["continuation"] = priorHands
-            saved["scores"] = scores
-            let data = try JSONSerialization.data(withJSONObject: saved)
-            var resumed = try JSONDecoder().decode(FuzhouMatch.self, from: data)
-            var settled = resumed
-            XCTAssertTrue(resumed.reconcileSavedHand())
-            XCTAssertEqual(resumed.continuation, repeats)
-            resumed = try JSONDecoder().decode(FuzhouMatch.self, from: JSONEncoder().encode(resumed))
-            XCTAssertFalse(resumed.reconcileSavedHand())
-            XCTAssertTrue(resumed.apply(.win, by: .south))
-            XCTAssertEqual(resumed.result?.delta(for: .south), (10 + 2 * repeats) * 3)
-
-            XCTAssertTrue(settled.apply(.win, by: .south))
-            let paidScores = settled.scores
-            settled.nextRound()
-            XCTAssertEqual(settled.scores, paidScores)
-            XCTAssertEqual(settled.continuation, repeats + 1)
+        func load(_ archive: [String: Any]) throws -> FuzhouMatch {
+            try decoder.decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: archive))
         }
+
+        var saved = try archive(ready)
+        saved.removeValue(forKey: "resetsStreakOnPassingDraw")
+        saved["dealerTurns"] = 4
+        saved["roundNumber"] = 7
+        saved["continuation"] = 6
+        saved["scores"] = [66, -22, -22, -22]
+        var old = try load(saved)
+        XCTAssertEqual(old.scores, [66, -22, -22, -22])
+        XCTAssertEqual(old.continuation, 6)
+        XCTAssertNil(old.table(for: .south).resetsStreakOnPassingDraw)
+        XCTAssertTrue(old.apply(.win, by: .east))
+        XCTAssertEqual(old.result?.delta(for: .east), (10 + 6 * 2) * 3)
+        let settledScores = old.scores
+        old = try decoder.decode(FuzhouMatch.self, from: encoder.encode(old))
+        old.nextRound()
+        XCTAssertEqual(old.scores, settledScores)
+        XCTAssertEqual(old.dealer, .east)
+        XCTAssertEqual(old.continuation, 7)
+
+        let draw = try JSONSerialization.jsonObject(with: encoder.encode(RoundResult.draw))
+        saved = try archive(old)
+        saved["step"] = "finished"
+        saved["result"] = draw
+        old = try load(saved)
+        old.nextRound()
+        XCTAssertEqual(old.dealer, .south)
+        XCTAssertEqual(old.continuation, 8)
+        XCTAssertEqual(old.scores, settledScores)
+        XCTAssertNil(old.table(for: .east).resetsStreakOnPassingDraw)
+
+        // Finishing the last dealer's hand starts a new match on the current rules.
+        saved["dealer"] = Seat.north.id
+        saved["dealerTurns"] = 15
+        old = try load(saved)
+        XCTAssertTrue(old.matchFinished)
+        old.nextRound()
+        XCTAssertEqual(old.table(for: .east).resetsStreakOnPassingDraw, true)
+        XCTAssertEqual(old.roundNumber, 1)
+        XCTAssertEqual(old.continuation, 0)
+        XCTAssertEqual(old.scores, [0, 0, 0, 0])
     }
 
     func testCustomDrawCanRepeatFinalDealerAndRulesSurviveSaveAndNewMatch() throws {

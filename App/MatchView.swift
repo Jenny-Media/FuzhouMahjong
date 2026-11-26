@@ -140,7 +140,8 @@ struct MatchView<Session: MatchSession>: View {
         .sheet(item: $guideLesson) { lesson in
             NavigationStack {
                 RuleGuide(startingAt: lesson, showsCloseButton: true,
-                          ruleset: session.table?.ruleset ?? .legacy, houseRules: session.table?.houseRules)
+                          ruleset: session.table?.ruleset ?? .legacy, houseRules: session.table?.houseRules,
+                          resetsStreakOnPassingDraw: session.table?.resetsStreakOnPassingDraw == true)
             }
         }
         .alert("打出金牌？", isPresented: Binding(get: { goldDiscard != nil }, set: { if !$0 { goldDiscard = nil } }),

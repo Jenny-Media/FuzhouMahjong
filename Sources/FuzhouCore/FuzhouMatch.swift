@@ -31,8 +31,8 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private var step = TableState.Step.turn
     private var offeredTile: Tile?
     private var matchRuleset: FuzhouRuleset?
-    // Missing in archives written before a passing draw reset the dealer's streak.
-    private var dealerStreakUsesCurrentRules: Bool? = true
+    // A missing flag keeps a match started on an older release on its original dealer rules.
+    private var resetsStreakOnPassingDraw: Bool? = true
 
     public private(set) var gold: Tile?
     public private(set) var current = Seat.east
@@ -88,7 +88,8 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                                     exposedFlowers: flowers[$0.id])
                    }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards,
-                   discardClaimFeedback: claimFeedback, openingIndicatorFlowerIDs: openingIndicatorFlowerIDs)
+                   discardClaimFeedback: claimFeedback, openingIndicatorFlowerIDs: openingIndicatorFlowerIDs,
+                   resetsStreakOnPassingDraw: resetsStreakOnPassingDraw)
     }
 
     public func legalMoves(for seat: Seat) -> [Move] {
@@ -161,23 +162,6 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         guard step == .claim else { return false }
         resolveResponses()
         return step != .claim
-    }
-
-    @discardableResult private mutating func migrateDealerStreak() -> Bool {
-        guard dealerStreakUsesCurrentRules != true else { return false }
-        if houseRules?.keepDealerOnDraw != true {
-            let beforeHand = Seat.allCases.map { scores[$0.id] - (result?.delta(for: $0) ?? 0) }
-            continuation = LegacyDealerStreak(dealer: dealer, dealerTurns: dealerTurns, priorHands: max(1, roundNumber) - 1,
-                                               continuation: continuation, priorScores: beforeHand,
-                                               equalPayments: houseRules?.discardPayment == .allOpponents).maximum
-        }
-        dealerStreakUsesCurrentRules = true
-        return true
-    }
-
-    public mutating func reconcileSavedHand() -> Bool {
-        let migrated = result == nil && migrateDealerStreak()
-        return settleRestoredDiscard() || migrated
     }
 
     public func hasComputerMove(excluding humans: Set<Seat>) -> Bool {
@@ -288,13 +272,11 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             return
         }
         if repeatsDealer(after: result) {
-            migrateDealerStreak()
             continuation += 1
         } else {
             dealer = dealer.advanced(1)
             dealerTurns += 1
-            continuation = 0
-            dealerStreakUsesCurrentRules = true
+            continuation = result.winner == nil && resetsStreakOnPassingDraw != true ? continuation + 1 : 0
         }
         roundNumber += 1
         var random = SystemRandomNumberGenerator()

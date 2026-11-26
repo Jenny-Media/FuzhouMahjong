@@ -27,6 +27,7 @@ struct RuleGuide: View {
     let showsCloseButton: Bool
     let ruleset: FuzhouRuleset
     let houseRules: FuzhouHouseRules?
+    let resetsStreakOnPassingDraw: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -39,10 +40,11 @@ struct RuleGuide: View {
     @AccessibilityFocusState private var lessonFocused: Bool
 
     init(startingAt lesson: RuleLesson = .turn, showsCloseButton: Bool = false,
-         ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) {
+         ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil, resetsStreakOnPassingDraw: Bool = true) {
         self.showsCloseButton = showsCloseButton
         self.ruleset = ruleset
         self.houseRules = houseRules
+        self.resetsStreakOnPassingDraw = resetsStreakOnPassingDraw
         _lesson = State(initialValue: lesson)
     }
 
@@ -120,7 +122,7 @@ struct RuleGuide: View {
             }
         }
         .navigationDestination(isPresented: $showsRulesetDetails) {
-            RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules)
+            RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules, resetsStreakOnPassingDraw: resetsStreakOnPassingDraw)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { navigation }
         .modifier(HingeSafeContent())
