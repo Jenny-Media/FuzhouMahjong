@@ -57,6 +57,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     var revealInHandPane = false
     var tabletSeating = false
     var showsDiscardStrip = true
+    var scrollsInShortWindows = false
     let flyingDiscard: Tile.ID?
     let flyingClaim: Tile.ID?
     @Binding var inspectedSeat: Seat?
@@ -91,8 +92,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         let width = max(0, size.width - inset * 2)
         let height = max(0, size.height - inset * 2)
         Group {
-            if opening == nil, table.result == nil, typeSize.isAccessibilitySize {
-                accessibleLiveTable(width: width)
+            if opening == nil, table.result == nil, typeSize.isAccessibilitySize || (scrollsInShortWindows && height < 365) {
+                scrollingLiveTable(width: width)
             } else if let result = table.result, let winner = result.winner, !revealInHandPane,
                       winner == table.viewer || typeSize.isAccessibilitySize {
                 VStack(spacing: gap) {
@@ -184,7 +185,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         }
     }
 
-    private func accessibleLiveTable(width: CGFloat) -> some View {
+    private func scrollingLiveTable(width: CGFloat) -> some View {
         let wide = width >= 520 && width > size.height
         let layout = wide ? AnyLayout(HStackLayout(spacing: gap)) : AnyLayout(VStackLayout(spacing: gap))
         return layout {
@@ -688,6 +689,16 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
 }
 
 extension TableState {
+    var recordedDiscardIDs: Set<Tile.ID> {
+        Set((discardTimeline ?? []).map(\.id))
+    }
+
+    var hasEarlierDiscardsOutsideTimeline: Bool {
+        if discardTimeline == nil { return hasKnownDiscard }
+        let recorded = recordedDiscardIDs
+        return players.contains { $0.discards.contains { !recorded.contains($0.id) } }
+    }
+
     func recentDiscards(excluding latest: TableDiscard?) -> [TableDiscard] {
         let winningTile = result?.winningTile?.id
         return Array((discardTimeline ?? []).filter { $0.id != latest?.id && $0.id != winningTile }.suffix(6))
@@ -703,13 +714,14 @@ extension TableState {
         isGold(tile) ? "\(tile.kind.spokenName)（金牌）" : tile.kind.spokenName
     }
 
-    func claim(of discard: TableDiscard) -> (seat: Seat, action: String)? {
+    func claim(of discard: TableDiscard) -> (seat: Seat, action: String, compactAction: String)? {
         if let result, result.kind == .discard, result.winningTile?.id == discard.id, let winner = result.winner {
-            return (winner, "胡")
+            return (winner, "胡", "胡")
         }
         for player in players {
             if let meld = player.melds.first(where: { $0.from == discard.seat && $0.tiles.contains(discard.tile) }) {
-                return (player.seat, meld.kind == .addedKong ? "碰（后加杠）" : meld.kind.label)
+                if meld.kind == .addedKong { return (player.seat, "碰（后加杠）", "碰") }
+                return (player.seat, meld.kind.label, meld.kind.label)
             }
         }
         return nil

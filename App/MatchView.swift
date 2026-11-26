@@ -789,12 +789,15 @@ struct MatchView<Session: MatchSession>: View {
 
     private func flatBoard(_ table: TableState, size: CGSize) -> some View {
         let landscape = size.width > size.height
-        let singleRow = landscape || size.width >= 600
+        let isIPad = UIDevice.current.userInterfaceIdiom == .pad
+        let rackWidth = max(0, size.width - 2 * TeaTheme.tableGutter)
+        let singleRow = isIPad ? RackTile.singleRowFits(in: rackWidth) : landscape || size.width >= 600
         return VStack(spacing: 6) {
             header(table, showsResultActions: landscape)
-            tableSurface(table, drawsOnBoard: !singleRow, showsResultActions: !landscape)
+            tableSurface(table, drawsOnBoard: !singleRow, showsResultActions: !landscape,
+                         scrollsInShortWindows: isIPad && !singleRow)
             if table.result?.winner != table.viewer {
-                rack(table, availableWidth: max(0, size.width - TeaTheme.tableGutter * 2), landscape: singleRow)
+                rack(table, availableWidth: rackWidth, landscape: singleRow)
             }
         }
         .padding(.horizontal, TeaTheme.tableGutter)
@@ -808,7 +811,7 @@ struct MatchView<Session: MatchSession>: View {
         let height = min(size.height - 8, 842)
         let overviewWidth = min(264, width * 0.21)
         let tableWidth = showsOverview ? width - overviewWidth - 12 : width
-        let singleRow = tableWidth >= CGFloat(FuzhouMatch.rackSize + 1) * 46 + 12
+        let singleRow = RackTile.singleRowFits(in: tableWidth)
         let latest = table.latestDiscard ?? observedDiscard
 
         return VStack(spacing: 8) {
@@ -837,7 +840,7 @@ struct MatchView<Session: MatchSession>: View {
 
     private func tableSurface(_ table: TableState, drawsOnBoard: Bool, showsResultActions: Bool = true,
                               revealInHandPane: Bool = false, tabletSeating: Bool = false,
-                              showsDiscardStrip: Bool = true) -> some View {
+                              showsDiscardStrip: Bool = true, scrollsInShortWindows: Bool = false) -> some View {
         GeometryReader { surface in
             LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
@@ -845,6 +848,7 @@ struct MatchView<Session: MatchSession>: View {
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
                       showsInlineResultActions: showsResultActions, revealInHandPane: revealInHandPane,
                       tabletSeating: tabletSeating, showsDiscardStrip: showsDiscardStrip,
+                      scrollsInShortWindows: scrollsInShortWindows,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,
                       inspectedSeat: $inspectedSeat, onOfferedTileFrame: rememberOfferedTileFrame) {
@@ -996,11 +1000,11 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func rack(_ table: TableState, availableWidth: CGFloat, landscape: Bool,
-                      maximumCellWidth: CGFloat = 46) -> some View {
+                      maximumCellWidth: CGFloat = RackTile.standardRackCellWidth) -> some View {
         let tiles = orderedHand(table.hand)
         let count = landscape ? FuzhouMatch.rackSize : FuzhouMatch.rackSize / 2
         let slotCount = landscape ? count + 1 : count
-        let rim: CGFloat = 6
+        let rim = RackTile.rackSidePadding
         let cellWidth = min(maximumCellWidth, max(0, availableWidth - rim * 2) / CGFloat(slotCount))
         let cellHeight = max(TeaTheme.hitTarget, RackTile.faceSize(for: cellWidth).height)
         let rackMelds = availableRackMelds(table)
@@ -1788,7 +1792,7 @@ private struct TableOverview: View {
 
                 let recent = table.recentDiscards(excluding: table.result == nil ? latest : nil)
                 if recent.isEmpty {
-                    Text(table.discardTimeline == nil && table.hasKnownDiscard ? "早前出牌按座位查看" : "暂无较早的出牌记录")
+                    Text(table.hasEarlierDiscardsOutsideTimeline ? "早前出牌按座位查看" : "暂无较早的出牌记录")
                         .font(.subheadline).foregroundStyle(TeaTheme.muted)
                 } else {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 8) {
@@ -1815,7 +1819,7 @@ private struct TableOverview: View {
             HStack(spacing: 2) {
                 Text(name(discard.seat))
                 if let claim {
-                    Text(claim.action == "碰（后加杠）" ? "加杠" : claim.action)
+                    Text(claim.compactAction)
                         .fontWeight(.semibold)
                         .foregroundStyle(TeaTheme.brass)
                         .fixedSize(horizontal: true, vertical: false)
@@ -1841,7 +1845,7 @@ private struct TableHistory: View {
 
     var body: some View {
         let timeline = table.discardTimeline ?? []
-        let recorded = Set(timeline.map(\.id))
+        let recorded = table.recordedDiscardIDs
         return NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {

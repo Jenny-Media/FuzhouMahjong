@@ -25,6 +25,42 @@ final class TablePresentationTests: XCTestCase {
         XCTAssertTrue(table.hasKnownDiscard)
     }
 
+    func testIPadRackKeepsTwoRowsUntilAllTilesAndTheDrawSlotFit() {
+        let gutters = 2 * TeaTheme.tableGutter
+        XCTAssertFalse(RackTile.singleRowFits(in: 599 - gutters))
+        XCTAssertFalse(RackTile.singleRowFits(in: 600 - gutters))
+        XCTAssertFalse(RackTile.singleRowFits(in: 500 - gutters))
+        XCTAssertFalse(RackTile.singleRowFits(in: 793))
+        XCTAssertTrue(RackTile.singleRowFits(in: 794))
+    }
+
+    func testEarlierPondDiscardsRemainKnownAfterTheTimelineStarts() {
+        var table = FuzhouMatch().table(for: .east)
+        let older = Tile.fullSet[0]
+        let latest = TableDiscard(seat: .east, tile: Tile.fullSet[1])
+        table.players[Seat.east.id].discards = [older, latest.tile]
+        table.discardTimeline = [latest]
+
+        XCTAssertTrue(table.recentDiscards(excluding: latest).isEmpty)
+        XCTAssertTrue(table.hasEarlierDiscardsOutsideTimeline)
+
+        table.discardTimeline = [TableDiscard(seat: .east, tile: older), latest]
+        XCTAssertFalse(table.hasEarlierDiscardsOutsideTimeline)
+    }
+
+    func testAddedKongKeepsTheOriginalPungInRecentDiscards() throws {
+        var table = FuzhouMatch().table(for: .east)
+        let tiles = Array(Tile.fullSet.prefix(4))
+        let discard = TableDiscard(seat: .south, tile: tiles[0])
+        table.players[Seat.east.id].melds = [Meld(kind: .pung, tiles: Array(tiles.prefix(3)), from: .south)]
+        XCTAssertEqual(table.claim(of: discard)?.compactAction, "碰")
+
+        table.players[Seat.east.id].melds = [Meld(kind: .addedKong, tiles: tiles, from: .south)]
+        let claim = try XCTUnwrap(table.claim(of: discard))
+        XCTAssertEqual(claim.compactAction, "碰")
+        XCTAssertEqual(claim.action, "碰（后加杠）")
+    }
+
     func testOpeningStagesShowOnlyWhatHasHappenedUnderTheHouseRules() {
         for indicators in FuzhouHouseRules.GoldIndicators.allCases {
             let rules = FuzhouHouseRules(name: "测试", goldIndicators: indicators)
