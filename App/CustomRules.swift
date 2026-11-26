@@ -155,7 +155,7 @@ struct RulesetPicker: View {
             }
             .accessibilityIdentifier("custom-rules-menu")
 
-            RulesetDetailsButton(ruleset: selection, houseRules: custom)
+            RulesetDetailsButton(ruleset: selection, houseRules: custom, resetsStreakOnPassingDraw: true)
         }
         .padding(12)
         .teaPanel(corner: TeaTheme.controlCorner)
@@ -171,6 +171,7 @@ struct RulesetPicker: View {
 struct RulesetDetailsButton: View {
     let ruleset: FuzhouRuleset
     let houseRules: FuzhouHouseRules?
+    let resetsStreakOnPassingDraw: Bool?
     var title = "规则详情"
     var subtitle: String? = nil
     var identifier = "selected-ruleset-details"
@@ -207,7 +208,8 @@ struct RulesetDetailsButton: View {
         .accessibilityIdentifier(identifier)
         .sheet(isPresented: $showsDetails) {
             NavigationStack {
-                RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules, showsCloseButton: true)
+                RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules,
+                                   resetsStreakOnPassingDraw: resetsStreakOnPassingDraw, showsCloseButton: true)
             }
         }
     }

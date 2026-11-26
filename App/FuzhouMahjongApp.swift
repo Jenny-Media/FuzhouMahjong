@@ -231,6 +231,7 @@ private struct HomeView: View {
             .buttonStyle(TeaButtonStyle(verticalPadding: 13))
             .accessibilityIdentifier("practice-entry")
             RulesetDetailsButton(ruleset: table.ruleset, houseRules: table.houseRules,
+                                 resetsStreakOnPassingDraw: table.resetsStreakOnPassingDraw == true,
                                  title: "本桌规则详情", subtitle: "\(table.wind.wind)\(table.handNumber)局",
                                  identifier: "saved-solo-rules")
                 .padding(.horizontal, 14)

@@ -30,7 +30,7 @@ extension FuzhouHouseRules.Flush {
 struct RulesetDetailsPage: View {
     let ruleset: FuzhouRuleset
     let houseRules: FuzhouHouseRules?
-    var resetsStreakOnPassingDraw = true
+    var resetsStreakOnPassingDraw: Bool? = true
     var showsCloseButton = false
     @Environment(\.dismiss) private var dismiss
 
@@ -62,7 +62,7 @@ struct RulesetDetailsPage: View {
 private struct RuleReference: View {
     let ruleset: FuzhouRuleset
     let houseRules: FuzhouHouseRules?
-    let resetsStreakOnPassingDraw: Bool
+    let resetsStreakOnPassingDraw: Bool?
 
     private var flush: FuzhouHouseRules.Flush { houseRules?.flush ?? ruleset.defaultFlush }
     private var goldIndicators: FuzhouHouseRules.GoldIndicators { houseRules?.goldIndicators ?? .suitedOnly }
@@ -116,10 +116,12 @@ private struct RuleReference: View {
             Text(goldIndicators.explanation).accessibilityIdentifier("ruleset-gold-detail")
             if houseRules?.keepDealerOnDraw == true {
                 Text("庄家胡牌或流局，下一局继续坐庄，连庄次数加一。")
-            } else if resetsStreakOnPassingDraw {
+            } else if resetsStreakOnPassingDraw == true {
                 Text("庄家胡牌，连庄次数加一。流局换下家坐庄，连庄次数归零。")
-            } else {
+            } else if resetsStreakOnPassingDraw == false {
                 Text("这张牌桌沿用开局时的规则。庄家胡牌后继续坐庄，流局后由下家坐庄。两种情况都把连庄次数加一。")
+            } else {
+                Text("庄家胡牌后继续坐庄，流局后由下家坐庄。")
             }
             Text("庄家胡牌时，每连庄一次，每份多得 2 分。")
             Text("接炮胡时\((houseRules?.discardPayment ?? .discarder).title)。")

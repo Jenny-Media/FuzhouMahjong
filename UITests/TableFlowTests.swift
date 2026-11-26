@@ -464,6 +464,29 @@ final class TableFlowTests: XCTestCase {
         XCTAssertEqual(title.label, "清一色不加分")
     }
 
+    func testAuditRegressionSavedTableRuleDetailsDistinguishNewGameRules() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        var archive = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(FuzhouMatch())) as? [String: Any])
+        archive.removeValue(forKey: "resetsStreakOnPassingDraw")
+        let older = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: archive))
+        app.launchArguments = try savedMatchArguments(older) + ["-solo.customRulesetID", ""]
+        app.launch()
+
+        let savedRules = app.buttons["saved-solo-rules"]
+        XCTAssertTrue(savedRules.waitForExistence(timeout: 5))
+        savedRules.tap()
+        let oldText = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "两种情况都把连庄次数加一")).firstMatch
+        XCTAssertTrue(oldText.waitForExistence(timeout: 5))
+        app.buttons["完成"].tap()
+
+        app.buttons["new-solo-game"].tap()
+        app.buttons["selected-ruleset-details"].tap()
+        let newText = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "流局换下家坐庄，连庄次数归零")).firstMatch
+        XCTAssertTrue(newText.waitForExistence(timeout: 5))
+    }
+
     func testLegacySaveIsClearedAndNewTableRulesAreAvailable() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait

@@ -304,7 +304,8 @@ struct NearbyView: View {
                 Label("玩法 · \(update.houseRules?.name ?? update.ruleset.title)", systemImage: "list.bullet.rectangle")
                     .font(.subheadline.weight(.semibold))
                     .accessibilityIdentifier("room-ruleset")
-                RulesetDetailsButton(ruleset: update.ruleset, houseRules: update.houseRules)
+                RulesetDetailsButton(ruleset: update.ruleset, houseRules: update.houseRules,
+                                     resetsStreakOnPassingDraw: update.resetsStreakOnPassingDraw)
             }
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(session.players) { player in
