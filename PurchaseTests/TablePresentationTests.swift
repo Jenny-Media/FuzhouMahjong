@@ -71,6 +71,37 @@ final class TablePresentationTests: XCTestCase {
         }
     }
 
+    func testOldHostDefersDealerFlowersWithUnknownOrigins() throws {
+        let flower = try XCTUnwrap(Tile.fullSet.first { $0.kind.isFlower })
+        for indicators in [FuzhouHouseRules.GoldIndicators.suitedOnly, .includeHonors] {
+            let rules = FuzhouHouseRules(name: "测试", goldIndicators: indicators)
+            var table = FuzhouMatch(houseRules: rules).table(for: .south)
+            table.openingIndicatorFlowerIDs = nil
+            table.lastDraw = nil
+            for i in table.players.indices { table.players[i].flowerCount = 0 }
+            table.players[table.dealer.id].flowerCount = 1
+            table.players[table.dealer.id].exposedFlowers = [flower]
+            let dealer = table.players[table.dealer.id]
+            let stages = OpeningDeal.Stage.afterDeal(at: table)
+            XCTAssertEqual(stages, [.revealGold(flowersShown: false)])
+            let creditIDs = table.openingIndicatorCredits(for: dealer.seat)
+            XCTAssertNil(creditIDs)
+            let atReveal = try XCTUnwrap(stages.first?.presenting(dealer, indicatorFlowers: creditIDs))
+            XCTAssertEqual(atReveal.flowerCount, 0)
+            XCTAssertEqual(atReveal.exposedFlowers, [])
+            XCTAssertEqual(dealer.flowerCount, 1)
+
+            table.players[Seat.south.id].flowerCount = 1
+            let guest = table.players[Seat.south.id]
+            XCTAssertEqual(table.openingIndicatorCredits(for: guest.seat), [])
+            XCTAssertTrue(OpeningDeal.Stage.afterDeal(at: table).contains(.flowers(goldRevealed: indicators.revealsBeforeFlowers)))
+
+            table.openingIndicatorFlowerIDs = []
+            table.players[Seat.south.id].flowerCount = 0
+            XCTAssertTrue(OpeningDeal.Stage.afterDeal(at: table).contains(.flowers(goldRevealed: indicators.revealsBeforeFlowers)))
+        }
+    }
+
     func testRackEndSwipeKeepsTrackingWhenItCurvesInward() {
         for direction in [LayoutDirection.leftToRight, .rightToLeft] {
             for edge in [HorizontalEdge.leading, .trailing] {

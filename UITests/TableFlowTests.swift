@@ -1068,19 +1068,22 @@ final class TableFlowTests: XCTestCase {
             player.melds.contains { $0.from == discard.seat && $0.tiles.contains(discard.tile) }
         } })
         let winning = try XCTUnwrap(game.result?.winningTile)
+        XCTAssertEqual(claimed.id, timeline.first?.id)
+        XCTAssertEqual(winning.id, timeline.last?.id)
         let app = try launchSavedMatch(game)
         app.buttons["view-scorecard"].tap()
         app.buttons["return-to-table"].tap()
         app.buttons["table-history"].tap()
         XCTAssertTrue(app.navigationBars["出牌与亮牌记录"].waitForExistence(timeout: 5))
-        for (id, action) in [(claimed.id, ""), (winning.id, "胡")] {
-            let row = element("history-discard-\(id)", in: app)
-            for _ in 0..<12 where !row.exists { app.swipeUp() }
-            XCTAssertTrue(row.exists)
-            XCTAssertTrue(row.label.contains("打出"))
-            if !action.isEmpty { XCTAssertTrue(row.label.contains(action)) }
-            else { XCTAssertTrue(["吃", "碰", "杠"].contains { row.label.contains($0) }) }
-        }
+        let history = app.scrollViews["table-history-scroll"]
+        let first = element("history-discard-\(claimed.id)", in: app)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        XCTAssertTrue(history.frame.intersects(first.frame))
+        XCTAssertTrue(first.label.contains("打出"))
+        XCTAssertTrue(["吃", "碰", "杠"].contains { first.label.contains($0) })
+        let last = visibleDiscard(winning.id, in: history)
+        XCTAssertTrue(last.label.contains("打出"))
+        XCTAssertTrue(last.label.contains("胡"))
     }
 
     func testOlderSaveDisplaysDiscardsMissingFromItsTimeline() throws {
@@ -1096,9 +1099,20 @@ final class TableFlowTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["按出牌顺序"].exists)
         XCTAssertFalse(app.staticTexts["本局还没有出牌"].exists)
         let winning = try XCTUnwrap(saved.result?.winningTile)
-        let row = element("history-discard-\(winning.id)", in: app)
-        for _ in 0..<12 where !row.exists { app.swipeUp() }
+        let history = app.scrollViews["table-history-scroll"]
+        let row = visibleDiscard(winning.id, in: history)
         XCTAssertTrue(row.label.contains("你胡"))
+    }
+
+    private func visibleDiscard(_ id: Tile.ID, in history: XCUIElement) -> XCUIElement {
+        let row = history.descendants(matching: .any).matching(identifier: "history-discard-\(id)").firstMatch
+        let viewport = history.frame
+        for _ in 0..<12 {
+            if row.exists, viewport.intersects(row.frame) { return row }
+            history.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(row.exists && viewport.intersects(row.frame), "Discard \(id) should be visible in history")
+        return row
     }
 
     func testLargeTextClaimShowsTheDiscardAndOpensTheChowChoice() throws {

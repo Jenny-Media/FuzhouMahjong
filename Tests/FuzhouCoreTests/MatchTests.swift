@@ -400,14 +400,21 @@ final class MatchTests: XCTestCase {
         resolveOpening(&ready)
         let encoder = JSONEncoder()
         var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(ready)) as? [String: Any])
-        // Four draws passed the deal around the table. Exactly one prior dealer won a discard.
-        saved["roundNumber"] = 6
+        // Four draws passed the deal around the table. All other past hands were dealer wins.
         saved["dealerTurns"] = 4
-        saved["continuation"] = 5
+        let payAll = FuzhouHouseRules(name: "三家付分", discardPayment: .allOpponents)
+        let payAllRules = try JSONSerialization.jsonObject(with: encoder.encode(payAll))
         XCTAssertTrue(ready.apply(.win, by: .east))
         let basePoints = try XCTUnwrap(ready.result).points
 
-        for (scores, repeats) in [([0, 10, -10, 0], 0), ([10, 0, -10, 0], 1)] {
+        for (scores, wins, equalPayments, repeats) in [
+            ([0, 10, -10, 0], 1, false, 0), ([10, 0, -10, 0], 1, false, 1),
+            ([-22, 66, -22, -22], 2, true, 0), ([66, -22, -22, -22], 2, true, 2),
+            ([8, 56, -32, -32], 3, true, 1), ([0, 0, 0, 0], 4, true, 1),
+        ] {
+            saved["roundNumber"] = 5 + wins
+            saved["continuation"] = 4 + wins
+            saved["houseRules"] = equalPayments ? payAllRules : nil
             saved["scores"] = scores
             let data = try JSONSerialization.data(withJSONObject: saved)
             var resumed = try JSONDecoder().decode(FuzhouMatch.self, from: data)

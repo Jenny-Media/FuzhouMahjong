@@ -74,7 +74,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private let liveControlsHeight = TeaTheme.hitTarget + 48 + 4 + 12
     private func visiblePlayer(_ seat: Seat) -> TableState.Player? {
         guard let player = table.players.first(where: { $0.seat == seat }) else { return nil }
-        return opening?.presenting(player, indicatorFlowers: table.openingIndicatorFlowerIDs ?? []) ?? player
+        return opening?.presenting(player, indicatorFlowers: table.openingIndicatorCredits(for: seat)) ?? player
     }
 
     private func inspectedHandCount(for player: TableState.Player) -> Int? {

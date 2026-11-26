@@ -170,12 +170,33 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         // A non-dealer win reset the streak even in the old format. Any such win
         // preceded the saved streak and used up one change of dealer.
         let possibleNonDealerWins = min(dealerTurns, max(0, priorHands - continuation))
-        let otherWinners = Seat.allCases.count { seat in
-            // A positive balance before this hand proves the seat won at least once.
-            seat != dealer && scores[seat.id] > (result?.delta(for: seat) ?? 0)
+        let priorScores = Seat.allCases.map { scores[$0.id] - (result?.delta(for: $0) ?? 0) }
+        let equalPayments = houseRules?.discardPayment == .allOpponents
+        let floor = equalPayments ? priorScores.min() ?? 0 : 0
+        let possibleDealerWinners = min(dealerWins, dealerTurns + 1)
+        let hasSeatWithoutWin = possibleDealerWinners + possibleNonDealerWins < Seat.allCases.count
+        let otherWinners: Int
+        if equalPayments, priorScores[dealer.id] == floor {
+            // Equal payments put every seat that never won at the same minimum.
+            // If the dealer at that minimum won, all four seats must have won.
+            if hasSeatWithoutWin { return 0 }
+            otherWinners = Seat.allCases.count - 1
+        } else {
+            // With equal payments a score above the minimum proves a prior win.
+            // With a single payer only a positive balance proves one.
+            otherWinners = Seat.allCases.count { $0 != dealer && priorScores[$0.id] > floor }
         }
         let otherDealerWins = max(0, otherWinners - possibleNonDealerWins)
-        return min(continuation, max(0, dealerWins - otherDealerWins))
+        let limit = min(continuation, max(0, dealerWins - otherDealerWins))
+        guard equalPayments, hasSeatWithoutWin else { return limit }
+        // Relative to a seat that never won, each win adds four times its face value.
+        var wonPoints = (priorScores[dealer.id] - floor) / Seat.allCases.count
+        for streak in 0..<limit {
+            let minimumWin = FuzhouScoring.basePoints + FuzhouScoring.pointsPerDealerRepeat * streak
+            if wonPoints < minimumWin { return streak }
+            wonPoints -= minimumWin
+        }
+        return limit
     }
 
     public mutating func reconcileSavedHand() -> Bool {

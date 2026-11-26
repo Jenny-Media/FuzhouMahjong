@@ -1770,6 +1770,7 @@ private struct TableHistory: View {
                 .frame(maxWidth: TeaTheme.contentWidth)
                 .frame(maxWidth: .infinity)
             }
+            .accessibilityIdentifier("table-history-scroll")
             .modifier(HingeSafeContent())
             .teaBackdrop()
             .navigationTitle("出牌与亮牌记录")

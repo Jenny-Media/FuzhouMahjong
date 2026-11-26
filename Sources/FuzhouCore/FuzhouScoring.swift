@@ -1,4 +1,6 @@
 enum FuzhouScoring {
+    static let basePoints = 10
+    static let pointsPerDealerRepeat = 2
     static let goldenPairName = "金对"
     static let goldenDragonName = "金龙"
     static let threeGoldName = "三金倒"
@@ -77,11 +79,11 @@ enum FuzhouScoring {
     private static func baseLines(melds: [Meld], flowers: [Tile], dealer: Bool,
                                   continuation: Int) -> [RoundResult.Line] {
         [
-            .init(name: "基础分", points: 10),
+            .init(name: "基础分", points: basePoints),
             .init(name: "花牌（\(flowers.count) 张）", points: flowers.count * 2),
             .init(name: "明杠", points: melds.count(where: { $0.kind == .openKong || $0.kind == .addedKong }) * 2),
             .init(name: "暗杠", points: melds.count(where: { $0.kind == .concealedKong }) * 2),
-            .init(name: "连庄", points: dealer ? continuation * 2 : 0),
+            .init(name: "连庄", points: dealer ? continuation * pointsPerDealerRepeat : 0),
         ].filter { $0.points > 0 }
     }
 

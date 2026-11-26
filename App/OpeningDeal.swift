@@ -68,8 +68,12 @@ struct OpeningDeal: View {
         }
 
         static func afterDeal(at table: TableState) -> [Self] {
-            let totalFlowers = table.players.reduce(0) { $0 + $1.flowerCount }
-            let hasFlowers = totalFlowers > (table.openingIndicatorFlowerIDs?.count ?? 0)
+            let hasFlowers = table.players.contains { player in
+                if let credits = table.openingIndicatorCredits(for: player.seat) {
+                    return player.flowerCount > credits.count
+                }
+                return table.lastDraw?.isOpeningDeal == true && (table.lastDraw?.flowersReplaced ?? 0) > 0
+            }
             let hasGold = table.gold != nil
             let goldFirst = table.houseRules?.goldIndicators.revealsBeforeFlowers == true
             let flowers: Self? = hasFlowers ? .flowers(goldRevealed: hasGold && goldFirst) : nil
@@ -77,14 +81,19 @@ struct OpeningDeal: View {
             return (goldFirst ? [gold, flowers] : [flowers, gold]).compactMap { $0 }
         }
 
-        func presenting(_ player: TableState.Player, indicatorFlowers: [Tile.ID]) -> TableState.Player {
+        func presenting(_ player: TableState.Player, indicatorFlowers: [Tile.ID]?) -> TableState.Player {
             guard !showsFlowers || !showsGold else { return player }
             var visible = player
-            if let flowers = player.exposedFlowers {
+            if let indicatorFlowers, let flowers = player.exposedFlowers {
                 let shown = flowers.filter { indicatorFlowers.contains($0.id) ? showsGold : showsFlowers }
                 visible.exposedFlowers = shown
                 visible.flowerCount = shown.count
-            } else if !showsFlowers {
+            } else if let indicatorFlowers {
+                let credits = min(indicatorFlowers.count, player.flowerCount)
+                visible.flowerCount = (showsGold ? credits : 0) + (showsFlowers ? player.flowerCount - credits : 0)
+            } else {
+                // Old hosts do not identify which dealer flowers came from the flip.
+                visible.exposedFlowers = player.exposedFlowers.map { _ in [] }
                 visible.flowerCount = 0
             }
             return visible
@@ -237,6 +246,13 @@ struct OpeningDeal: View {
 
     private func interpolate(_ start: CGPoint, _ end: CGPoint, _ fraction: Double) -> CGPoint {
         CGPoint(x: start.x + (end.x - start.x) * fraction, y: start.y + (end.y - start.y) * fraction)
+    }
+}
+
+extension TableState {
+    func openingIndicatorCredits(for seat: Seat) -> [Tile.ID]? {
+        // Legacy rules turn over a single tile. Only modern rules can credit skipped flips.
+        seat == dealer && ruleset != .legacy ? openingIndicatorFlowerIDs : []
     }
 }
 
