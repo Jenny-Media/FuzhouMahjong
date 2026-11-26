@@ -946,7 +946,15 @@ final class TableFlowTests: XCTestCase {
             let hasTwoRows = lastFrame.midY > firstFrame.maxY
             let grabbedSlot = hasTwoRows ? FuzhouMatch.rackSize / 2 + 3 : 4
             let arrange = app.buttons["rack-arrange"]
-            arrange.tap()
+            func toggleArrangement(_ title: String) {
+                if arrange.exists {
+                    arrange.tap()
+                } else {
+                    app.buttons["TopOverflowBarButtonItem"].tap()
+                    app.buttons[title].tap()
+                }
+            }
+            toggleArrangement("理牌")
             var order = table.hand.map(\.id)
             for (tile, destination) in [(grabbed, grabbedSlot), (partner, 3)] {
                 let source = try XCTUnwrap(order.firstIndex(of: tile.id))
@@ -956,7 +964,7 @@ final class TableFlowTests: XCTestCase {
                 order.remove(at: source)
                 order.insert(tile.id, at: destination)
             }
-            arrange.tap()
+            toggleArrangement("完成")
             XCTAssertTrue(pass.waitForExistence(timeout: 5))
             let rack = element("table-rack", in: app).frame
             let window = app.windows.firstMatch.frame
@@ -972,18 +980,19 @@ final class TableFlowTests: XCTestCase {
             }
 
             let start = grabbedTile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            let rise: CGFloat = reduceMotion ? 18 : 60
+            // Move sideways far enough to distinguish the motion modes at the rack's vertical limit.
+            let displacement = CGVector(dx: 12, dy: reduceMotion ? -18 : -60)
             let width = grabbedFrame.width - 1.5
             let height = width * 268 / 192
             let centerAboveRack = rack.minY - 6 - height / 2
-            let centerY = reduceMotion ? centerAboveRack : min(centerAboveRack, grabbedFrame.midY - rise)
-            let grabbedEdge = grabbedFrame.midX - width / 2
+            let centerY = reduceMotion ? centerAboveRack : min(centerAboveRack, grabbedFrame.midY + displacement.dy)
+            let grabbedEdge = grabbedFrame.midX - width / 2 + (reduceMotion ? 0 : displacement.dx)
             let stride = width * 1.065
             let candidateColor: UInt32 = 0x22614D
             let rackColor: UInt32 = 0x215D61
             let previewColor: UInt32 = 0x176F88
             let before = try uprightImage(from: XCUIScreen.main.screenshot())
-            let during = try screenshotDuringDrag(from: start, rise: rise)
+            let during = try screenshotDuringDrag(from: start, displacement: displacement)
             capture(reduceMotion ? "held-chow-reduce-motion" : "held-chow", screenshot: during)
             let heldImage = try uprightImage(from: during)
             func edge(_ x: CGFloat, y: CGFloat, color: UInt32, in image: CGImage = heldImage) throws -> Double {
@@ -1030,14 +1039,14 @@ final class TableFlowTests: XCTestCase {
         heldDragScreenshot = XCUIScreen.main.screenshot()
     }
 
-    private func screenshotDuringDrag(from start: XCUICoordinate, rise: CGFloat) throws -> XCUIScreenshot {
+    private func screenshotDuringDrag(from start: XCUICoordinate, displacement: CGVector) throws -> XCUIScreenshot {
         heldDragScreenshot = nil
         // XCTest pumps the main run loop while it holds the synthesized touch down.
         let timer = Timer(timeInterval: 1.5, target: self, selector: #selector(captureHeldDrag(_:)),
                           userInfo: nil, repeats: false)
         RunLoop.main.add(timer, forMode: .common)
         defer { timer.invalidate() }
-        start.press(forDuration: 0.08, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -rise)),
+        start.press(forDuration: 0.08, thenDragTo: start.withOffset(displacement),
                     withVelocity: .default, thenHoldForDuration: 2.5)
         return try XCTUnwrap(heldDragScreenshot, "Expected a screenshot while the drag was held")
     }
