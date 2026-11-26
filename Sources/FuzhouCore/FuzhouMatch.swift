@@ -17,6 +17,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private var reserve: [Tile] = []
     private var hands = Array(repeating: [Tile](), count: 4)
     private var flowers = Array(repeating: [Tile](), count: 4)
+    private var openingIndicatorFlowerIDs: [Tile.ID]?
     private var ponds = Array(repeating: [Tile](), count: 4)
     private var discardTimeline: [TableDiscard]?
     private var lastDraw: TableDraw?
@@ -85,7 +86,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                                     exposedFlowers: flowers[$0.id])
                    }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards,
-                   discardClaimFeedback: claimFeedback)
+                   discardClaimFeedback: claimFeedback, openingIndicatorFlowerIDs: openingIndicatorFlowerIDs)
     }
 
     public func legalMoves(for seat: Seat) -> [Move] {
@@ -158,6 +159,30 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         guard step == .claim else { return false }
         resolveResponses()
         return step != .claim
+    }
+
+    /// Older saves could carry a streak across a draw that changed the dealer.
+    /// Use completed hands and known winners to rule out unearned repeats.
+    private var boundedDealerStreak: Int {
+        guard continuation > 0, dealerTurns > 0, houseRules?.keepDealerOnDraw != true else { return continuation }
+        let priorHands = max(1, roundNumber) - 1
+        let dealerWins = max(0, priorHands - dealerTurns)
+        // A non-dealer win reset the streak even in the old format. Any such win
+        // preceded the saved streak and used up one change of dealer.
+        let possibleNonDealerWins = min(dealerTurns, max(0, priorHands - continuation))
+        let otherWinners = Seat.allCases.count { seat in
+            // A positive balance before this hand proves the seat won at least once.
+            seat != dealer && scores[seat.id] > (result?.delta(for: seat) ?? 0)
+        }
+        let otherDealerWins = max(0, otherWinners - possibleNonDealerWins)
+        return min(continuation, max(0, dealerWins - otherDealerWins))
+    }
+
+    public mutating func reconcileSavedHand() -> Bool {
+        let previous = continuation
+        if result == nil { continuation = boundedDealerStreak }
+        let settled = settleRestoredDiscard()
+        return settled || previous != continuation
     }
 
     public func hasComputerMove(excluding humans: Set<Seat>) -> Bool {
@@ -268,7 +293,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             return
         }
         if repeatsDealer(after: result) {
-            continuation += 1
+            continuation = boundedDealerStreak + 1
         } else {
             dealer = dealer.advanced(1)
             dealerTurns += 1
@@ -396,11 +421,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         while let tile = reserve.last, !goldIndicators.allows(tile.kind) {
             guard let flower = replacement() else { return nil }
             flowers[dealer.id].append(flower)
+            openingIndicatorFlowerIDs?.append(flower.id)
         }
         return reserve.popLast()
     }
 
     private mutating func resetHandState() {
+        openingIndicatorFlowerIDs = []
         ponds = Array(repeating: [], count: 4)
         discardTimeline = []
         lastDraw = nil

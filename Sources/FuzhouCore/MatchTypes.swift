@@ -210,6 +210,8 @@ public struct TableState: Equatable, Codable, Sendable {
     public var robGoldDiscardIDs: [Tile.ID]? = nil
     /// Only the table viewer's own discard claim is reported here.
     public var discardClaimFeedback: DiscardClaimFeedback? = nil
+    /// Public flowers the dealer collected while flipping for gold, in reveal order.
+    public var openingIndicatorFlowerIDs: [Tile.ID]? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? .legacy }
 

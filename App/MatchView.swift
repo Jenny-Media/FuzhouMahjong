@@ -28,6 +28,7 @@ struct MatchView<Session: MatchSession>: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.boardStyle) private var boardStyle
     @Environment(\.tileMaterial) private var tileMaterial
     @ScaledMetric(relativeTo: .caption2) private var drawCaptionHeight = 15.0
@@ -1031,20 +1032,27 @@ struct MatchView<Session: MatchSession>: View {
 
     private func drawnTileDock(_ tile: Tile?, table: TableState, rackCellWidth: CGFloat?, cellWidth: CGFloat,
                                cellHeight: CGFloat, visible: Bool) -> some View {
-        return VStack(spacing: 2) {
-            // Keep the dock at one unscaled line even when a narrow rack cell shrinks the caption.
-            Color.clear
-                .frame(height: drawCaptionHeight)
-                .overlay {
+        let expandsCaption = typeSize.isAccessibilitySize && rackCellWidth == nil && opening == nil && table.result == nil
+        return VStack(alignment: .trailing, spacing: 2) {
+            // Reserve a full caption in the accessibility action row. In a single-row rack
+            // the label can extend inward above the neighboring tiles without moving them.
+            Text("刚摸到")
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 3)
+                .fixedSize()
+                .hidden()
+                .frame(width: expandsCaption ? nil : cellWidth, height: drawCaptionHeight, alignment: .trailing)
+                .overlay(alignment: .trailing) {
                     Text(drawLabel(table))
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(boardStyle.ink)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.65)
+                        .fixedSize()
                         .padding(.horizontal, 3)
                         .background(boardStyle.seatSurface, in: RoundedRectangle(cornerRadius: 3))
                 }
                 .opacity(visible ? 1 : 0)
+                .allowsHitTesting(false)
                 .accessibilityHidden(true)
             Group {
                 if let tile {
@@ -1059,7 +1067,7 @@ struct MatchView<Session: MatchSession>: View {
             .accessibilityHidden(!visible)
             .anchorPreference(key: TableAnchors.self, value: .bounds) { [.drawn: $0] }
         }
-        .frame(width: cellWidth)
+        .frame(minWidth: cellWidth, alignment: .trailing)
         .transformAnchorPreference(key: TableAnchors.self, value: .bounds) {
             if opening != nil, visible { $0[.openingDrawDock] = $1 }
         }
@@ -1725,22 +1733,10 @@ private struct TableHistory: View {
                     if !timeline.isEmpty {
                         Text("按出牌顺序").font(.headline).accessibilityAddTraits(.isHeader)
                         ForEach(timeline) { discard in
-                            HStack(spacing: 10) {
-                                TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
-                                    .frame(width: 28, height: 38).accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("\(name(discard.seat))打出\(discard.tile.kind.spokenName)")
-                                    if let claim = table.claim(of: discard) {
-                                        Text("\(name(claim.seat))\(claim.action)")
-                                            .font(.subheadline).foregroundStyle(TeaTheme.brass)
-                                    }
-                                }
-                            }
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("history-discard-\(discard.id)")
+                            discardRow(discard)
                             Divider()
                         }
-                    } else if table.players.allSatisfy({ $0.discards.isEmpty && $0.melds.isEmpty }) {
+                    } else if !table.hasKnownDiscard {
                         Text("本局还没有出牌").foregroundStyle(TeaTheme.muted)
                     }
                     Text("各家亮牌").font(.headline).accessibilityAddTraits(.isHeader)
@@ -1753,15 +1749,15 @@ private struct TableHistory: View {
                                 .font(.subheadline.monospacedDigit()).foregroundStyle(TeaTheme.muted)
                             ForEach(player.melds) { meld in
                                 MeldTiles(meld: meld, width: 23)
+                                if let source = meld.from {
+                                    Text("来自\(name(source))的出牌").font(.caption).foregroundStyle(TeaTheme.muted)
+                                }
                             }
                             let earlier = player.discards.filter { !recorded.contains($0.id) }
                             if !earlier.isEmpty {
                                 Text("早前打出的牌（按座位）").font(.subheadline)
-                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 29), spacing: 4)], spacing: 4) {
-                                    ForEach(earlier) { tile in
-                                        TileFace(kind: tile.kind, gold: table.isGold(tile)).frame(width: 28, height: 38)
-                                            .accessibilityLabel(tile.kind.spokenName)
-                                    }
+                                ForEach(earlier) { tile in
+                                    discardRow(TableDiscard(seat: player.seat, tile: tile))
                                 }
                             }
                         }
@@ -1781,6 +1777,22 @@ private struct TableHistory: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
         }
     }
+    private func discardRow(_ discard: TableDiscard) -> some View {
+        HStack(spacing: 10) {
+            TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
+                .frame(width: 28, height: 38).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(name(discard.seat))打出\(table.discardDescription(discard.tile))")
+                if let claim = table.claim(of: discard) {
+                    Text("\(name(claim.seat))\(claim.action)")
+                        .font(.subheadline).foregroundStyle(TeaTheme.brass)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("history-discard-\(discard.id)")
+    }
+
     private func name(_ seat: Seat) -> String { displayName(seat, viewer: table.viewer, names: names) }
 }
 

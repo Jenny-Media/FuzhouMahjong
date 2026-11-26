@@ -149,6 +149,7 @@ final class MatchTests: XCTestCase {
             XCTAssertEqual(table.ruleset, ruleset)
             XCTAssertEqual(table.players.map(\.flowerCount), [3, 0, 0, 0])
             XCTAssertEqual(table.players.first?.exposedFlowers?.map(\.kind), bonusFlips)
+            XCTAssertEqual(table.openingIndicatorFlowerIDs, table.players.first?.exposedFlowers?.map(\.id))
             XCTAssertEqual(table.drawn?.kind, .init(.circles, 9))
             XCTAssertTrue(table.hand.allSatisfy { !$0.kind.isFlower })
         }
@@ -390,6 +391,39 @@ final class MatchTests: XCTestCase {
             XCTAssertEqual(match.dealer, keepDealer ? .east : .south)
             XCTAssertEqual(match.continuation, keepDealer ? 3 : 0)
             XCTAssertEqual(match.roundNumber, 2)
+        }
+    }
+
+    func testSavedDealerWinUsesOnlyRepeatsTheCurrentDealerCouldHaveEarned() throws {
+        var ready = try fixture(hands: [.east: Array(completed.dropLast())], gold: .init(.bamboo, 9),
+                                draws: [try XCTUnwrap(completed.last)], ruleset: .pureSuit)
+        resolveOpening(&ready)
+        let encoder = JSONEncoder()
+        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(ready)) as? [String: Any])
+        // Four draws passed the deal around the table. Exactly one prior dealer won a discard.
+        saved["roundNumber"] = 6
+        saved["dealerTurns"] = 4
+        saved["continuation"] = 5
+        XCTAssertTrue(ready.apply(.win, by: .east))
+        let basePoints = try XCTUnwrap(ready.result).points
+
+        for (scores, repeats) in [([0, 10, -10, 0], 0), ([10, 0, -10, 0], 1)] {
+            saved["scores"] = scores
+            let data = try JSONSerialization.data(withJSONObject: saved)
+            var resumed = try JSONDecoder().decode(FuzhouMatch.self, from: data)
+            var alreadyPaid = resumed
+            XCTAssertTrue(resumed.reconcileSavedHand())
+            XCTAssertEqual(resumed.continuation, repeats)
+            XCTAssertTrue(resumed.apply(.win, by: .east))
+            XCTAssertEqual(resumed.result?.delta(for: .east), (basePoints + 2 * repeats) * 3)
+
+            // A settled save includes this win in its balances. Leave the payment in place,
+            // and carry only the earned streak into the next deal.
+            XCTAssertTrue(alreadyPaid.apply(.win, by: .east))
+            let paidScores = alreadyPaid.scores
+            alreadyPaid.nextRound()
+            XCTAssertEqual(alreadyPaid.scores, paidScores)
+            XCTAssertEqual(alreadyPaid.continuation, repeats + 1)
         }
     }
 

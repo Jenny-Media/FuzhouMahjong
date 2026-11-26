@@ -14,7 +14,7 @@ struct MatchResults: View {
 
     private var waitMessage: String {
         if paused {
-            return canAdvance ? "等待牌友重新连接，可返回牌桌查看座位。" : "牌桌已暂停，请返回牌桌查看连接状态。"
+            return canAdvance ? "等待牌友重新连接，可返回牌桌查看座位。" : "牌桌已暂停，等待恢复连接。"
         }
         return table.matchFinished ? "等待房主开新一场" : "等待房主开下一局"
     }
@@ -142,13 +142,25 @@ struct MatchResults: View {
     }
 }
 
-struct WinningHandReveal: View {
+struct WinningHandReveal<SeatDetails: View>: View {
     @Environment(\.boardStyle) private var board
     let table: TableState
     let result: RoundResult
     let winner: Seat
     let name: String
     let width: CGFloat
+    let seatDetails: () -> SeatDetails
+
+    init(table: TableState, result: RoundResult, winner: Seat, name: String, width: CGFloat,
+         @ViewBuilder seatDetails: @escaping () -> SeatDetails = { EmptyView() }) {
+        self.table = table
+        self.result = result
+        self.winner = winner
+        self.name = name
+        self.width = width
+        self.seatDetails = seatDetails
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
@@ -161,6 +173,7 @@ struct WinningHandReveal: View {
                         .accessibilityIdentifier("winning-hand-reveal")
                     WinningGroups(table: table, result: result, winner: winner,
                                   boardSize: CGSize(width: width, height: geometry.size.height))
+                    seatDetails()
                 }
                 .padding(.vertical, 3)
                 .frame(minHeight: geometry.size.height)
@@ -227,7 +240,8 @@ private struct WinningGroups: View {
             let roomForTiles = cardWidth - labelWidth - 11 - 2 * (largest - 1)
             let heightLimit = boardSize.map { boardTileWidth(height: $0.height, groups: groups, columns: columns, gap: gap) }
             let maximumTileWidth: CGFloat = wideReveal ? 44 : compact ? 26 : 29
-            let tileWidth = max(12, min(heightLimit ?? 29, maximumTileWidth, roomForTiles / largest))
+            let heightBasedWidth = typeSize.isAccessibilitySize && wideReveal ? maximumTileWidth : heightLimit ?? 29
+            let tileWidth = max(12, min(heightBasedWidth, maximumTileWidth, roomForTiles / largest))
             let grid = [GridItem(.adaptive(minimum: compact ? minimum : typeSize.isAccessibilitySize ? 230 : 152),
                                  spacing: gap, alignment: .topLeading)]
 

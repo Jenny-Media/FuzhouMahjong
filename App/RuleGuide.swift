@@ -286,7 +286,9 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
             (ruleset == .legacy ? "翻到梅兰竹菊或春夏秋冬中的一张时，这八张花牌都算金牌。"
                     : indicators.explanation) +
                 "\n\n手里的金牌不能用来吃、碰或杠。自己打出金牌后，这局只能自摸。别人打出的金牌也不能拿来胡牌。" +
-                "\n\n开金后，如果翻出的牌能按牌面凑齐五组牌和一对将牌，就可以抢金。庄家要先选一张牌打出，再用翻出的牌补上。闲家直接加上翻出的牌。" +
+                "\n\n开金后，如果翻出的牌能按牌面凑齐五组牌和一对将牌，就可以抢金。" +
+                (ruleset == .legacy ? "庄家和闲家都把翻出的牌直接加进手牌。"
+                 : "庄家要先选一张牌打出，再用翻出的牌补上。闲家直接加上翻出的牌。") +
                 (indicators == .suitedOnly ? "" : "翻到字牌作金的这一局没有抢金。")
         case .winning:
             if ruleset == .legacy {

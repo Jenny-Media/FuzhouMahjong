@@ -68,12 +68,26 @@ struct OpeningDeal: View {
         }
 
         static func afterDeal(at table: TableState) -> [Self] {
-            let hasFlowers = table.players.contains { $0.flowerCount > 0 }
+            let totalFlowers = table.players.reduce(0) { $0 + $1.flowerCount }
+            let hasFlowers = totalFlowers > (table.openingIndicatorFlowerIDs?.count ?? 0)
             let hasGold = table.gold != nil
             let goldFirst = table.houseRules?.goldIndicators.revealsBeforeFlowers == true
             let flowers: Self? = hasFlowers ? .flowers(goldRevealed: hasGold && goldFirst) : nil
             let gold: Self? = hasGold ? .revealGold(flowersShown: hasFlowers && !goldFirst) : nil
             return (goldFirst ? [gold, flowers] : [flowers, gold]).compactMap { $0 }
+        }
+
+        func presenting(_ player: TableState.Player, indicatorFlowers: [Tile.ID]) -> TableState.Player {
+            guard !showsFlowers || !showsGold else { return player }
+            var visible = player
+            if let flowers = player.exposedFlowers {
+                let shown = flowers.filter { indicatorFlowers.contains($0.id) ? showsGold : showsFlowers }
+                visible.exposedFlowers = shown
+                visible.flowerCount = shown.count
+            } else if !showsFlowers {
+                visible.flowerCount = 0
+            }
+            return visible
         }
 
         func landed(for seat: Seat, dealer: Seat, at time: Date) -> Int {
