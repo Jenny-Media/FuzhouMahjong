@@ -490,7 +490,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "media.jenny.FuzhouMahjong$(VALIDATION_BUNDLE_SUFFIX)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -668,7 +668,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "media.jenny.FuzhouMahjong$(VALIDATION_BUNDLE_SUFFIX)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};

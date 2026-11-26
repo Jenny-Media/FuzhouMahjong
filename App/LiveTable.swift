@@ -55,6 +55,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     let showsDrawDock: Bool
     var showsInlineResultActions = true
     var revealInHandPane = false
+    var tabletSeating = false
+    var showsDiscardStrip = true
     let flyingDiscard: Tile.ID?
     let flyingClaim: Tile.ID?
     @Binding var inspectedSeat: Seat?
@@ -111,7 +113,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     }
                     if showsInlineResultActions { controls() }
                 }
-            } else if !showsDrawDock, width >= 455, width > height {
+            } else if !tabletSeating, !showsDrawDock, width >= 455, width > height {
                 wideTable(width: width, height: height)
             } else {
                 seatedTable(width: width, height: height)
@@ -257,14 +259,14 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     }
 
     private func seatedTable(width: CGFloat, height: CGFloat) -> some View {
-        let endWidth = min(280, width * 0.77)
-        let endHeight = min(54, max(38, height * 0.16))
+        let endWidth = min(tabletSeating ? 360 : 280, width * 0.77)
+        let endHeight = min(tabletSeating ? 76 : 54, max(38, height * 0.16))
         let playerEndHeight = showsDrawDock ? max(72, endHeight) : endHeight
-        let sideWidth = min(108, width * 0.25)
+        let sideWidth = min(tabletSeating ? 144 : 108, width * 0.25)
         let middleWidth = max(0, width - 2 * (sideWidth + gap))
         let middleHeight = max(0, height - endHeight - playerEndHeight - stripHeight - gap * 3)
         let liveFocusHeight = max(0, middleHeight - liveControlsHeight)
-        let sideHeight = min(liveFocusHeight, 118)
+        let sideHeight = min(liveFocusHeight, tabletSeating ? 142 : 118)
 
         return VStack(spacing: gap) {
             seatCard(table.viewer.advanced(2), width: endWidth, height: endHeight)
@@ -273,7 +275,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     // Keep the seats centered in the live area when the winning hand gains space.
                     seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
                         .frame(height: liveFocusHeight)
-                    discardFocus(width: middleWidth, height: focusHeight, stacked: true)
+                    discardFocus(width: middleWidth, height: focusHeight,
+                                 stacked: !tabletSeating || focusHeight >= 150)
                     seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
                         .frame(height: liveFocusHeight)
                 }
@@ -349,7 +352,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             let dealer = table.dealer == seat
             let wind = table.wind(for: seat)
             let name = name(of: seat)
-            let identityWidth = vertical ? width - 8 : min(100, width * 0.49)
+            let identityWidth = vertical ? width - 8 : min(tabletSeating ? 128 : 100, width * 0.49)
             let meldWidth = max(0, vertical ? width - 8 : width - identityWidth - 12)
             let layout = vertical
                 ? AnyLayout(VStackLayout(spacing: 4))
@@ -361,14 +364,14 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     SeatBadge(seat: wind, highlighted: highlighted, board: board)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(name).font(.caption.weight(.semibold))
+                        Text(name).font((tabletSeating ? Font.subheadline : .caption).weight(.semibold))
                         HStack(spacing: 2) {
                             Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
                             if !player.melds.isEmpty || player.flowerCount > 0 {
                                 Image(systemName: "magnifyingglass")
                             }
                         }
-                        .font(.caption2.monospacedDigit())
+                        .font((tabletSeating ? Font.caption : .caption2).monospacedDigit())
                         .foregroundStyle(highlighted ? board.accent : board.muted)
                     }
                     .lineLimit(1)
@@ -383,9 +386,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 .accessibilityAction { inspectedSeat = seat }
 
                 let counts = OpponentRackCounts(player, at: table, pendingDraw: pendingDraw, reduceMotion: reduceMotion)
-                let rackHeight = max(1, vertical ? height - 40 : height - 6)
+                let rackHeight = max(1, vertical ? height - (tabletSeating ? 46 : 40) : height - 6)
                 let hasFlowers = player.flowerCount > 0
-                let flowerHeight = hasFlowers ? min(19, rackHeight * 0.44) : 0
+                let flowerHeight = hasFlowers ? min(tabletSeating ? 23 : 19, rackHeight * 0.44) : 0
                 let groupHeight = max(0, rackHeight - (hasFlowers ? flowerHeight + 2 : 0))
                 VStack(alignment: .leading, spacing: 2) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -502,7 +505,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             let rows = (melds.count + columns - 1) / columns
             let cell = (width - CGFloat(columns - 1) * 3) / CGFloat(columns)
             let rowHeight = (height - CGFloat(rows - 1) * 2) / CGFloat(rows)
-            return max(0, min(22, (cell - CGFloat(largestSet - 1)) / CGFloat(largestSet),
+            return max(0, min(tabletSeating ? 27 : 22, (cell - CGFloat(largestSet - 1)) / CGFloat(largestSet),
                               rowHeight * TileFace.artworkAspectRatio))
         }
         let columns = (1...melds.count).max { faceWidth(columns: $0) < faceWidth(columns: $1) } ?? 1
@@ -533,29 +536,30 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
 
     private func tableStrip(width: CGFloat) -> some View {
         let tileWidth = min(17, max(0, (width - 118) / 6 - 3))
-        let winningTile = table.result?.winningTile?.id
-        let previous = Array((table.discardTimeline ?? []).filter { $0.id != latest?.id && $0.id != winningTile }.suffix(6))
         return HStack(spacing: 8) {
             wallSources
             Spacer(minLength: 0)
-            HStack(spacing: 3) {
-                ForEach(0..<6) { index in
-                    Group {
-                        if index < previous.count {
-                            let discard = previous[index]
-                            let claimed = table.claim(of: discard) != nil
-                            TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
-                                .opacity(claimed ? 0.55 : 1)
-                                .accessibilityLabel("\(name(of: discard.seat))打出的\(discard.tile.kind.spokenName)\(claimed ? "，已被别人拿走" : "")")
-                        } else {
-                            Color.clear.accessibilityHidden(true)
+            if showsDiscardStrip {
+                let previous = table.recentDiscards(excluding: latest)
+                HStack(spacing: 3) {
+                    ForEach(0..<6) { index in
+                        Group {
+                            if index < previous.count {
+                                let discard = previous[index]
+                                let claimed = table.claim(of: discard) != nil
+                                TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
+                                    .opacity(claimed ? 0.55 : 1)
+                                    .accessibilityLabel("\(name(of: discard.seat))打出的\(discard.tile.kind.spokenName)\(claimed ? "，已被别人拿走" : "")")
+                            } else {
+                                Color.clear.accessibilityHidden(true)
+                            }
                         }
+                        .frame(width: tileWidth, height: min(stripHeight, tileWidth / TileFace.artworkAspectRatio))
                     }
-                    .frame(width: tileWidth, height: min(stripHeight, tileWidth / TileFace.artworkAspectRatio))
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("按顺序排列的出牌记录")
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("按顺序排列的出牌记录")
         }
         .frame(width: width, height: stripHeight)
     }
@@ -598,7 +602,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     }
 
     private func discardFocus(width: CGFloat, height: CGFloat, stacked: Bool) -> some View {
-        let tileWidth = min(53, width * 0.35, height * (stacked ? 0.34 : 0.64))
+        let nearRack = tabletSeating && opening == nil && table.result == nil
+        let rackSpacing: CGFloat = nearRack && height >= 112 ? 8 : 0
+        let tileWidth = min(tabletSeating ? 70 : 53, width * 0.35, height * (stacked ? 0.34 : 0.64))
         let labelWidth = stacked ? width - 8 : width * 0.55
         let layout = stacked ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
         return ZStack {
@@ -668,7 +674,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             }
         }
         .padding(.horizontal, 4)
-        .frame(width: width, height: height)
+        .padding(.bottom, rackSpacing)
+        .frame(width: width, height: height, alignment: nearRack ? .bottom : .center)
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { $0[.center] = $1 }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: latest?.id)
@@ -681,6 +688,11 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
 }
 
 extension TableState {
+    func recentDiscards(excluding latest: TableDiscard?) -> [TableDiscard] {
+        let winningTile = result?.winningTile?.id
+        return Array((discardTimeline ?? []).filter { $0.id != latest?.id && $0.id != winningTile }.suffix(6))
+    }
+
     var hasKnownDiscard: Bool {
         discardTimeline?.isEmpty == false || players.contains { player in
             !player.discards.isEmpty || player.melds.contains { $0.kind != .concealedKong }

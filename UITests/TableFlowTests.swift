@@ -1468,13 +1468,16 @@ final class TableFlowTests: XCTestCase {
             let table = element("table-surface", in: app)
             let rack = element("table-rack", in: app)
             let actions = element("table-actions", in: app)
+            let overviewHistory = app.buttons["overview-open-history"]
             let openingFrames = [table.frame, rack.frame]
             XCTAssertFalse(actions.exists)
+            if overviewHistory.exists { XCTAssertFalse(overviewHistory.isEnabled) }
             XCTAssertTrue(openingFrames.allSatisfy { $0.width > 0 && $0.height > 0 })
             capture("opening-\(orientation.rawValue)")
 
             skip.tap()
             XCTAssertTrue(skip.waitForNonExistence(timeout: 3))
+            if overviewHistory.exists { XCTAssertTrue(overviewHistory.isEnabled) }
             capture("settled-\(orientation.rawValue)")
             assertFrames([table.frame, rack.frame], match: openingFrames, labels: ["board", "rack"])
             if let actionFrame = try? actions.snapshot().frame {
@@ -1604,6 +1607,56 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
             .firstMatch.waitForExistence(timeout: 3))
         app.terminate()
+    }
+
+    func testLandscapeIPadShowsScoresAndRecentDiscardsBesideTheLiveTable() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        let game = try match(seed: 35, after: 41)
+        let table = game.table(for: .south)
+        let latest = try XCTUnwrap(table.latestDiscard)
+        let app = try launchSavedMatch(game)
+        let overview = element("table-overview", in: app)
+        let discard = element("latest-discard", in: app)
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        XCTAssertFalse(overview.exists)
+        capture("tablet-portrait-table")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let window = app.windows.firstMatch
+        let landscape = NSPredicate { _, _ in window.frame.width > window.frame.height }
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: landscape, evaluatedWith: app)], timeout: 5), .completed)
+        try XCTSkipUnless(window.frame.width >= 1_050, "This window has room for the table only.")
+        XCTAssertTrue(overview.waitForExistence(timeout: 5))
+
+        for player in table.players {
+            XCTAssertTrue(element("overview-score-\(player.seat.id)", in: app).label.contains("\(player.score)分"))
+        }
+        let previous = try XCTUnwrap(table.discardTimeline).filter { $0.id != latest.id }.suffix(6)
+        XCTAssertFalse(previous.isEmpty)
+        for item in previous {
+            XCTAssertTrue(element("overview-discard-\(item.id)", in: app).exists)
+        }
+        XCTAssertFalse(element("overview-discard-\(latest.id)", in: app).exists)
+        let surface = element("table-surface", in: app)
+        let rack = element("table-rack", in: app)
+        let actions = element("table-actions", in: app)
+        let before = [surface.frame, rack.frame, discard.frame, actions.frame]
+        XCTAssertFalse(surface.frame.intersects(overview.frame))
+        XCTAssertEqual(surface.frame.midX, rack.frame.midX, accuracy: 1)
+        // Accessibility may report the table content inside the 10-point felt inset.
+        XCTAssertEqual(surface.frame.width, rack.frame.width, accuracy: 22)
+        XCTAssertFalse(discard.frame.intersects(actions.frame))
+        capture("tablet-landscape-overview")
+
+        app.buttons["overview-open-history"].tap()
+        XCTAssertTrue(app.navigationBars["出牌与亮牌记录"].waitForExistence(timeout: 5))
+        app.buttons["完成"].tap()
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        assertFrames([surface.frame, rack.frame, discard.frame, actions.frame], match: before)
     }
 
     func testSettledHistoryKeepsClaimedAndWinningDiscardsInOrder() throws {
@@ -1766,8 +1819,8 @@ final class TableFlowTests: XCTestCase {
             let app = try launchSavedMatch(before)
             XCTAssertFalse(app.buttons["skip-opening"].exists)
             let comparesNextHand = index == 0 || index == cases.count - 1
-            let firstRackTile = element("table-rack", in: app).buttons.firstMatch
-            let liveRackSlot = comparesNextHand ? try await settledRackSlot(firstRackTile) : nil
+            let rack = element("table-rack", in: app)
+            let liveRackSlot = comparesNextHand ? try await settledRackSlot(in: rack) : nil
             let liveBoardTop = element("table-surface", in: app).frame.minY
 
             if before.result == nil, fixture.winner == .south {
@@ -1814,8 +1867,8 @@ final class TableFlowTests: XCTestCase {
                     XCTAssertFalse(reveal.frame.intersects(scorecard.frame))
                 } else if landscape {
                     XCTAssertTrue(element("table-rack", in: app).exists)
-                    if element("table-region", in: app).exists {
-                        // In split layouts the scorecard control also occupies the table pane.
+                    if element("table-region", in: app).exists || UIDevice.current.userInterfaceIdiom == .pad {
+                        // The reveal can share the felt with the seats or with inline controls.
                         assertContains(settledFrame, reveal.frame)
                         XCTAssertFalse(reveal.frame.intersects(scorecard.frame))
                         XCTAssertTrue(reveal.isHittable)
@@ -1875,7 +1928,7 @@ final class TableFlowTests: XCTestCase {
                 // The accessibility container can grow to include a draw or claim. Check the
                 // top of the board and the first physical rack slot across the new deal.
                 XCTAssertEqual(board.frame.minY, liveBoardTop, accuracy: 1)
-                let nextRackSlot = try await settledRackSlot(firstRackTile)
+                let nextRackSlot = try await settledRackSlot(in: rack)
                 assertFrames([nextRackSlot], match: [liveRackSlot], labels: ["first rack tile"])
             }
             app.terminate()
@@ -1886,14 +1939,24 @@ final class TableFlowTests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
-    private func settledRackSlot(_ tile: XCUIElement) async throws -> CGRect {
+    private func rackTileFrames(in element: any XCUIElementSnapshot) -> [CGRect] {
+        // The separate draw slot can come before the hand in accessibility order.
+        if element.identifier == "drawn-tile-dock" { return [] }
+        if element.elementType == .button, element.identifier.hasPrefix("tile-"), !element.frame.isEmpty {
+            return [element.frame]
+        }
+        return element.children.flatMap { rackTileFrames(in: $0) }
+    }
+
+    private func settledRackSlot(in rack: XCUIElement) async throws -> CGRect {
         // The Duo can expose the incoming rack while navigation still changes the bottom inset.
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
         var previous = CGRect.null
         var unchangedSince = clock.now
         while clock.now < deadline {
-            let frame = tile.exists ? tile.frame : .null
+            let frames = rack.exists ? try rackTileFrames(in: rack.snapshot()) : []
+            let frame = frames.min { ($0.minY, $0.minX) < ($1.minY, $1.minX) } ?? .null
             if frame != previous {
                 previous = frame
                 unchangedSince = clock.now
