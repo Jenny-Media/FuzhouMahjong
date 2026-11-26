@@ -1,4 +1,5 @@
 import FuzhouCore
+import UIKit
 import XCTest
 
 @MainActor
@@ -965,19 +966,21 @@ final class TableFlowTests: XCTestCase {
             let rise: CGFloat = reduceMotion ? 18 : 157
             let width = lowerFrame.width - 1.5
             let height = width * 268 / 192
-            let centerY = reduceMotion ? rack.minY - 6 - height / 2 : start.screenPoint.y - rise
+            let centerY = reduceMotion ? rack.minY - 6 - height / 2 : lowerFrame.midY - rise
             let grabbedEdge = lowerFrame.midX - width / 2
             let stride = width * 1.065
             let rackColor: UInt32 = 0x215D61
             let previewColor: UInt32 = 0x176F88
             let during = try screenshotDuringDrag(from: start, rise: rise)
             capture(reduceMotion ? "held-chow-reduce-motion" : "held-chow", screenshot: during)
-            func edge(_ x: CGFloat, y: CGFloat, color: UInt32, in screenshot: XCUIScreenshot = during) throws -> Double {
-                try matchingStroke(at: CGPoint(x: x, y: y), color: color, in: screenshot, window: window)
+            let heldImage = try uprightImage(from: during)
+            func edge(_ x: CGFloat, y: CGFloat, color: UInt32, in image: CGImage = heldImage) throws -> Double {
+                try matchingStroke(at: CGPoint(x: x, y: y), color: color, in: image, window: window)
             }
 
-            let discardStroke = try edge(grabbedEdge - 2 * stride, y: centerY, color: rackColor)
-            XCTAssertGreaterThan(discardStroke, 0.2, "The claimed tile has a dashed outline")
+            let discardEdge = grabbedEdge - 2 * stride
+            let discardStroke = try edge(discardEdge, y: centerY, color: rackColor)
+            XCTAssertGreaterThan(discardStroke, 0.2, "Expected a dashed claim outline at (\(discardEdge), \(centerY))")
             XCTAssertLessThan(discardStroke, 0.85, "The claimed tile outline has gaps")
             for tileEdge in [grabbedEdge - stride, grabbedEdge] {
                 XCTAssertGreaterThan(try edge(tileEdge, y: centerY, color: previewColor), 0.85,
@@ -990,8 +993,8 @@ final class TableFlowTests: XCTestCase {
             if reduceMotion {
                 XCTAssertTrue(pass.exists, "The short drag cancels")
                 XCTAssertTrue(lowerTile.exists)
-                XCTAssertLessThan(try edge(grabbedEdge, y: centerY, color: previewColor,
-                                           in: XCUIScreen.main.screenshot()), 0.1)
+                let afterCancel = try uprightImage(from: XCUIScreen.main.screenshot())
+                XCTAssertLessThan(try edge(grabbedEdge, y: centerY, color: previewColor, in: afterCancel), 0.1)
             } else {
                 XCTAssertTrue(lowerTile.waitForNonExistence(timeout: 5), "The full swipe commits the chow")
             }
@@ -1015,9 +1018,21 @@ final class TableFlowTests: XCTestCase {
         return try XCTUnwrap(heldDragScreenshot, "Expected a screenshot while the drag was held")
     }
 
-    private func matchingStroke(at point: CGPoint, color: UInt32, in screenshot: XCUIScreenshot,
-                                window: CGRect) throws -> Double {
-        let image = try XCTUnwrap(screenshot.image.cgImage)
+    private func uprightImage(from screenshot: XCUIScreenshot) throws -> CGImage {
+        let image = screenshot.image
+        if image.imageOrientation == .up { return try XCTUnwrap(image.cgImage) }
+        // The folded Duo can return portrait pixels with landscape orientation metadata.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = true
+        format.preferredRange = .standard
+        let upright = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        return try XCTUnwrap(upright.cgImage)
+    }
+
+    private func matchingStroke(at point: CGPoint, color: UInt32, in image: CGImage, window: CGRect) throws -> Double {
         let scale = CGFloat(image.width) / window.width
         let area = CGRect(x: point.x - 3, y: point.y - 9, width: 6, height: 18)
         let crop = try XCTUnwrap(image.cropping(to: area.applying(CGAffineTransform(scaleX: scale, y: scale)).integral))
