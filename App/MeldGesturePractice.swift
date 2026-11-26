@@ -261,7 +261,9 @@ struct MeldGesturePractice: View {
         return RackTile(tile: tile, isGold: false, isSelected: canCommit,
                         canSelect: showsChooser || canCommit, canDiscard: false, rackCellWidth: cellWidth,
                         select: { if showsChooser { openChooser() } }, discard: {},
-                        meldAction: meldAction, swipeReady: swipeReady)
+                        meldAction: meldAction,
+                        meldAccessibilityHint: canCommit ? "在可用操作中选择「\(confirmationTitle)」。" : nil,
+                        swipeReady: swipeReady)
     }
 
     @ViewBuilder
