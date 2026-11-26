@@ -6,10 +6,18 @@ struct MatchResults: View {
     var result: RoundResult
     var names: [Seat: String]
     var canAdvance: Bool
+    var paused: Bool
     var advanceTitle: String? = nil
     var advanceDetail: String? = nil
     var returnToTable: () -> Void
     var next: () -> Void
+
+    private var waitMessage: String {
+        if paused {
+            return canAdvance ? "等待牌友重新连接，可返回牌桌查看座位。" : "牌桌已暂停，等待恢复连接。"
+        }
+        return table.matchFinished ? "等待房主开新一场" : "等待房主开下一局"
+    }
 
     var body: some View {
         ScrollView {
@@ -58,14 +66,14 @@ struct MatchResults: View {
                     Button("返回牌桌", action: returnToTable)
                         .buttonStyle(TeaButtonStyle(prominent: false))
                         .accessibilityIdentifier("return-to-table")
-                    if canAdvance {
+                    if canAdvance && !paused {
                         Button(action: next) {
                             Text(advanceTitle ?? (table.matchFinished ? "新开一场" : "下一局")).frame(maxWidth: .infinity)
                         }
                         .buttonStyle(TeaButtonStyle())
                         .accessibilityIdentifier("next-hand")
                     } else {
-                        Text(table.matchFinished ? "等待房主开新一场" : "等待房主开下一局")
+                        Text(waitMessage)
                             .font(.footnote).foregroundStyle(TeaTheme.muted)
                             .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget)
                     }
@@ -134,25 +142,38 @@ struct MatchResults: View {
     }
 }
 
-struct WinningHandReveal: View {
+struct WinningHandReveal<SeatDetails: View>: View {
     @Environment(\.boardStyle) private var board
     let table: TableState
     let result: RoundResult
     let winner: Seat
     let name: String
     let width: CGFloat
+    let seatDetails: () -> SeatDetails
+
+    init(table: TableState, result: RoundResult, winner: Seat, name: String, width: CGFloat,
+         @ViewBuilder seatDetails: @escaping () -> SeatDetails = { EmptyView() }) {
+        self.table = table
+        self.result = result
+        self.winner = winner
+        self.name = name
+        self.width = width
+        self.seatDetails = seatDetails
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 6) {
                     Text("\(name) · \(result.winTitle)")
-                        .font(.caption.weight(.bold))
+                        .font(width >= 300 ? .headline : .caption.weight(.bold))
                         .foregroundStyle(board.accent)
                         .multilineTextAlignment(.center)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("winning-hand-reveal")
                     WinningGroups(table: table, result: result, winner: winner,
                                   boardSize: CGSize(width: width, height: geometry.size.height))
+                    seatDetails()
                 }
                 .padding(.vertical, 3)
                 .frame(minHeight: geometry.size.height)
@@ -210,14 +231,17 @@ private struct WinningGroups: View {
         } else if let groups = WinningHand.groups(for: result, melds: melds, gold: table.gold?.kind) {
             let gap: CGFloat = 4
             let compact = boardSize != nil
-            let labelWidth: CGFloat = compact ? 25 : typeSize.isAccessibilitySize ? 56 : 32
-            let minimum: CGFloat = 90
+            let wideReveal = (boardSize?.width ?? 0) >= 300
+            let labelWidth: CGFloat = typeSize.isAccessibilitySize && (wideReveal || !compact) ? 56 : compact ? 25 : 32
+            let minimum: CGFloat = wideReveal ? (typeSize.isAccessibilitySize ? 230 : 150) : 90
             let columns = boardSize.map { max(1, Int(($0.width + gap) / (minimum + gap))) } ?? 1
             let cardWidth = boardSize.map { ($0.width + gap) / CGFloat(columns) - gap } ?? 152
             let largest = CGFloat(groups.map { $0.members.count }.max() ?? 4)
             let roomForTiles = cardWidth - labelWidth - 11 - 2 * (largest - 1)
             let heightLimit = boardSize.map { boardTileWidth(height: $0.height, groups: groups, columns: columns, gap: gap) }
-            let tileWidth = max(12, min(heightLimit ?? 29, compact ? 26 : 29, roomForTiles / largest))
+            let maximumTileWidth: CGFloat = wideReveal ? 44 : compact ? 26 : 29
+            let heightBasedWidth = typeSize.isAccessibilitySize && wideReveal ? maximumTileWidth : heightLimit ?? 29
+            let tileWidth = max(12, min(heightBasedWidth, maximumTileWidth, roomForTiles / largest))
             let grid = [GridItem(.adaptive(minimum: compact ? minimum : typeSize.isAccessibilitySize ? 230 : 152),
                                  spacing: gap, alignment: .topLeading)]
 

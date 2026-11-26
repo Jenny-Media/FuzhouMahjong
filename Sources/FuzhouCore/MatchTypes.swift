@@ -28,7 +28,9 @@ public struct FuzhouHouseRules: Codable, Hashable, Identifiable, Sendable {
         public var includesWinds: Bool { self == .includeWinds || self == .includeHonors }
         public var includesDragons: Bool { self == .includeDragons || self == .includeHonors }
 
-        func allows(_ kind: TileKind) -> Bool {
+        public var revealsBeforeFlowers: Bool { self != .suitedOnly }
+
+        public func allows(_ kind: TileKind) -> Bool {
             switch kind.suit {
             case .wind: includesWinds
             case .dragon: includesDragons
@@ -208,6 +210,10 @@ public struct TableState: Equatable, Codable, Sendable {
     public var robGoldDiscardIDs: [Tile.ID]? = nil
     /// Only the table viewer's own discard claim is reported here.
     public var discardClaimFeedback: DiscardClaimFeedback? = nil
+    /// Public flowers the dealer collected while flipping for gold, in reveal order.
+    public var openingIndicatorFlowerIDs: [Tile.ID]? = nil
+    /// Absent on older tables that added to the streak on a draw, even when the deal passed.
+    public var resetsStreakOnPassingDraw: Bool? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? .legacy }
 

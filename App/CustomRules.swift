@@ -155,7 +155,7 @@ struct RulesetPicker: View {
             }
             .accessibilityIdentifier("custom-rules-menu")
 
-            RulesetDetailsButton(ruleset: selection, houseRules: custom)
+            RulesetDetailsButton(ruleset: selection, houseRules: custom, resetsStreakOnPassingDraw: true)
         }
         .padding(12)
         .teaPanel(corner: TeaTheme.controlCorner)
@@ -171,6 +171,7 @@ struct RulesetPicker: View {
 struct RulesetDetailsButton: View {
     let ruleset: FuzhouRuleset
     let houseRules: FuzhouHouseRules?
+    let resetsStreakOnPassingDraw: Bool?
     var title = "规则详情"
     var subtitle: String? = nil
     var identifier = "selected-ruleset-details"
@@ -207,7 +208,8 @@ struct RulesetDetailsButton: View {
         .accessibilityIdentifier(identifier)
         .sheet(isPresented: $showsDetails) {
             NavigationStack {
-                RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules, showsCloseButton: true)
+                RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules,
+                                   resetsStreakOnPassingDraw: resetsStreakOnPassingDraw, showsCloseButton: true)
             }
         }
     }
@@ -309,7 +311,7 @@ private struct CustomRulesEditor: View {
                 Text("庄家与付分")
             } footer: {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(rules.keepDealerOnDraw ? "流局后，这一局的庄家继续坐庄。" : "流局后，由庄家的下家坐庄。")
+                    Text(rules.keepDealerOnDraw ? "流局后庄家继续坐庄，连庄次数加一。" : "流局后换下家坐庄，连庄次数归零。")
                     Text(RuleScoringExample.discard(payment: rules.discardPayment))
                         .accessibilityIdentifier("custom-payment-example")
                 }

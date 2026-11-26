@@ -149,6 +149,7 @@ final class MatchTests: XCTestCase {
             XCTAssertEqual(table.ruleset, ruleset)
             XCTAssertEqual(table.players.map(\.flowerCount), [3, 0, 0, 0])
             XCTAssertEqual(table.players.first?.exposedFlowers?.map(\.kind), bonusFlips)
+            XCTAssertEqual(table.openingIndicatorFlowerIDs, table.players.first?.exposedFlowers?.map(\.id))
             XCTAssertEqual(table.drawn?.kind, .init(.circles, 9))
             XCTAssertTrue(table.hand.allSatisfy { !$0.kind.isFlower })
         }
@@ -374,6 +375,78 @@ final class MatchTests: XCTestCase {
             XCTAssertEqual(Seat.allCases.map(result.delta), expected)
             XCTAssertEqual(match.scores, expected)
         }
+    }
+
+    func testMidMatchDrawChangesTheStreakOnlyForTheReturningDealer() throws {
+        for keepDealer in [false, true] {
+            let rules = FuzhouHouseRules(name: "测试", keepDealerOnDraw: keepDealer)
+            let encoder = JSONEncoder()
+            let game = FuzhouMatch(houseRules: rules)
+            var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(game)) as? [String: Any])
+            saved["continuation"] = 2
+            saved["step"] = "finished"
+            saved["result"] = try JSONSerialization.jsonObject(with: encoder.encode(RoundResult.draw))
+            var match = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: saved))
+            match.nextRound()
+            XCTAssertEqual(match.dealer, keepDealer ? .east : .south)
+            XCTAssertEqual(match.continuation, keepDealer ? 3 : 0)
+            XCTAssertEqual(match.roundNumber, 2)
+        }
+    }
+
+    func testOlderMatchFinishesUnderItsOriginalDealerRules() throws {
+        var ready = try fixture(hands: [.east: Array(completed.dropLast())], gold: .init(.bamboo, 9),
+                                draws: [try XCTUnwrap(completed.last)], ruleset: .pureSuit)
+        resolveOpening(&ready)
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        func archive(_ game: FuzhouMatch) throws -> [String: Any] {
+            try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(game)) as? [String: Any])
+        }
+        func load(_ archive: [String: Any]) throws -> FuzhouMatch {
+            try decoder.decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: archive))
+        }
+
+        var saved = try archive(ready)
+        saved.removeValue(forKey: "resetsStreakOnPassingDraw")
+        saved["dealerTurns"] = 4
+        saved["roundNumber"] = 7
+        saved["continuation"] = 6
+        saved["scores"] = [66, -22, -22, -22]
+        var old = try load(saved)
+        XCTAssertEqual(old.scores, [66, -22, -22, -22])
+        XCTAssertEqual(old.continuation, 6)
+        XCTAssertNil(old.table(for: .south).resetsStreakOnPassingDraw)
+        XCTAssertTrue(old.apply(.win, by: .east))
+        XCTAssertEqual(old.result?.delta(for: .east), (10 + 6 * 2) * 3)
+        let settledScores = old.scores
+        old = try decoder.decode(FuzhouMatch.self, from: encoder.encode(old))
+        old.nextRound()
+        XCTAssertEqual(old.scores, settledScores)
+        XCTAssertEqual(old.dealer, .east)
+        XCTAssertEqual(old.continuation, 7)
+
+        let draw = try JSONSerialization.jsonObject(with: encoder.encode(RoundResult.draw))
+        saved = try archive(old)
+        saved["step"] = "finished"
+        saved["result"] = draw
+        old = try load(saved)
+        old.nextRound()
+        XCTAssertEqual(old.dealer, .south)
+        XCTAssertEqual(old.continuation, 8)
+        XCTAssertEqual(old.scores, settledScores)
+        XCTAssertNil(old.table(for: .east).resetsStreakOnPassingDraw)
+
+        // Finishing the last dealer's hand starts a new match on the current rules.
+        saved["dealer"] = Seat.north.id
+        saved["dealerTurns"] = 15
+        old = try load(saved)
+        XCTAssertTrue(old.matchFinished)
+        old.nextRound()
+        XCTAssertEqual(old.table(for: .east).resetsStreakOnPassingDraw, true)
+        XCTAssertEqual(old.roundNumber, 1)
+        XCTAssertEqual(old.continuation, 0)
+        XCTAssertEqual(old.scores, [0, 0, 0, 0])
     }
 
     func testCustomDrawCanRepeatFinalDealerAndRulesSurviveSaveAndNewMatch() throws {
@@ -733,11 +806,18 @@ final class MatchTests: XCTestCase {
         var host = NearbyMatch(hostName: "阿榕")
         let key = UUID()
         XCTAssertEqual(host.join(key: key, name: "小林"), .south)
+        let lobby = host.update(for: .south)
+        XCTAssertEqual(lobby.resetsStreakOnPassingDraw, true)
+        var oldLobby = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(lobby)) as? [String: Any])
+        oldLobby.removeValue(forKey: "resetsStreakOnPassingDraw")
+        let oldUpdate = try JSONDecoder().decode(RoomUpdate.self, from: JSONSerialization.data(withJSONObject: oldLobby))
+        XCTAssertNil(oldUpdate.resetsStreakOnPassingDraw)
         XCTAssertTrue(host.start())
         let east = try XCTUnwrap(host.update(for: .east).table)
         let south = try XCTUnwrap(host.update(for: .south).table)
         XCTAssertEqual(east.viewer, .east)
         XCTAssertEqual(south.viewer, .south)
+        XCTAssertEqual(south.resetsStreakOnPassingDraw, true)
         XCTAssertTrue(Set(east.hand).isDisjoint(with: Set(south.hand)))
         if east.current == .east { XCTAssertNil(south.drawn) }
         XCTAssertNil(host.join(key: UUID(), name: "陌生玩家"))

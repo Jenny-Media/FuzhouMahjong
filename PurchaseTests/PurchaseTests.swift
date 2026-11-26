@@ -8,6 +8,38 @@ import XCTest
 
 @MainActor
 final class SoloSaveMigrationTests: XCTestCase {
+    func testResumingAnOlderTableKeepsItsArchiveAndStartingNewUsesCurrentRules() throws {
+        let suite = "DealerRestoreTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let access = GameAccess(defaults: defaults, keychainService: nil)
+        var saved = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(FuzhouMatch())) as? [String: Any])
+        saved.removeValue(forKey: "resetsStreakOnPassingDraw")
+        saved["dealer"] = Seat.south.id
+        saved["dealerTurns"] = 1
+        saved["roundNumber"] = 4
+        saved["continuation"] = 3
+        saved["scores"] = [22, -12, -10, 0]
+        let data = try JSONSerialization.data(withJSONObject: saved)
+        let key = SoloSaveSlot.first.rawValue
+        XCTAssertTrue(access.beginSoloHand(key: key, match: data))
+        let remaining = access.remainingSoloHands
+
+        let solo = SoloMatch(access: access)
+        let resumed = try XCTUnwrap(solo.table)
+        XCTAssertNil(resumed.resetsStreakOnPassingDraw)
+        XCTAssertEqual(resumed.continuation, 3)
+        XCTAssertEqual(resumed.players.map(\.score), [22, -12, -10, 0])
+        XCTAssertEqual(access.soloSave(key: key)?.match, data)
+        XCTAssertEqual(access.remainingSoloHands, remaining)
+
+        XCTAssertTrue(solo.startNew())
+        let fresh = try XCTUnwrap(SoloMatch(access: access).table)
+        XCTAssertEqual(fresh.resetsStreakOnPassingDraw, true)
+        XCTAssertEqual(fresh.continuation, 0)
+        XCTAssertEqual(fresh.players.map(\.score), [0, 0, 0, 0])
+    }
+
     func testCancelledComputerTurnDoesNotAdvanceOrOverwriteTheSave() async throws {
         let suite = "SoloComputerTurnTests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

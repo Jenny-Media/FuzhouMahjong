@@ -464,6 +464,29 @@ final class TableFlowTests: XCTestCase {
         XCTAssertEqual(title.label, "清一色不加分")
     }
 
+    func testAuditRegressionSavedTableRuleDetailsDistinguishNewGameRules() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        var archive = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(FuzhouMatch())) as? [String: Any])
+        archive.removeValue(forKey: "resetsStreakOnPassingDraw")
+        let older = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: archive))
+        app.launchArguments = try savedMatchArguments(older) + ["-solo.customRulesetID", ""]
+        app.launch()
+
+        let savedRules = app.buttons["saved-solo-rules"]
+        XCTAssertTrue(savedRules.waitForExistence(timeout: 5))
+        savedRules.tap()
+        let oldText = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "两种情况都把连庄次数加一")).firstMatch
+        XCTAssertTrue(oldText.waitForExistence(timeout: 5))
+        app.buttons["完成"].tap()
+
+        app.buttons["new-solo-game"].tap()
+        app.buttons["selected-ruleset-details"].tap()
+        let newText = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "流局换下家坐庄，连庄次数归零")).firstMatch
+        XCTAssertTrue(newText.waitForExistence(timeout: 5))
+    }
+
     func testLegacySaveIsClearedAndNewTableRulesAreAvailable() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -638,15 +661,22 @@ final class TableFlowTests: XCTestCase {
         let pass = app.buttons["table-move-过"]
         XCTAssertTrue(pass.waitForExistence(timeout: 5))
 
+        // A folded Duo can present a wide window when the device is upright.
+        let window = app.windows.firstMatch
+        let portraitFrame = window.frame
+        let portraitIsWide = portraitFrame.width > portraitFrame.height
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
             XCUIDevice.shared.orientation = orientation
             let landscape = orientation == .landscapeLeft
-            let resized = NSPredicate { _, _ in (app.frame.width > app.frame.height) == landscape }
+            let resized = NSPredicate { _, _ in
+                let frame = window.frame
+                return (frame.width > frame.height) == (landscape != portraitIsWide)
+            }
             XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: resized, evaluatedWith: app)], timeout: 5), .completed)
             for label in ["吃", "碰", "杠", "过"] {
                 XCTAssertTrue(app.buttons["table-move-\(label)"].isHittable, label)
             }
-            XCTAssertTrue(table.frame.contains(actions.frame))
+            assertContains(table.frame, actions.frame)
             XCTAssertTrue(discard.exists)
             XCTAssertFalse(actions.frame.intersects(discard.frame))
             capture(landscape ? "multiple-claims-landscape" : "multiple-claims-portrait")
@@ -674,7 +704,7 @@ final class TableFlowTests: XCTestCase {
             app.buttons["table-move-\(label)"].tap()
             let confirm = app.buttons["confirm-meld"]
             XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-            XCTAssertTrue(table.frame.contains(actions.frame))
+            assertContains(table.frame, actions.frame)
             XCTAssertFalse(actions.frame.intersects(discard.frame))
             assertFrames([pass.frame], match: [passFrame], labels: ["pass control"])
             assertHighlighted(Set(ids), in: state.hand, app: app)
@@ -923,7 +953,9 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(skip.waitForNonExistence(timeout: 3))
             capture("settled-\(orientation.rawValue)")
             assertFrames([table.frame, rack.frame], match: openingFrames, labels: ["board", "rack"])
-            if actions.exists { XCTAssertTrue(table.frame.contains(actions.frame)) }
+            if let actionFrame = try? actions.snapshot().frame {
+                assertContains(table.frame, actionFrame)
+            }
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
                 .firstMatch.waitForExistence(timeout: 3))
             app.terminate()
@@ -1050,7 +1082,145 @@ final class TableFlowTests: XCTestCase {
         app.terminate()
     }
 
-    func testWinRevealAndScorecardFollowTheSameHand() throws {
+    func testSettledHistoryKeepsClaimedAndWinningDiscardsInOrder() throws {
+        var game = try match(seed: 35, after: 41)
+        while game.result == nil { try playFixtureMove(in: &game) }
+        let table = game.table(for: .south)
+        let timeline = try XCTUnwrap(table.discardTimeline)
+        let claimed = try XCTUnwrap(timeline.first { discard in table.players.contains { player in
+            player.melds.contains { $0.from == discard.seat && $0.tiles.contains(discard.tile) }
+        } })
+        let winning = try XCTUnwrap(game.result?.winningTile)
+        XCTAssertEqual(claimed.id, timeline.first?.id)
+        XCTAssertEqual(winning.id, timeline.last?.id)
+        let app = try launchSavedMatch(game)
+        app.buttons["view-scorecard"].tap()
+        app.buttons["return-to-table"].tap()
+        app.buttons["table-history"].tap()
+        XCTAssertTrue(app.navigationBars["出牌与亮牌记录"].waitForExistence(timeout: 5))
+        let history = app.scrollViews["table-history-scroll"]
+        let first = element("history-discard-\(claimed.id)", in: app)
+        XCTAssertTrue(first.waitForExistence(timeout: 3))
+        XCTAssertTrue(history.frame.intersects(first.frame))
+        XCTAssertTrue(first.label.contains("打出"))
+        XCTAssertTrue(["吃", "碰", "杠"].contains { first.label.contains($0) })
+        let last = visibleDiscard(winning.id, in: history)
+        XCTAssertTrue(last.label.contains("打出"))
+        XCTAssertTrue(last.label.contains("胡"))
+    }
+
+    func testOlderSaveDisplaysDiscardsMissingFromItsTimeline() throws {
+        var game = try match(seed: 35, after: 41)
+        while game.result == nil { try playFixtureMove(in: &game) }
+        let data = try JSONEncoder().encode(game)
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        old.removeValue(forKey: "discardTimeline")
+        let saved = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: old))
+        let app = try launchSavedMatch(saved)
+        app.buttons["table-history"].tap()
+        XCTAssertTrue(app.staticTexts["早前打出的牌（按座位）"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["按出牌顺序"].exists)
+        XCTAssertFalse(app.staticTexts["本局还没有出牌"].exists)
+        let winning = try XCTUnwrap(saved.result?.winningTile)
+        let history = app.scrollViews["table-history-scroll"]
+        let row = visibleDiscard(winning.id, in: history)
+        XCTAssertTrue(row.label.contains("你胡"))
+    }
+
+    private func visibleDiscard(_ id: Tile.ID, in history: XCUIElement) -> XCUIElement {
+        let row = history.descendants(matching: .any).matching(identifier: "history-discard-\(id)").firstMatch
+        let viewport = history.frame
+        for _ in 0..<12 {
+            if row.exists, viewport.intersects(row.frame) { return row }
+            history.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(row.exists && viewport.intersects(row.frame), "Discard \(id) should be visible in history")
+        return row
+    }
+
+    func testLargeTextClaimShowsTheDiscardAndOpensTheChowChoice() throws {
+        let game = try match(seed: 193, after: 1)
+        let app = try launchSavedMatch(game, arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let discard = element("latest-discard", in: app)
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        XCTAssertTrue(discard.label.contains("六万"))
+        let seat = element("seat-score-\(game.current.id)", in: app)
+        XCTAssertTrue(seat.exists)
+        XCTAssertTrue(seat.label.contains("手牌"))
+        let chow = app.buttons["table-move-吃"]
+        XCTAssertFalse(discard.frame.intersects(chow.frame))
+        capture("largest-text-claim")
+        chow.tap()
+        XCTAssertTrue(app.buttons["confirm-meld"].waitForExistence(timeout: 5))
+    }
+
+    func testAuditRegressionLargeDrawKeepsItsInwardDiscardGesture() throws {
+        continueAfterFailure = false
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let game = try match(seed: 10, after: 31)
+        let table = game.table(for: .south)
+        let tile = try XCTUnwrap(table.drawn)
+        XCTAssertFalse(table.isGold(tile))
+        XCTAssertTrue(table.moves.contains(.win))
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            let app = try launchSavedMatch(game, arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+            let drawn = app.buttons["tile-\(tile.id)"]
+            let ready = expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: drawn)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed, app.debugDescription)
+            XCTAssertGreaterThan(drawn.frame.midX, app.frame.midX)
+            XCTAssertTrue(drawn.label.contains("刚摸到"))
+            capture(orientation == .portrait ? "large-draw-portrait" : "large-draw-landscape")
+            let start = drawn.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: -70, dy: -54)))
+            XCTAssertTrue(drawn.waitForNonExistence(timeout: 3))
+            app.terminate()
+        }
+    }
+
+    func testAuditRegressionLargeTextOpponentWinKeepsRackAndShowsWideGroups() throws {
+        XCUIDevice.shared.orientation = .portrait
+        var game = try match(seed: 14, after: 29)
+        while game.result == nil { try playFixtureMove(in: &game) }
+        XCTAssertEqual(game.result?.winner, .west)
+        let app = try launchSavedMatch(game, arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let reveal = app.scrollViews["winning-hand-scroll"]
+        XCTAssertTrue(reveal.waitForExistence(timeout: 5))
+        let board = element("table-surface", in: app)
+        XCTAssertGreaterThan(reveal.frame.width, board.frame.width * 0.85)
+        XCTAssertGreaterThan(reveal.frame.height, 44)
+        XCTAssertTrue(element("table-rack", in: app).exists)
+        XCTAssertTrue(element("winning-hand-reveal", in: app).label.contains("自摸"))
+        capture("large-text-opponent-win")
+    }
+
+    func testAuditRegressionOpponentTileCountAppearsAfterOpening() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["-play-access.archive.v1", "", "--ui-test-manual-opening"]
+        app.launch()
+        openFreshSoloGame(app)
+
+        let skip = app.buttons["skip-opening"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 5))
+        let seat = element("seat-score-\(Seat.north.id)", in: app)
+        let backs = element("concealed-rack-\(Seat.north.id)", in: app)
+        let count = app.staticTexts["inspected-rack-count"]
+        XCTAssertTrue(["正在洗牌", "正在摆牌", "正在发牌", "正在补花", "开金"].contains(backs.label), backs.label)
+        seat.tap()
+        let close = app.buttons["完成"]
+        XCTAssertTrue(close.waitForExistence(timeout: 3))
+        XCTAssertFalse(count.exists)
+        close.tap()
+        skip.tap()
+        XCTAssertTrue(skip.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(backs.label.hasPrefix("手牌 "))
+        seat.tap()
+        XCTAssertTrue(count.waitForExistence(timeout: 3))
+    }
+
+    func testWinRevealAndScorecardFollowTheSameHand() async throws {
         continueAfterFailure = false
         defer { XCUIDevice.shared.orientation = .portrait }
         let cases: [(seed: UInt64, moves: Int, kind: WinKind?, winner: Seat?, label: String)] = [
@@ -1071,16 +1241,16 @@ final class TableFlowTests: XCTestCase {
             XCTAssertEqual(result.winner, fixture.winner)
             let app = try launchSavedMatch(before)
             XCTAssertFalse(app.buttons["skip-opening"].exists)
-            let sideSeats = [Seat.south.advanced(1), Seat.south.advanced(3)].map {
-                element("seat-score-\($0.id)", in: app)
-            }
-            var liveSideFrames: [CGRect]?
+            let comparesNextHand = index == 0 || index == cases.count - 1
+            let firstRackTile = element("table-rack", in: app).buttons.firstMatch
+            let liveRackSlot = comparesNextHand ? try await settledRackSlot(firstRackTile) : nil
+            let liveBoardTop = element("table-surface", in: app).frame.minY
 
             if before.result == nil, fixture.winner == .south {
                 let board = element("table-surface", in: app)
                 let actions = element("table-actions", in: app)
                 XCTAssertTrue(actions.waitForExistence(timeout: 5))
-                XCTAssertTrue(board.frame.contains(actions.frame))
+                assertContains(board.frame, actions.frame)
                 if fixture.kind == .discard {
                     XCTAssertTrue(element("latest-discard", in: app).exists)
                     XCTAssertFalse(actions.frame.intersects(element("latest-discard", in: app).frame))
@@ -1090,7 +1260,6 @@ final class TableFlowTests: XCTestCase {
                 let pass = app.buttons["table-move-过"]
                 XCTAssertGreaterThan(win.frame.width, pass.frame.width)
                 XCTAssertGreaterThan(win.frame.height, pass.frame.height)
-                if !landscape { liveSideFrames = sideSeats.map(\.frame) }
                 win.tap()
             }
 
@@ -1109,19 +1278,33 @@ final class TableFlowTests: XCTestCase {
             if let winner = result.winner {
                 let reveal = app.scrollViews["winning-hand-scroll"]
                 XCTAssertTrue(reveal.exists)
-                if landscape {
-                    XCTAssertEqual(settledFrame.height - reveal.frame.height, 20, accuracy: 2,
-                                   "The landscape reveal should fill the table inside its top and bottom insets.")
-                } else {
-                    XCTAssertEqual(scorecard.frame.minY - reveal.frame.maxY, 8, accuracy: 2,
-                                   "Only the result controls' top padding should separate them from the reveal.")
-                    if let liveSideFrames {
-                        for (seat, liveFrame) in zip(sideSeats, liveSideFrames) {
-                            let settledFrame = seat.frame
-                            XCTAssertEqual(settledFrame.midX, liveFrame.midX, accuracy: 1, "Side seat moved horizontally.")
-                            XCTAssertEqual(settledFrame.midY, liveFrame.midY, accuracy: 1, "Side seat moved vertically.")
-                        }
+                if winner == .south {
+                    XCTAssertFalse(element("table-rack", in: app).exists)
+                    if element("table-region", in: app).exists {
+                        XCTAssertFalse(board.frame.intersects(reveal.frame))
+                        assertContains(app.windows.firstMatch.frame, reveal.frame)
+                    } else {
+                        XCTAssertGreaterThan(reveal.frame.width, settledFrame.width * 0.85)
+                        XCTAssertTrue(board.frame.contains(reveal.frame))
                     }
+                    XCTAssertFalse(reveal.frame.intersects(scorecard.frame))
+                } else if landscape {
+                    XCTAssertTrue(element("table-rack", in: app).exists)
+                    if element("table-region", in: app).exists {
+                        // In split layouts the scorecard control also occupies the table pane.
+                        assertContains(settledFrame, reveal.frame)
+                        XCTAssertFalse(reveal.frame.intersects(scorecard.frame))
+                        XCTAssertTrue(reveal.isHittable)
+                    } else {
+                        XCTAssertEqual(reveal.frame.minY, settledFrame.minY, accuracy: 2)
+                        XCTAssertEqual(reveal.frame.maxY, settledFrame.maxY, accuracy: 2)
+                    }
+                    element("seat-score-\(winner.id)", in: app).tap()
+                    let count = app.staticTexts["inspected-rack-count"]
+                    XCTAssertTrue(count.waitForExistence(timeout: 5))
+                    XCTAssertEqual(count.label, "手牌 \(result.winningHand.count) 张")
+                    app.buttons["完成"].tap()
+                    XCTAssertTrue(count.waitForNonExistence(timeout: 5))
                 }
                 XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "revealed-winning-tile").count, 1)
                 XCTAssertTrue(element("winning-pair", in: app).exists)
@@ -1152,7 +1335,7 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(element(outcome, in: app).waitForExistence(timeout: 5))
             assertFrames([board.frame], match: [settledFrame])
 
-            if index == 0 || index == cases.count - 1 {
+            if let liveRackSlot {
                 if index == 0 {
                     scorecard.tap()
                     app.buttons["next-hand"].tap()
@@ -1165,7 +1348,11 @@ final class TableFlowTests: XCTestCase {
                 skip.tap()
                 XCTAssertTrue(skip.waitForNonExistence(timeout: 3))
                 XCTAssertFalse(scorecard.exists)
-                assertFrames([board.frame], match: [settledFrame])
+                // The accessibility container can grow to include a draw or claim. Check the
+                // top of the board and the first physical rack slot across the new deal.
+                XCTAssertEqual(board.frame.minY, liveBoardTop, accuracy: 1)
+                let nextRackSlot = try await settledRackSlot(firstRackTile)
+                assertFrames([nextRackSlot], match: [liveRackSlot], labels: ["first rack tile"])
             }
             app.terminate()
         }
@@ -1173,6 +1360,26 @@ final class TableFlowTests: XCTestCase {
 
     private func element(_ id: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
+    private func settledRackSlot(_ tile: XCUIElement) async throws -> CGRect {
+        // The Duo can expose the incoming rack while navigation still changes the bottom inset.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        var previous = CGRect.null
+        var unchangedSince = clock.now
+        while clock.now < deadline {
+            let frame = tile.exists ? tile.frame : .null
+            if frame != previous {
+                previous = frame
+                unchangedSince = clock.now
+            } else if !frame.isEmpty, unchangedSince.duration(to: clock.now) >= .milliseconds(650) {
+                return frame
+            }
+            try await Task.sleep(for: .milliseconds(150))
+        }
+        XCTFail("The first rack slot did not settle at a visible position. Last frame: \(previous)")
+        return previous
     }
 
     private func openFreshSoloGame(_ app: XCUIApplication) {
@@ -1188,6 +1395,12 @@ final class TableFlowTests: XCTestCase {
             let highlighted = app.buttons["tile-\(tile.id)"].value as? String == "牌组候选"
             XCTAssertEqual(highlighted, ids.contains(tile.id), "Tile \(tile.id)", file: file, line: line)
         }
+    }
+
+    private func assertContains(_ outer: CGRect, _ inner: CGRect, file: StaticString = #filePath, line: UInt = #line) {
+        // Accessibility can round a shared parent/child edge to different fractions of a point.
+        XCTAssertTrue(outer.insetBy(dx: -0.25, dy: -0.25).contains(inner),
+                      "Expected \(outer) to contain \(inner)", file: file, line: line)
     }
 
     private func assertFrames(_ frames: [CGRect], match expected: [CGRect],
@@ -1215,9 +1428,9 @@ final class TableFlowTests: XCTestCase {
         return ["-play-access.archive.v1", "", "-solo-match.v2", "<\(save)>"]
     }
 
-    private func launchSavedMatch(_ match: FuzhouMatch) throws -> XCUIApplication {
+    private func launchSavedMatch(_ match: FuzhouMatch, arguments: [String] = []) throws -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = try savedMatchArguments(match)
+        app.launchArguments = try savedMatchArguments(match) + arguments
         app.launch()
         let practice = app.buttons["practice-entry"]
         XCTAssertTrue(practice.waitForExistence(timeout: 5))

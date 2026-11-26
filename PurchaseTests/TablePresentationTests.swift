@@ -5,6 +5,119 @@ import XCTest
 
 @MainActor
 final class TablePresentationTests: XCTestCase {
+    func testRobGoldLessonMatchesTheDealersOpeningHand() {
+        let discard = "庄家要先选一张牌打出"
+        let legacy = RuleLesson.gold.detail(for: .legacy, houseRules: nil)
+        XCTAssertTrue(legacy.contains("庄家和闲家都把翻出的牌直接加进手牌"))
+        XCTAssertFalse(legacy.contains(discard))
+        for ruleset in [FuzhouRuleset.oldThree, .pureSuit] {
+            XCTAssertTrue(RuleLesson.gold.detail(for: ruleset, houseRules: nil).contains(discard))
+        }
+    }
+
+    func testAnOpeningConcealedKongDoesNotImplyADiscard() {
+        var table = FuzhouMatch().table(for: .east)
+        table.discardTimeline = nil
+        let tiles = Array(Tile.fullSet.prefix(4))
+        table.players[0].melds = [Meld(kind: .concealedKong, tiles: tiles, from: nil)]
+        XCTAssertFalse(table.hasKnownDiscard)
+        table.players[0].melds = [Meld(kind: .openKong, tiles: tiles, from: .south)]
+        XCTAssertTrue(table.hasKnownDiscard)
+    }
+
+    func testOpeningStagesShowOnlyWhatHasHappenedUnderTheHouseRules() {
+        for indicators in FuzhouHouseRules.GoldIndicators.allCases {
+            let rules = FuzhouHouseRules(name: "测试", goldIndicators: indicators)
+            var table = FuzhouMatch(houseRules: rules).table(for: .east)
+            table.openingIndicatorFlowerIDs = []
+            for index in table.players.indices { table.players[index].flowerCount = 0 }
+            table.players[0].flowerCount = 1
+            let stages = OpeningDeal.Stage.afterDeal(at: table)
+            if indicators == .suitedOnly {
+                XCTAssertEqual(stages, [.flowers(goldRevealed: false), .revealGold(flowersShown: true)])
+                XCTAssertFalse(stages[0].showsGold)
+            } else {
+                XCTAssertEqual(stages, [.revealGold(flowersShown: false), .flowers(goldRevealed: true)])
+                XCTAssertFalse(stages[0].showsFlowers)
+            }
+            XCTAssertTrue(stages[1].showsGold)
+            XCTAssertTrue(stages[1].showsFlowers)
+            for index in table.players.indices { table.players[index].flowerCount = 0 }
+            XCTAssertEqual(OpeningDeal.Stage.afterDeal(at: table), [.revealGold(flowersShown: false)])
+        }
+    }
+
+    func testIndicatorCreditsAreShownAtTheGoldReveal() throws {
+        let flower = try XCTUnwrap(Tile.fullSet.first { $0.kind.isFlower })
+        let flip = try XCTUnwrap(Tile.fullSet.last { $0.kind.isFlower && $0.id != flower.id })
+        for indicators in [FuzhouHouseRules.GoldIndicators.suitedOnly, .includeHonors] {
+            let rules = FuzhouHouseRules(name: "测试", goldIndicators: indicators)
+            var table = FuzhouMatch(houseRules: rules).table(for: .east)
+            for index in table.players.indices {
+                table.players[index].exposedFlowers = []
+                table.players[index].flowerCount = 0
+            }
+            table.openingIndicatorFlowerIDs = [flip.id]
+            table.players[0].exposedFlowers = [flip]
+            table.players[0].flowerCount = 1
+            let onlyGold = OpeningDeal.Stage.afterDeal(at: table)
+            XCTAssertEqual(onlyGold, [.revealGold(flowersShown: false)])
+            XCTAssertEqual(onlyGold.first?.presenting(table.players[0], indicatorFlowers: [flip.id]).exposedFlowers, [flip])
+            table.players[0].exposedFlowers = [flower, flip]
+            table.players[0].flowerCount = 2
+            let stages = OpeningDeal.Stage.afterDeal(at: table)
+            let visible = stages.map { $0.presenting(table.players[0], indicatorFlowers: [flip.id]).exposedFlowers ?? [] }
+            XCTAssertEqual(visible, [indicators.revealsBeforeFlowers ? [flip] : [flower], [flower, flip]])
+        }
+    }
+
+    func testOldHostDefersDealerFlowersWithUnknownOrigins() throws {
+        let flower = try XCTUnwrap(Tile.fullSet.first { $0.kind.suit == .season })
+        let suitedGold = try XCTUnwrap(Tile.fullSet.first { $0.kind.suit == .circles })
+        let wind = try XCTUnwrap(Tile.fullSet.first { $0.kind.suit == .wind })
+        let dragon = try XCTUnwrap(Tile.fullSet.first { $0.kind.suit == .dragon })
+        for indicators in FuzhouHouseRules.GoldIndicators.allCases {
+            let rules = FuzhouHouseRules(name: "测试", goldIndicators: indicators)
+            var table = FuzhouMatch(houseRules: rules).table(for: .south)
+            table.openingIndicatorFlowerIDs = nil
+            table.lastDraw = nil
+            table.gold = suitedGold
+            for i in table.players.indices {
+                table.players[i].exposedFlowers = []
+                table.players[i].flowerCount = 0
+            }
+            table.players[table.dealer.id].flowerCount = 1
+            table.players[table.dealer.id].exposedFlowers = [flower]
+            let dealer = table.players[table.dealer.id]
+            let stages = OpeningDeal.Stage.afterDeal(at: table)
+            XCTAssertEqual(stages, [.revealGold(flowersShown: false)])
+            let creditIDs = table.openingIndicatorCredits(for: dealer.seat)
+            XCTAssertNil(creditIDs)
+            let atReveal = try XCTUnwrap(stages.first?.presenting(dealer, indicatorFlowers: creditIDs))
+            XCTAssertEqual(atReveal.flowerCount, 0)
+            XCTAssertEqual(atReveal.exposedFlowers, [])
+            XCTAssertEqual(dealer.flowerCount, 1)
+
+            for (honor, eligible) in [(wind, indicators.includesWinds), (dragon, indicators.includesDragons)] {
+                table.players[table.dealer.id].exposedFlowers = [honor]
+                let stages = OpeningDeal.Stage.afterDeal(at: table)
+                let gold: OpeningDeal.Stage = .revealGold(flowersShown: false)
+                XCTAssertEqual(stages, eligible ? [gold, .flowers(goldRevealed: true)] : [gold])
+                let projection = stages.map { $0.presenting(table.players[table.dealer.id], indicatorFlowers: nil) }
+                XCTAssertEqual(projection.map { $0.exposedFlowers ?? [] }, eligible ? [[], [honor]] : [[]])
+            }
+            table.players[table.dealer.id].exposedFlowers = [flower]
+            table.players[Seat.south.id].flowerCount = 1
+            let guest = table.players[Seat.south.id]
+            XCTAssertEqual(table.openingIndicatorCredits(for: guest.seat), [])
+            XCTAssertTrue(OpeningDeal.Stage.afterDeal(at: table).contains(.flowers(goldRevealed: indicators.revealsBeforeFlowers)))
+
+            table.openingIndicatorFlowerIDs = []
+            table.players[Seat.south.id].flowerCount = 0
+            XCTAssertTrue(OpeningDeal.Stage.afterDeal(at: table).contains(.flowers(goldRevealed: indicators.revealsBeforeFlowers)))
+        }
+    }
+
     func testRackEndSwipeKeepsTrackingWhenItCurvesInward() {
         for direction in [LayoutDirection.leftToRight, .rightToLeft] {
             for edge in [HorizontalEdge.leading, .trailing] {

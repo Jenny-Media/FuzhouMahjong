@@ -27,6 +27,7 @@ struct RuleGuide: View {
     let showsCloseButton: Bool
     let ruleset: FuzhouRuleset
     let houseRules: FuzhouHouseRules?
+    let resetsStreakOnPassingDraw: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -39,10 +40,11 @@ struct RuleGuide: View {
     @AccessibilityFocusState private var lessonFocused: Bool
 
     init(startingAt lesson: RuleLesson = .turn, showsCloseButton: Bool = false,
-         ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) {
+         ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil, resetsStreakOnPassingDraw: Bool = true) {
         self.showsCloseButton = showsCloseButton
         self.ruleset = ruleset
         self.houseRules = houseRules
+        self.resetsStreakOnPassingDraw = resetsStreakOnPassingDraw
         _lesson = State(initialValue: lesson)
     }
 
@@ -85,7 +87,7 @@ struct RuleGuide: View {
                         .frame(maxWidth: wide ? 360 : .infinity)
 
                         VStack(alignment: .leading, spacing: 10) {
-                            Text(lesson.explanation(claim: claim))
+                            Text(lesson.explanation(claim: claim, ruleset: ruleset, indicators: houseRules?.goldIndicators ?? .suitedOnly))
                             Text(lesson.detail(for: ruleset, houseRules: houseRules))
                                 .font(.subheadline).foregroundStyle(TeaTheme.muted)
                         }
@@ -120,7 +122,7 @@ struct RuleGuide: View {
             }
         }
         .navigationDestination(isPresented: $showsRulesetDetails) {
-            RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules)
+            RulesetDetailsPage(ruleset: ruleset, houseRules: houseRules, resetsStreakOnPassingDraw: resetsStreakOnPassingDraw)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { navigation }
         .modifier(HingeSafeContent())
@@ -248,9 +250,16 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
         }
     }
 
-    fileprivate func explanation(claim: Claim) -> String {
+    fileprivate func explanation(claim: Claim, ruleset: FuzhouRuleset, indicators: FuzhouHouseRules.GoldIndicators) -> String {
         switch self {
-        case .turn: "开局每人拿 16 张牌，庄家再拿一张，叫坎门。接着补花、开金。平时轮到你时，通常是先摸一张，再打一张。"
+        case .turn:
+            if ruleset == .legacy {
+                "开局每人拿 16 张牌，补花、开金后由庄家先摸牌。平时轮到你时，通常是先摸一张，再打一张。"
+            } else {
+                "开局每人拿 16 张牌，庄家再拿一张，叫坎门。" +
+                    (indicators.revealsBeforeFlowers ? "先开金，再补花。本局作金的字牌留在手中。" : "接着补花，再开金。") +
+                    "平时轮到你时，通常是先摸一张，再打一张。"
+            }
         case .flowers: "东南西北、中发白、梅兰竹菊、春夏秋冬通常都算花牌。摸到花牌时，先亮出来，再从牌尾补一张。图中亮出的是梅，补到的是三筒。"
         case .claims: claim.explanation
         case .gold: "开局翻一张牌来定本局的金牌。胡牌时，手里的金牌可以代替别的牌。图中用二筒金代替七万，组成六万、七万、八万的顺子。"
@@ -279,7 +288,9 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
             (ruleset == .legacy ? "翻到梅兰竹菊或春夏秋冬中的一张时，这八张花牌都算金牌。"
                     : indicators.explanation) +
                 "\n\n手里的金牌不能用来吃、碰或杠。自己打出金牌后，这局只能自摸。别人打出的金牌也不能拿来胡牌。" +
-                "\n\n开金后，如果翻出的牌能按牌面凑齐五组牌和一对将牌，就可以抢金。庄家要先选一张牌打出，再用翻出的牌补上。闲家直接加上翻出的牌。" +
+                "\n\n开金后，如果翻出的牌能按牌面凑齐五组牌和一对将牌，就可以抢金。" +
+                (ruleset == .legacy ? "庄家和闲家都把翻出的牌直接加进手牌。"
+                 : "庄家要先选一张牌打出，再用翻出的牌补上。闲家直接加上翻出的牌。") +
                 (indicators == .suitedOnly ? "" : "翻到字牌作金的这一局没有抢金。")
         case .winning:
             if ruleset == .legacy {

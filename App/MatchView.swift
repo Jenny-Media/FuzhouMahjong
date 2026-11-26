@@ -28,8 +28,10 @@ struct MatchView<Session: MatchSession>: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.boardStyle) private var boardStyle
     @Environment(\.tileMaterial) private var tileMaterial
+    @ScaledMetric(relativeTo: .caption2) private var drawCaptionHeight = 15.0
     @ScaledMetric(relativeTo: .subheadline) private var primaryControlWidth = 80.0
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("table.sound.enabled") private var soundEnabled = true
@@ -74,7 +76,7 @@ struct MatchView<Session: MatchSession>: View {
         guard let opening else { return nil }
         return openingAnimationRound == opening ? openingStage : .shuffle(nil)
     }
-    private var showsGoldIndicator: Bool { opening == nil || dealStage == .revealGold }
+    private var showsGoldIndicator: Bool { dealStage?.showsGold ?? true }
 
     var body: some View {
         Group {
@@ -111,7 +113,12 @@ struct MatchView<Session: MatchSession>: View {
                     .disabled(session.table?.hand.isEmpty != false)
                     .accessibilityIdentifier("rack-arrange")
                     .accessibilityHint(arranging ? "结束理牌，回到对局" : "拖动手牌可以调整顺序")
+                }
+            }
+            if opening == nil {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("出牌记录", systemImage: "square.grid.3x3") { showsHistory = true }
+                        .accessibilityIdentifier("table-history")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -123,6 +130,7 @@ struct MatchView<Session: MatchSession>: View {
                 .accessibilityIdentifier("table-settings")
             }
         }
+        .modifier(TableToolbarPlacement())
         .fullScreenCover(isPresented: $showsScorecard) { scorecard }
         .sheet(isPresented: $showsSettings) { SettingsView() }
         .sheet(item: $tablePurchaseReason) { PurchaseSheet(reason: $0) }
@@ -132,7 +140,8 @@ struct MatchView<Session: MatchSession>: View {
         .sheet(item: $guideLesson) { lesson in
             NavigationStack {
                 RuleGuide(startingAt: lesson, showsCloseButton: true,
-                          ruleset: session.table?.ruleset ?? .legacy, houseRules: session.table?.houseRules)
+                          ruleset: session.table?.ruleset ?? .legacy, houseRules: session.table?.houseRules,
+                          resetsStreakOnPassingDraw: session.table?.resetsStreakOnPassingDraw == true)
             }
         }
         .alert("打出金牌？", isPresented: Binding(get: { goldDiscard != nil }, set: { if !$0 { goldDiscard = nil } }),
@@ -255,11 +264,11 @@ struct MatchView<Session: MatchSession>: View {
             }
         }
         .onChange(of: session.table?.roundNumber) { _, _ in
-            closeScorecardForNewHand()
+            closeHandReviewForNewHand()
             resetArrangement()
         }
         .onChange(of: session.table?.result) { before, result in
-            if result == nil { closeScorecardForNewHand() }
+            if result == nil { closeHandReviewForNewHand() }
             else {
                 resetArrangement()
                 if before == nil, UIAccessibility.isVoiceOverRunning, let table = session.table {
@@ -285,7 +294,7 @@ struct MatchView<Session: MatchSession>: View {
             Group {
                 if let table = session.table, let result = table.result {
                     MatchResults(table: table, result: result, names: names,
-                                 canAdvance: session.canAdvance && !session.paused,
+                                 canAdvance: session.canAdvance, paused: session.paused,
                                  advanceTitle: advanceTitle,
                                  advanceDetail: session.players.isEmpty ? access.soloAllowanceText : nil,
                                  returnToTable: { showsScorecard = false }, next: nextHand)
@@ -298,11 +307,14 @@ struct MatchView<Session: MatchSession>: View {
         }
     }
 
-    private func closeScorecardForNewHand() {
-        guard showsScorecard else { return }
+    private func closeHandReviewForNewHand() {
+        guard showsScorecard || showsHistory else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) { showsScorecard = false }
+        withTransaction(transaction) {
+            showsScorecard = false
+            showsHistory = false
+        }
     }
 
     private var advanceTitle: String? {
@@ -415,15 +427,16 @@ struct MatchView<Session: MatchSession>: View {
                     try await Task.sleep(for: .milliseconds(280))
                 }
             }
-            if session.table?.players.contains(where: { $0.flowerCount > 0 }) == true {
-                openingStage = .flowers
-                try await Task.sleep(for: .milliseconds(350))
-            }
-            if session.table?.gold != nil {
+            guard let table = session.table else { return }
+            for stage in OpeningDeal.Stage.afterDeal(at: table) {
                 guard !Task.isCancelled, active, opening == round else { return }
-                openingStage = .revealGold
-                playHaptic(.gold)
-                try await Task.sleep(for: .milliseconds(500))
+                openingStage = stage
+                if case .revealGold = stage {
+                    playHaptic(.gold)
+                    try await Task.sleep(for: .milliseconds(500))
+                } else {
+                    try await Task.sleep(for: .milliseconds(350))
+                }
             }
         } catch { return }
         guard !Task.isCancelled else { return }
@@ -619,7 +632,7 @@ struct MatchView<Session: MatchSession>: View {
                     ArrangementView {
                         VStack(spacing: 6) {
                             header(table)
-                            tableSurface(table, drawsOnBoard: false)
+                            tableSurface(table, drawsOnBoard: false, revealInHandPane: table.result?.winner == table.viewer)
                         }
                         .padding(TeaTheme.tableGutter)
                         .accessibilityElement(children: .contain)
@@ -627,14 +640,20 @@ struct MatchView<Session: MatchSession>: View {
                     } secondary: {
                         GeometryReader { panel in
                             let singleRow = panel.size.width >= 600
-                            VStack(alignment: .leading, spacing: 6) {
-                                if !singleRow {
-                                    drawSlot(table.drawn, table: table)
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                            if let result = table.result, result.winner == table.viewer {
+                                WinningHandReveal(table: table, result: result, winner: table.viewer, name: "你",
+                                                  width: panel.size.width)
+                                    .modifier(Felt(gameTable: true))
+                            } else {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    if !singleRow {
+                                        drawSlot(table.drawn, table: table)
+                                            .frame(maxWidth: .infinity, alignment: .trailing)
+                                    }
+                                    rack(table, availableWidth: panel.size.width, landscape: singleRow)
                                 }
-                                rack(table, availableWidth: panel.size.width, landscape: singleRow)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                             }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         }
                         .padding(TeaTheme.tableGutter)
                     }
@@ -777,20 +796,22 @@ struct MatchView<Session: MatchSession>: View {
         return VStack(spacing: 6) {
             header(table, showsResultActions: landscape)
             tableSurface(table, drawsOnBoard: !singleRow, showsResultActions: !landscape)
-            rack(table, availableWidth: max(0, size.width - TeaTheme.tableGutter * 2),
-                 landscape: singleRow)
+            if table.result?.winner != table.viewer {
+                rack(table, availableWidth: max(0, size.width - TeaTheme.tableGutter * 2), landscape: singleRow)
+            }
         }
         .padding(.horizontal, TeaTheme.tableGutter)
         .padding(.vertical, 4)
     }
 
-    private func tableSurface(_ table: TableState, drawsOnBoard: Bool, showsResultActions: Bool = true) -> some View {
+    private func tableSurface(_ table: TableState, drawsOnBoard: Bool, showsResultActions: Bool = true,
+                              revealInHandPane: Bool = false) -> some View {
         GeometryReader { surface in
             LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
                       highlightedFlowers: flowerHighlights.tiles,
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
-                      showsInlineResultActions: showsResultActions,
+                      showsInlineResultActions: showsResultActions, revealInHandPane: revealInHandPane,
                       flyingDiscard: reduceMotion ? nil : discardFlight?.tile.id,
                       flyingClaim: !reduceMotion && presentedClaimFlightID == claimFlight?.id ? claimFlight?.tile.id : nil,
                       inspectedSeat: $inspectedSeat, onOfferedTileFrame: rememberOfferedTileFrame) {
@@ -825,7 +846,6 @@ struct MatchView<Session: MatchSession>: View {
             .accessibilityIdentifier("table-actions")
             .frame(maxWidth: .infinity, alignment: responding ? .center : .trailing)
             .padding(.top, 4)
-            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
     }
 
@@ -942,7 +962,7 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private func rack(_ table: TableState, availableWidth: CGFloat, landscape: Bool) -> some View {
-        let tiles = table.result?.winner == table.viewer ? [] : orderedHand(table.hand)
+        let tiles = orderedHand(table.hand)
         let count = landscape ? FuzhouMatch.rackSize : FuzhouMatch.rackSize / 2
         let slotCount = landscape ? count + 1 : count
         let rim: CGFloat = 6
@@ -1013,14 +1033,27 @@ struct MatchView<Session: MatchSession>: View {
 
     private func drawnTileDock(_ tile: Tile?, table: TableState, rackCellWidth: CGFloat?, cellWidth: CGFloat,
                                cellHeight: CGFloat, visible: Bool) -> some View {
-        return VStack(spacing: 2) {
-            Text(drawLabel(table))
+        let expandsCaption = typeSize.isAccessibilitySize && rackCellWidth == nil && opening == nil && table.result == nil
+        return VStack(alignment: .trailing, spacing: 2) {
+            // Reserve a full caption in the accessibility action row. In a single-row rack
+            // the label can extend inward above the neighboring tiles without moving them.
+            Text("刚摸到")
                 .font(.caption2.weight(.semibold))
-                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                .foregroundStyle(TeaTheme.muted)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
+                .padding(.horizontal, 3)
+                .fixedSize()
+                .hidden()
+                .frame(width: expandsCaption ? nil : cellWidth, height: drawCaptionHeight, alignment: .trailing)
+                .overlay(alignment: .trailing) {
+                    Text(drawLabel(table))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(boardStyle.ink)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 3)
+                        .background(boardStyle.seatSurface, in: RoundedRectangle(cornerRadius: 3))
+                }
                 .opacity(visible ? 1 : 0)
+                .allowsHitTesting(false)
                 .accessibilityHidden(true)
             Group {
                 if let tile {
@@ -1035,7 +1068,7 @@ struct MatchView<Session: MatchSession>: View {
             .accessibilityHidden(!visible)
             .anchorPreference(key: TableAnchors.self, value: .bounds) { [.drawn: $0] }
         }
-        .frame(width: cellWidth)
+        .frame(minWidth: cellWidth, alignment: .trailing)
         .transformAnchorPreference(key: TableAnchors.self, value: .bounds) {
             if opening != nil, visible { $0[.openingDrawDock] = $1 }
         }
@@ -1536,6 +1569,21 @@ struct MatchView<Session: MatchSession>: View {
     }
 }
 
+private struct TableToolbarPlacement: ViewModifier {
+    func body(content: Content) -> some View {
+        #if canImport(SwiftUI, _version: 8.0.85)
+        if #available(iOS 27.1, *) {
+            // The Duo's floating side bar can intercept taps on the felt after rotating mid-hand.
+            content.toolbarVerticalBehavior(.disabled)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
 @available(iOS 26.0, *)
 private struct TableEdgeBackSwipe: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> Controller { Controller() }
@@ -1678,9 +1726,21 @@ private struct TableHistory: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        let timeline = table.discardTimeline ?? []
+        let recorded = Set(timeline.map(\.id))
+        return NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if !timeline.isEmpty {
+                        Text("按出牌顺序").font(.headline).accessibilityAddTraits(.isHeader)
+                        ForEach(timeline) { discard in
+                            discardRow(discard)
+                            Divider()
+                        }
+                    } else if !table.hasKnownDiscard {
+                        Text("本局还没有出牌").foregroundStyle(TeaTheme.muted)
+                    }
+                    Text("各家亮牌").font(.headline).accessibilityAddTraits(.isHeader)
                     ForEach(table.players) { player in
                         VStack(alignment: .leading, spacing: 6) {
                             Text("\(table.wind(for: player.seat).wind) · \(displayName(player.seat, viewer: table.viewer, names: names))")
@@ -1690,10 +1750,15 @@ private struct TableHistory: View {
                                 .font(.subheadline.monospacedDigit()).foregroundStyle(TeaTheme.muted)
                             ForEach(player.melds) { meld in
                                 MeldTiles(meld: meld, width: 23)
+                                if let source = meld.from {
+                                    Text("来自\(name(source))的出牌").font(.caption).foregroundStyle(TeaTheme.muted)
+                                }
                             }
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 25), spacing: 4)], spacing: 4) {
-                                ForEach(player.discards) { tile in
-                                    TileFace(kind: tile.kind, gold: table.isGold(tile)).frame(width: 24, height: 31)
+                            let earlier = player.discards.filter { !recorded.contains($0.id) }
+                            if !earlier.isEmpty {
+                                Text("早前打出的牌（按座位）").font(.subheadline)
+                                ForEach(earlier) { tile in
+                                    discardRow(TableDiscard(seat: player.seat, tile: tile))
                                 }
                             }
                         }
@@ -1706,6 +1771,7 @@ private struct TableHistory: View {
                 .frame(maxWidth: TeaTheme.contentWidth)
                 .frame(maxWidth: .infinity)
             }
+            .accessibilityIdentifier("table-history-scroll")
             .modifier(HingeSafeContent())
             .teaBackdrop()
             .navigationTitle("出牌与亮牌记录")
@@ -1713,6 +1779,23 @@ private struct TableHistory: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
         }
     }
+    private func discardRow(_ discard: TableDiscard) -> some View {
+        HStack(spacing: 10) {
+            TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
+                .frame(width: 28, height: 38).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(name(discard.seat))打出\(table.discardDescription(discard.tile))")
+                if let claim = table.claim(of: discard) {
+                    Text("\(name(claim.seat))\(claim.action)")
+                        .font(.subheadline).foregroundStyle(TeaTheme.brass)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("history-discard-\(discard.id)")
+    }
+
+    private func name(_ seat: Seat) -> String { displayName(seat, viewer: table.viewer, names: names) }
 }
 
 func displayName(_ seat: Seat, viewer: Seat, names: [Seat: String]) -> String {

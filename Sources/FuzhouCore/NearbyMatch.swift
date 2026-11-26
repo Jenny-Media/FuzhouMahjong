@@ -25,6 +25,8 @@ public struct RoomUpdate: Equatable, Codable, Sendable {
     public var paused: Bool
     var matchRuleset: FuzhouRuleset? = nil
     public var houseRules: FuzhouHouseRules? = nil
+    /// Lets guests see the host's draw rule in the lobby before the first deal.
+    public var resetsStreakOnPassingDraw: Bool? = nil
     public var moveReceipt: MoveReceipt? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? table?.ruleset ?? .legacy }
@@ -101,7 +103,8 @@ public struct NearbyMatch: Sendable {
 
     public func update(for seat: Seat) -> RoomUpdate {
         RoomUpdate(viewer: seat, players: players, revision: revision, table: match?.table(for: seat),
-                   paused: paused, matchRuleset: ruleset, houseRules: houseRules)
+                   paused: paused, matchRuleset: ruleset, houseRules: houseRules,
+                   resetsStreakOnPassingDraw: started ? nil : true)
     }
 
     @discardableResult

@@ -266,8 +266,10 @@ struct NearbyView: View {
                 }
                 if session.rooms.isEmpty {
                     HStack {
-                        Label("正在查找附近牌桌…", systemImage: "wifi")
-                            .font(.footnote).foregroundStyle(TeaTheme.muted)
+                        if session.isBrowsing && session.notice == nil {
+                            Label("正在查找附近牌桌…", systemImage: "wifi")
+                                .font(.footnote).foregroundStyle(TeaTheme.muted)
+                        }
                         Spacer()
                         Button("重新查找") { session.stopBrowsing(); session.browse() }
                             .disabled(session.inviteSearch == .searching)
@@ -302,7 +304,8 @@ struct NearbyView: View {
                 Label("玩法 · \(update.houseRules?.name ?? update.ruleset.title)", systemImage: "list.bullet.rectangle")
                     .font(.subheadline.weight(.semibold))
                     .accessibilityIdentifier("room-ruleset")
-                RulesetDetailsButton(ruleset: update.ruleset, houseRules: update.houseRules)
+                RulesetDetailsButton(ruleset: update.ruleset, houseRules: update.houseRules,
+                                     resetsStreakOnPassingDraw: update.resetsStreakOnPassingDraw)
             }
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(session.players) { player in

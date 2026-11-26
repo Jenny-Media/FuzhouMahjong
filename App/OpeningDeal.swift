@@ -26,8 +26,8 @@ struct OpeningDeal: View {
         case stacking(Date)
         case deal(Date)
         case settled
-        case flowers
-        case revealGold
+        case flowers(goldRevealed: Bool)
+        case revealGold(flowersShown: Bool)
 
         var title: String {
             switch self {
@@ -51,7 +51,57 @@ struct OpeningDeal: View {
             }
         }
 
-        var showsFlowers: Bool { self == .flowers || self == .revealGold }
+        var showsFlowers: Bool {
+            switch self {
+            case .flowers: true
+            case .revealGold(let flowersShown): flowersShown
+            default: false
+            }
+        }
+
+        var showsGold: Bool {
+            switch self {
+            case .revealGold: true
+            case .flowers(let goldRevealed): goldRevealed
+            default: false
+            }
+        }
+
+        static func afterDeal(at table: TableState) -> [Self] {
+            let hasFlowers = table.players.contains { player in
+                if let credits = table.openingIndicatorCredits(for: player.seat) {
+                    return player.flowerCount > credits.count
+                }
+                // An eligible indicator would have stopped the flip. If that kind
+                // is exposed as a flower, it must have come from the dealer's rack.
+                let indicators = table.houseRules?.goldIndicators ?? .suitedOnly
+                if player.exposedFlowers?.contains(where: { indicators.allows($0.kind) }) == true { return true }
+                return table.lastDraw?.isOpeningDeal == true && (table.lastDraw?.flowersReplaced ?? 0) > 0
+            }
+            let hasGold = table.gold != nil
+            let goldFirst = table.houseRules?.goldIndicators.revealsBeforeFlowers == true
+            let flowers: Self? = hasFlowers ? .flowers(goldRevealed: hasGold && goldFirst) : nil
+            let gold: Self? = hasGold ? .revealGold(flowersShown: hasFlowers && !goldFirst) : nil
+            return (goldFirst ? [gold, flowers] : [flowers, gold]).compactMap { $0 }
+        }
+
+        func presenting(_ player: TableState.Player, indicatorFlowers: [Tile.ID]?) -> TableState.Player {
+            guard !showsFlowers || !showsGold else { return player }
+            var visible = player
+            if let indicatorFlowers, let flowers = player.exposedFlowers {
+                let shown = flowers.filter { indicatorFlowers.contains($0.id) ? showsGold : showsFlowers }
+                visible.exposedFlowers = shown
+                visible.flowerCount = shown.count
+            } else if let indicatorFlowers {
+                let credits = min(indicatorFlowers.count, player.flowerCount)
+                visible.flowerCount = (showsGold ? credits : 0) + (showsFlowers ? player.flowerCount - credits : 0)
+            } else {
+                // Old hosts do not identify which dealer flowers came from the flip.
+                visible.exposedFlowers = player.exposedFlowers.map { _ in [] }
+                visible.flowerCount = 0
+            }
+            return visible
+        }
 
         func landed(for seat: Seat, dealer: Seat, at time: Date) -> Int {
             switch self {
@@ -200,6 +250,13 @@ struct OpeningDeal: View {
 
     private func interpolate(_ start: CGPoint, _ end: CGPoint, _ fraction: Double) -> CGPoint {
         CGPoint(x: start.x + (end.x - start.x) * fraction, y: start.y + (end.y - start.y) * fraction)
+    }
+}
+
+extension TableState {
+    func openingIndicatorCredits(for seat: Seat) -> [Tile.ID]? {
+        // Legacy rules turn over a single tile. Only modern rules can credit skipped flips.
+        seat == dealer && ruleset != .legacy ? openingIndicatorFlowerIDs : []
     }
 }
 

@@ -17,6 +17,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private var reserve: [Tile] = []
     private var hands = Array(repeating: [Tile](), count: 4)
     private var flowers = Array(repeating: [Tile](), count: 4)
+    private var openingIndicatorFlowerIDs: [Tile.ID]?
     private var ponds = Array(repeating: [Tile](), count: 4)
     private var discardTimeline: [TableDiscard]?
     private var lastDraw: TableDraw?
@@ -30,6 +31,8 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private var step = TableState.Step.turn
     private var offeredTile: Tile?
     private var matchRuleset: FuzhouRuleset?
+    // A missing flag keeps a match started on an older release on its original dealer rules.
+    private var resetsStreakOnPassingDraw: Bool? = true
 
     public private(set) var gold: Tile?
     public private(set) var current = Seat.east
@@ -85,7 +88,8 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                                     exposedFlowers: flowers[$0.id])
                    }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards,
-                   discardClaimFeedback: claimFeedback)
+                   discardClaimFeedback: claimFeedback, openingIndicatorFlowerIDs: openingIndicatorFlowerIDs,
+                   resetsStreakOnPassingDraw: resetsStreakOnPassingDraw)
     }
 
     public func legalMoves(for seat: Seat) -> [Move] {
@@ -272,7 +276,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         } else {
             dealer = dealer.advanced(1)
             dealerTurns += 1
-            continuation = result.winner == nil ? continuation + 1 : 0
+            continuation = result.winner == nil && resetsStreakOnPassingDraw != true ? continuation + 1 : 0
         }
         roundNumber += 1
         var random = SystemRandomNumberGenerator()
@@ -309,7 +313,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         }
         // Reveal before replacing flowers when honors can be gold, so dealt copies of the
         // indicator stay in players' racks instead of being counted as flowers.
-        if goldIndicators != .suitedOnly {
+        if goldIndicators.revealsBeforeFlowers {
             guard let indicator = revealGold() else { settle(.draw); return }
             gold = indicator
         }
@@ -396,11 +400,13 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         while let tile = reserve.last, !goldIndicators.allows(tile.kind) {
             guard let flower = replacement() else { return nil }
             flowers[dealer.id].append(flower)
+            openingIndicatorFlowerIDs?.append(flower.id)
         }
         return reserve.popLast()
     }
 
     private mutating func resetHandState() {
+        openingIndicatorFlowerIDs = []
         ponds = Array(repeating: [], count: 4)
         discardTimeline = []
         lastDraw = nil
