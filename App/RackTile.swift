@@ -120,20 +120,22 @@ struct RackTile: View {
                             .allowsHitTesting(false)
                     }
                 }
+                .anchorPreference(key: RackDragPreview.Key.self, value: .bounds) { anchor in
+                    RackDragPreview.Preferences(rackFaces: isMeldCandidate ? [tile.id: anchor] : [:])
+                }
                 .offset(x: reduceMotion || showsPreview ? 0 : offset.width,
                         y: reduceMotion ? 0 : (showsPreview ? 0 : offset.height) - (isSelected || isCandidate ? 3 : 0))
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                     if throwDiscard != nil { faceFrame = frame }
                 }
-                .anchorPreference(key: RackDragPreview.Key.self, value: .bounds) { anchor in
-                    let preview = showsPreview ? RackDragPreview(
+                .transformAnchorPreference(key: RackDragPreview.Key.self, value: .bounds) { preferences, anchor in
+                    preferences.preview = showsPreview ? RackDragPreview(
                         faces: meldFaces ?? [.init(tile: tile, isGold: isGold)],
                         grabbedID: tile.id,
                         source: anchor,
                         translation: offset,
                         stationary: reduceMotion
                     ) : nil
-                    return RackDragPreview.Preferences(preview: preview, rackFaces: isMeldCandidate ? [tile.id: anchor] : [:])
                 }
                 .opacity(showsPreview && !reduceMotion && meldFaces == nil ? 0 : 1)
                 .frame(width: cellWidth, height: max(TeaTheme.hitTarget, face.height))

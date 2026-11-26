@@ -979,8 +979,10 @@ final class TableFlowTests: XCTestCase {
             let centerY = reduceMotion ? centerAboveRack : min(centerAboveRack, grabbedFrame.midY - rise)
             let grabbedEdge = grabbedFrame.midX - width / 2
             let stride = width * 1.065
+            let candidateColor: UInt32 = 0x22614D
             let rackColor: UInt32 = 0x215D61
             let previewColor: UInt32 = 0x176F88
+            let before = try uprightImage(from: XCUIScreen.main.screenshot())
             let during = try screenshotDuringDrag(from: start, rise: rise)
             capture(reduceMotion ? "held-chow-reduce-motion" : "held-chow", screenshot: during)
             let heldImage = try uprightImage(from: during)
@@ -999,6 +1001,15 @@ final class TableFlowTests: XCTestCase {
             for frame in [partnerFrame, grabbedFrame] {
                 XCTAssertGreaterThan(try edge(frame.midX - width / 2, y: frame.midY, color: rackColor), 0.85,
                                      "The contributing tile remains highlighted in the rack")
+                let topBand = CGRect(x: frame.midX - 6, y: frame.midY - height / 2 - 5, width: 12, height: 10)
+                let tileTop = try firstStrokeRow(candidateColor, in: topBand, image: before, window: window)
+                let highlightTop = try firstStrokeRow(rackColor, in: topBand, image: heldImage, window: window)
+                XCTAssertEqual(Double(highlightTop), Double(tileTop), accuracy: 3,
+                               "The highlight follows the actual top edge of the contributing tile")
+                let interior = CGRect(x: frame.midX - width * 0.3, y: frame.midY - height * 0.32,
+                                      width: width * 0.6, height: height * 0.64)
+                XCTAssertGreaterThan(try artworkMatch(in: interior, before: before, held: heldImage, window: window), 0.9,
+                                     "The original tile artwork remains visible in the rack")
             }
             if reduceMotion {
                 XCTAssertTrue(pass.exists, "The short drag cancels")
@@ -1043,8 +1054,52 @@ final class TableFlowTests: XCTestCase {
     }
 
     private func matchingStroke(at point: CGPoint, color: UInt32, in image: CGImage, window: CGRect) throws -> Double {
-        let scale = CGFloat(image.width) / window.width
         let area = CGRect(x: point.x - 3, y: point.y - 9, width: 6, height: 18)
+        let sample = try screenshotPixels(in: area, image: image, window: window)
+        let rows = (0..<sample.height).filter { y in
+            (0..<sample.width).contains { x in
+                matchesColor(color, in: sample.bytes, at: (y * sample.width + x) * 4)
+            }
+        }
+        return Double(rows.count) / Double(sample.height)
+    }
+
+    private func firstStrokeRow(_ color: UInt32, in area: CGRect, image: CGImage, window: CGRect) throws -> Int {
+        let sample = try screenshotPixels(in: area, image: image, window: window)
+        // The preview's shadow can darken the stroke where it approaches the rack.
+        let row = (0..<sample.height).first { y in
+            let hits = (0..<sample.width).filter { x in
+                matchesColor(color, in: sample.bytes, at: (y * sample.width + x) * 4, tolerance: 16)
+            }
+            return hits.count * 4 >= sample.width * 3
+        }
+        return try XCTUnwrap(row, "Expected a stroke in \(area)")
+    }
+
+    private func artworkMatch(in area: CGRect, before: CGImage, held: CGImage, window: CGRect) throws -> Double {
+        let baseline = try screenshotPixels(in: area, image: before, window: window)
+        let during = try screenshotPixels(in: area, image: held, window: window)
+        guard baseline.width == during.width, baseline.height == during.height else { return 0 }
+        let matches = stride(from: 0, to: baseline.bytes.count, by: 4).filter { index in
+            (0..<3).allSatisfy { channel in
+                abs(Int(baseline.bytes[index + channel]) - Int(during.bytes[index + channel])) <= 24
+            }
+        }
+        return Double(matches.count) / Double(baseline.width * baseline.height)
+    }
+
+    private func matchesColor(_ color: UInt32, in pixels: [UInt8], at index: Int, tolerance: Int = 8) -> Bool {
+        let red = Int((color >> 16) & 255)
+        let green = Int((color >> 8) & 255)
+        let blue = Int(color & 255)
+        return abs(Int(pixels[index]) - red) <= tolerance
+            && abs(Int(pixels[index + 1]) - green) <= tolerance
+            && abs(Int(pixels[index + 2]) - blue) <= tolerance
+    }
+
+    private func screenshotPixels(in area: CGRect, image: CGImage, window: CGRect)
+        throws -> (bytes: [UInt8], width: Int, height: Int) {
+        let scale = CGFloat(image.width) / window.width
         let crop = try XCTUnwrap(image.cropping(to: area.applying(CGAffineTransform(scaleX: scale, y: scale)).integral))
         let stride = crop.width * 4
         var pixels = [UInt8](repeating: 0, count: stride * crop.height)
@@ -1055,18 +1110,7 @@ final class TableFlowTests: XCTestCase {
                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
             context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
         }
-        let red = Int((color >> 16) & 255)
-        let green = Int((color >> 8) & 255)
-        let blue = Int(color & 255)
-        let rows = (0..<crop.height).filter { y in
-            (0..<crop.width).contains { x in
-                let index = y * stride + x * 4
-                return abs(Int(pixels[index]) - red) <= 8
-                    && abs(Int(pixels[index + 1]) - green) <= 8
-                    && abs(Int(pixels[index + 2]) - blue) <= 8
-            }
-        }
-        return Double(rows.count) / Double(crop.height)
+        return (pixels, crop.width, crop.height)
     }
 
     func testDrawnWindJoinsTheVisibleFlowersAndTheReplacementReachesTheRack() throws {
