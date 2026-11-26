@@ -1012,9 +1012,12 @@ final class TableFlowTests: XCTestCase {
                                      "The original tile artwork remains visible in the rack")
             }
             if reduceMotion {
-                XCTAssertTrue(pass.exists, "The short drag cancels")
+                let canceled = pass.waitForExistence(timeout: 5)
+                let afterRelease = XCUIScreen.main.screenshot()
+                if !canceled { capture("short-chow-after-release", screenshot: afterRelease) }
+                XCTAssertTrue(canceled, "The short drag cancels")
                 XCTAssertTrue(grabbedTile.exists)
-                let afterCancel = try uprightImage(from: XCUIScreen.main.screenshot())
+                let afterCancel = try uprightImage(from: afterRelease)
                 XCTAssertLessThan(try edge(grabbedEdge, y: centerY, color: previewColor, in: afterCancel), 0.1)
             } else {
                 XCTAssertTrue(grabbedTile.waitForNonExistence(timeout: 5), "The full swipe commits the chow")
