@@ -3,6 +3,193 @@ import SwiftUI
 import UIKit
 
 struct GesturePractice: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(GestureLesson.allCases) { lesson in
+                        NavigationLink(value: lesson) {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(lesson.title)
+                                    Text(lesson.summary)
+                                        .font(.subheadline)
+                                        .foregroundStyle(TeaTheme.muted)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .buttonStyle(TeaButtonStyle(prominent: false, verticalPadding: 12))
+                        .accessibilityIdentifier("gesture-practice-lesson-\(lesson.rawValue)")
+                    }
+                }
+                .padding(TeaTheme.gutter)
+                .frame(maxWidth: 510)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .modifier(HingeSafeContent())
+            .teaBackdrop()
+            .navigationTitle("手势练习")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                        .accessibilityIdentifier("gesture-practice-picker-close")
+                }
+            }
+            .navigationDestination(for: GestureLesson.self) { lesson in
+                switch lesson {
+                case .basic: BasicGesturePractice()
+                case .multipleChows, .kong: MeldGesturePractice(lesson: lesson)
+                }
+            }
+        }
+    }
+}
+
+enum GestureLesson: String, CaseIterable, Identifiable {
+    case basic, multipleChows, kong
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .basic: "基础手势"
+        case .multipleChows: "多种吃法"
+        case .kong: "碰还是杠"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .basic: "出牌、预览与取消"
+        case .multipleChows: "同一张牌有两种吃法"
+        case .kong: "选择明杠，补摸后出牌"
+        }
+    }
+}
+
+struct GesturePracticeLayout<Instructions: View, Board: View, Actions: View>: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ViewBuilder let instructions: () -> Instructions
+    @ViewBuilder let board: () -> Board
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        GeometryReader { geometry in
+            let sideBySide = geometry.size.width >= 420 && geometry.size.height < 480
+            let layout = sideBySide
+                ? AnyLayout(HStackLayout(alignment: .top, spacing: 20))
+                : AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            layout {
+                Group {
+                    if typeSize.isAccessibilitySize || (!sideBySide && geometry.size.height < 340) {
+                        ScrollView { instructions() }
+                            .scrollBounceBehavior(.basedOnSize)
+                            .frame(maxHeight: sideBySide ? .infinity : geometry.size.height * 0.4)
+                    } else {
+                        instructions().fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: sideBySide ? min(280, geometry.size.width * 0.37) : .infinity,
+                       alignment: .topLeading)
+                VStack(spacing: 10) {
+                    board()
+                    actions()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .padding(TeaTheme.gutter)
+            .frame(maxWidth: sideBySide ? 900 : 510, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .modifier(HingeSafeContent())
+        .teaBackdrop()
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden()
+    }
+}
+
+struct GesturePracticeBoard<TableTiles: View, Rack: View>: View {
+    let slotCount: Int
+    var showsDiscardArrow = false
+    @ViewBuilder let tableTiles: () -> TableTiles
+    @ViewBuilder let rack: (CGFloat) -> Rack
+
+    var body: some View {
+        GeometryReader { geometry in
+            let cellWidth = min(46, max(0, geometry.size.width - 28) / CGFloat(slotCount))
+            VStack(spacing: 6) {
+                tableTiles()
+                    .frame(maxHeight: .infinity, alignment: showsDiscardArrow ? .bottom : .top)
+                    .padding(.bottom, showsDiscardArrow ? 12 : 0)
+                rack(cellWidth)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .modifier(Felt(gameTable: true))
+            .overlayPreferenceValue(RackDragPreview.Key.self) { drag in
+                if let preview = drag.preview {
+                    RackDragOverlay(preview: preview, rackFaces: drag.rackFaces, rackBounds: drag.rackBounds,
+                                    divisions: [])
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+    }
+}
+
+struct GesturePracticeTileGroup: View {
+    @Environment(\.boardStyle) private var boardStyle
+    let tiles: [Tile]
+    let label: String
+    var offeredTile: Tile?
+    var spokenValue: String?
+    var identifier = "gesture-practice-table-tiles"
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(boardStyle.ink)
+            GesturePracticeTiles(tiles: tiles, width: 32, offeredTile: offeredTile)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(spokenValue ?? tiles.map(\.kind.spokenName).joined(separator: "、"))
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+struct GesturePracticeTiles: View {
+    let tiles: [Tile]
+    let width: CGFloat
+    var offeredTile: Tile?
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(tiles) { tile in
+                TileFace(kind: tile.kind, gold: false)
+                    .frame(width: width, height: width / TileFace.artworkAspectRatio)
+                    .overlay {
+                        if tile == offeredTile {
+                            RackDragPreview.tableTileOutline(width: width)
+                        }
+                    }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct BasicGesturePractice: View {
     private enum Step {
         case discard, discarded, previewChow, claimChow, complete
 
@@ -31,7 +218,6 @@ struct GesturePractice: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.boardStyle) private var boardStyle
-    @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("solo.gesturePracticeSeen") private var hasSeenGesturePractice = false
     @State private var step = Step.discard
@@ -49,56 +235,36 @@ struct GesturePractice: View {
         + "手牌是\(chowTiles.map(\.kind.spokenName).joined(separator: "、"))。"
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { geometry in
-                let sideBySide = geometry.size.width >= 420 && geometry.size.height < 480
-                let layout = sideBySide
-                    ? AnyLayout(HStackLayout(alignment: .top, spacing: 20))
-                    : AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
-                layout {
-                    Group {
-                        if typeSize.isAccessibilitySize || (!sideBySide && geometry.size.height < 340) {
-                            ScrollView { instructions }
-                                .scrollBounceBehavior(.basedOnSize)
-                                .frame(maxHeight: sideBySide ? .infinity : geometry.size.height * 0.4)
-                        } else {
-                            instructions.fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .frame(maxWidth: sideBySide ? min(280, geometry.size.width * 0.37) : .infinity,
-                           alignment: .topLeading)
-                    VStack(spacing: 10) {
-                        board
-                        actionButton
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .padding(TeaTheme.gutter)
-                .frame(maxWidth: sideBySide ? 900 : 510, maxHeight: .infinity)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GesturePracticeLayout {
+            instructions
+        } board: {
+            GesturePracticeBoard(slotCount: Self.hand.count, showsDiscardArrow: step == .discard) {
+                tableTiles
+            } rack: { cellWidth in
+                rack(cellWidth: cellWidth)
             }
-            .modifier(HingeSafeContent())
-            .teaBackdrop()
-            .navigationTitle("手势练习")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if step != .complete {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("退出") { dismiss() }
-                            .accessibilityIdentifier("gesture-practice-close")
-                    }
-                }
-                if step != .discard {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("重来", action: restart)
-                            .accessibilityIdentifier("gesture-practice-restart")
-                    }
+            .id(rackReset)
+        } actions: {
+            actionButton
+        }
+        .navigationTitle(GestureLesson.basic.title)
+        .toolbar {
+            if step != .complete {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("退出") { dismiss() }
+                        .accessibilityIdentifier("gesture-practice-close")
                 }
             }
-            .onChange(of: step) { _, step in
-                if UIAccessibility.isVoiceOverRunning {
-                    AccessibilityNotification.Announcement("\(step.title)。\(step.instruction)").post()
+            if step != .discard {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("重来", action: restart)
+                        .accessibilityIdentifier("gesture-practice-restart")
                 }
+            }
+        }
+        .onChange(of: step) { _, step in
+            if UIAccessibility.isVoiceOverRunning {
+                AccessibilityNotification.Announcement("\(step.title)。\(step.instruction)").post()
             }
         }
     }
@@ -129,30 +295,6 @@ struct GesturePractice: View {
         return step.instruction
     }
 
-    private var board: some View {
-        GeometryReader { geometry in
-            let cellWidth = min(46, max(0, geometry.size.width - 28) / CGFloat(Self.hand.count))
-            VStack(spacing: 6) {
-                tableTiles
-                    .frame(maxHeight: .infinity, alignment: step == .discard ? .bottom : .top)
-                    .padding(.bottom, step == .discard ? 12 : 0)
-                rack(cellWidth: cellWidth)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .modifier(Felt(gameTable: true))
-            .overlayPreferenceValue(RackDragPreview.Key.self) { drag in
-                if let preview = drag.preview {
-                    RackDragOverlay(preview: preview, rackFaces: drag.rackFaces, rackBounds: drag.rackBounds,
-                                    divisions: [])
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
-        }
-        .id(rackReset)
-    }
-
     @ViewBuilder
     private var tableTiles: some View {
         switch step {
@@ -163,40 +305,17 @@ struct GesturePractice: View {
                 .frame(width: 44, height: 44)
                 .accessibilityHidden(true)
         case .discarded:
-            tableGroup([Self.discardTile], label: "你打出的牌")
+            GesturePracticeTileGroup(tiles: [Self.discardTile], label: "你打出的牌")
         case .previewChow, .claimChow:
             if selectedChow {
-                tableGroup([Self.offeredTile] + Self.chowTiles, label: "待确认的牌组", marksOfferedTile: true)
+                GesturePracticeTileGroup(tiles: [Self.offeredTile] + Self.chowTiles, label: "待确认的牌组",
+                                         offeredTile: Self.offeredTile, spokenValue: Self.chowPreviewDescription)
             } else {
-                tableGroup([Self.offeredTile], label: "牌友打出的牌")
+                GesturePracticeTileGroup(tiles: [Self.offeredTile], label: "牌友打出的牌")
             }
         case .complete:
-            tableGroup([Self.offeredTile] + Self.chowTiles, label: "吃到的牌")
+            GesturePracticeTileGroup(tiles: [Self.offeredTile] + Self.chowTiles, label: "吃到的牌")
         }
-    }
-
-    private func tableGroup(_ tiles: [Tile], label: String, marksOfferedTile: Bool = false) -> some View {
-        let width: CGFloat = 32
-        return VStack(spacing: 4) {
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(boardStyle.ink)
-            HStack(spacing: 2) {
-                ForEach(tiles) { tile in
-                    TileFace(kind: tile.kind, gold: false)
-                        .frame(width: width, height: width / TileFace.artworkAspectRatio)
-                        .overlay {
-                            if marksOfferedTile && tile == Self.offeredTile {
-                                RackDragPreview.tableTileOutline(width: width)
-                            }
-                        }
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
-        .accessibilityValue(marksOfferedTile ? Self.chowPreviewDescription : tiles.map(\.kind.spokenName).joined(separator: "、"))
-        .accessibilityIdentifier("gesture-practice-table-tiles")
     }
 
     private func rack(cellWidth: CGFloat) -> some View {

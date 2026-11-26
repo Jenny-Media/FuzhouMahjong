@@ -31,6 +31,7 @@
 		74EC06B1B65EF0B789A75A0E /* shuffle.wav in Resources */ = {isa = PBXBuildFile; fileRef = E7BFB09CE55A2BAA3057A8ED /* shuffle.wav */; };
 		7A915A9C09D0426D611A5CC0 /* MatchResults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCC1B56B038FE0DE31491E8 /* MatchResults.swift */; };
 		84274608CEF764B378CB64DA /* RuleGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86444A5042E90190736FD0A3 /* RuleGuide.swift */; };
+		883E6AC117E9991C6D101A39 /* MeldGesturePractice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A629B7892E0A45831EF258C /* MeldGesturePractice.swift */; };
 		89848FEA1F59AEBA75985494 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 88EE8907E6A93E97606D3591 /* PrivacyInfo.xcprivacy */; };
 		8EC5E735AB50FDF6C0155301 /* FuzhouMahjongApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3059DC43C7E3FFA403209A5 /* FuzhouMahjongApp.swift */; };
 		9A645FC00E02737C74E6AAFA /* TableAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = F880E33A5E264E1131240B60 /* TableAudio.swift */; };
@@ -85,6 +86,7 @@
 		5E91900CAA4008F8AFAFE2A3 /* TablePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TablePresentationTests.swift; sourceTree = "<group>"; };
 		658421D9AF838407845449F1 /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
 		6607E458A43F0DFF33AB36D4 /* MatchSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchSession.swift; sourceTree = "<group>"; };
+		7A629B7892E0A45831EF258C /* MeldGesturePractice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeldGesturePractice.swift; sourceTree = "<group>"; };
 		81AFEB6B07439A07178BD24D /* FuzhouPurchasesTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FuzhouPurchasesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		86444A5042E90190736FD0A3 /* RuleGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleGuide.swift; sourceTree = "<group>"; };
 		88EE8907E6A93E97606D3591 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -192,6 +194,7 @@
 				0BCC1B56B038FE0DE31491E8 /* MatchResults.swift */,
 				6607E458A43F0DFF33AB36D4 /* MatchSession.swift */,
 				AB00A2E1053595CCED79231C /* MatchView.swift */,
+				7A629B7892E0A45831EF258C /* MeldGesturePractice.swift */,
 				587F0BF9F6FB8E3EFB9DF5C5 /* NearbyView.swift */,
 				8F5D7F294DCF1FD483E7CC4A /* OpeningDeal.swift */,
 				88EE8907E6A93E97606D3591 /* PrivacyInfo.xcprivacy */,
@@ -410,6 +413,7 @@
 				7A915A9C09D0426D611A5CC0 /* MatchResults.swift in Sources */,
 				16967D6F3B4A3A9CB51CE340 /* MatchSession.swift in Sources */,
 				72F7B62793A2D71F2C0FC616 /* MatchView.swift in Sources */,
+				883E6AC117E9991C6D101A39 /* MeldGesturePractice.swift in Sources */,
 				1185CD94CEF686BAD0F3A5BE /* NearbyView.swift in Sources */,
 				470414B7D31822ADF3D62411 /* OpeningDeal.swift in Sources */,
 				A4C5B6AC559B27ECC0A7441B /* PurchaseView.swift in Sources */,

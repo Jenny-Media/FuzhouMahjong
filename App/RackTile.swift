@@ -17,6 +17,7 @@ struct RackTile: View {
     var meldAction: (label: String, preview: [RackDragPreview.Face]?, perform: () -> Void)? = nil
     var onMeldDragCanceled: (() -> Void)? = nil
     var onMeldAccessibilityAction: (() -> Void)? = nil
+    var meldAccessibilityHint: String? = nil
     var isRobGoldCandidate = false
     var swipeReady: (() -> Void)? = nil
     var reposition: ((CGPoint) -> Void)? = nil
@@ -153,7 +154,8 @@ struct RackTile: View {
         .zIndex(offset != .zero ? 1 : 0)
         .accessibilityLabel(isDrawn ? "\(drawLabel)，\(tileLabel)" : tileLabel)
         .accessibilityValue(isRobGoldCandidate ? "可用于抢金" : isMeldCandidate ? "牌组候选" : "")
-        .accessibilityHint(isRobGoldCandidate ? "轻点选择要换出的牌" : isMeldCandidate ? "轻点查看牌组" : "")
+        .accessibilityHint(isRobGoldCandidate ? "轻点选择要换出的牌"
+                           : isMeldCandidate ? (meldAccessibilityHint ?? "轻点查看牌组") : "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("tile-\(tile.id)")
         .accessibilityActions {

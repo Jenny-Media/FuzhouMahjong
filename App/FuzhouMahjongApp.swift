@@ -56,6 +56,7 @@ private struct HomeView: View {
         }
     }
     @State private var sheet: HomeSheet?
+    @State private var showsGesturePractice = false
     @State private var soloPrompt: SoloPrompt?
     @State private var saveChoiceFailed = false
     @State private var opensSoloAfterSetup = false
@@ -100,6 +101,7 @@ private struct HomeView: View {
                 case .purchase(let reason): PurchaseSheet(reason: reason)
                 }
             }
+            .fullScreenCover(isPresented: $showsGesturePractice) { GesturePractice() }
             .alert(soloPrompt?.title ?? "", isPresented: Binding(
                 get: { soloPrompt != nil }, set: { if !$0 { soloPrompt = nil } }
             ), presenting: soloPrompt) { prompt in
@@ -155,6 +157,7 @@ private struct HomeView: View {
         .onOpenURL { url in
             guard let id = RoomInvite.id(from: url) else { return }
             sheet = nil
+            showsGesturePractice = false
             soloPrompt = nil
             opensSoloAfterSetup = false
             path = [.nearby]
@@ -196,6 +199,17 @@ private struct HomeView: View {
             } else {
                 soloSaveChoices
             }
+
+            Button { showsGesturePractice = true } label: {
+                Label("手势练习", systemImage: "hand.draw")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(TeaTheme.brass)
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("home-gesture-practice")
 
             Button {
                 path.append(.nearby)
