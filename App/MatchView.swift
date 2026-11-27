@@ -679,9 +679,15 @@ struct MatchView<Session: MatchSession>: View {
                 if let opening, active, !showsScorecard, let felt = anchors[.felt] {
                     GeometryReader { overlay in
                         let target = overlay[felt]
-                        let controls = Seat.allCases.map(TableAnchors.Marker.seatCard) + [.openingDrawDock]
-                        let exclusions = controls.compactMap { anchors[$0].map { overlay[$0] } }
-                        let region = exposedFelt(in: target, excluding: exclusions)
+                        let viewport = anchors[.seatScrollViewport].map { overlay[$0] }
+                        let seats = Seat.allCases.compactMap { seat -> CGRect? in
+                            guard let anchor = anchors[.seatCard(seat)] else { return nil }
+                            let frame = overlay[anchor]
+                            let visible = viewport.map { frame.intersection($0) } ?? frame
+                            return visible.isEmpty ? nil : visible
+                        }
+                        let dock = anchors[.openingDrawDock].map { [overlay[$0]] } ?? []
+                        let region = exposedFelt(in: target, excluding: seats + dock)
                         OpeningSkipTarget(region: region, started: $openingSkipStarted) {
                             guard active, self.opening == opening else { return }
                             playHaptic(.selection)
@@ -706,6 +712,10 @@ struct MatchView<Session: MatchSession>: View {
                 }
             }
             .onChange(of: geometry.size) { _, _ in
+                if active {
+                    if let discardFlight { finishDiscardLanding(discardFlight) }
+                    if let claimFlight { finishClaimLanding(claimFlight) }
+                }
                 resetDiscardMotion()
                 if let goldDiscard {
                     self.goldDiscard = GoldDiscard(tile: goldDiscard.tile, revision: goldDiscard.revision,

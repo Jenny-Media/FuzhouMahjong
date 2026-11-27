@@ -3,7 +3,7 @@ import SwiftUI
 
 struct TableAnchors: PreferenceKey {
     enum Marker: Hashable {
-        case center, felt, wall, reserve, wallStack(Int)
+        case center, felt, seatScrollViewport, wall, reserve, wallStack(Int)
         case player(Seat), seatCard(Seat), rack(Int), drawn, openingDrawDock, latestDiscard, meldTile(Tile.ID)
     }
 

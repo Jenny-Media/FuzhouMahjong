@@ -252,6 +252,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     }
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .transformAnchorPreference(key: TableAnchors.self, value: .bounds) {
+                    if opening != nil { $0[.seatScrollViewport] = $1 }
+                }
                 scrollingControls(wide: false, width: width, reservesDrawDock: reservesDrawDock)
             }
         }
