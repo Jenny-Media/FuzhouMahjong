@@ -120,6 +120,22 @@ final class BackgroundMusicTests: XCTestCase {
         await expectPlayback(.preview(.teaHouse), in: music)
     }
 
+    func testNegativeResumptionWithoutDeactivationPreventsAutomaticPlayback() async throws {
+        let music = BackgroundMusic()
+        var solo = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: false)
+        defer { music.update(.init()) }
+        music.update(solo)
+
+        music.handleSystemResumption(shouldResume: false)
+        solo.isActive = true
+        music.update(solo)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertNil(music.playback)
+
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+    }
+
     func testPreviewFadesBeforeReturningToSoloMusic() async {
         let music = BackgroundMusic()
         defer { music.update(.init()) }

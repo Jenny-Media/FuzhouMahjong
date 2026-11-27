@@ -166,7 +166,11 @@ final class BackgroundMusic {
     }
 
     func handleSystemResumption(shouldResume: Bool) {
-        guard shouldResume else { return }
+        guard shouldResume else {
+            // A rejected activation can produce a recommendation without a deactivation event.
+            if playbackPause == nil && playback == nil { systemInterruptionBegan() }
+            return
+        }
         if playbackPause == .systemInterruption { playbackPause = nil }
         refresh()
     }
@@ -255,7 +259,13 @@ private actor BackgroundMusicPlayer {
         }
         guard let url = track.recording, let newPlayer = try? AVAudioPlayer(contentsOf: url) else { return nil }
         let session = AVAudioSession.sharedInstance()
-        if session.category != .ambient { try? session.setCategory(.ambient) }
+        if session.category != .ambient {
+            do {
+                try session.setCategory(.ambient)
+            } catch {
+                return nil
+            }
+        }
         newPlayer.numberOfLoops = loops
         newPlayer.volume = 0
         guard !Task.isCancelled, newPlayer.play() else { return nil }
