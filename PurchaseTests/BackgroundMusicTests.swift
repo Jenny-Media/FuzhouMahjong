@@ -52,6 +52,59 @@ final class BackgroundMusicTests: XCTestCase {
         XCTAssertNil(music.playback)
     }
 
+    func testInterruptionEndsPreviewAndRestartsSoloMusic() async {
+        let music = BackgroundMusic()
+        let context = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: true)
+        defer { music.update(.init()) }
+        music.update(context)
+        await expectPlayback(.loop(.teaHouse), in: music)
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+
+        music.handleInterruption(interruption(.began))
+        XCTAssertFalse(music.isPreviewing)
+        XCTAssertNil(music.playback)
+
+        music.handleInterruption(interruption(.ended))
+        await expectPlayback(.loop(.teaHouse), in: music)
+    }
+
+    func testPreviewCanRetryAfterAnInterruptionWithoutAnEndEvent() async {
+        let music = BackgroundMusic()
+        defer { music.update(.init()) }
+        music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
+        await expectPlayback(.loop(.teaHouse), in: music)
+
+        music.handleInterruption(interruption(.began))
+        XCTAssertNil(music.playback)
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+        music.endPreview()
+        await expectPlayback(.loop(.teaHouse), in: music)
+    }
+
+    func testPreviewFadesBeforeReturningToSoloMusic() async {
+        let music = BackgroundMusic()
+        defer { music.update(.init()) }
+        music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
+        await expectPlayback(.loop(.teaHouse), in: music)
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+
+        let clock = ContinuousClock()
+        let stoppedAt = clock.now
+        music.endPreview()
+        await expectPlayback(.loop(.teaHouse), in: music)
+
+        XCTAssertGreaterThanOrEqual(stoppedAt.duration(to: clock.now), .milliseconds(220))
+    }
+
+    private func interruption(_ type: AVAudioSession.InterruptionType) -> Notification {
+        Notification(name: AVAudioSession.interruptionNotification, userInfo: [
+            AVAudioSessionInterruptionTypeKey: type.rawValue,
+        ])
+    }
+
     private func expectPlayback(_ expected: BackgroundMusic.Playback, in music: BackgroundMusic,
                                 file: StaticString = #filePath, line: UInt = #line) async {
         for _ in 0..<50 {

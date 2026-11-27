@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import SwiftUI
 
 enum BackgroundTrack: String, CaseIterable {
@@ -26,6 +27,21 @@ enum BackgroundTrack: String, CaseIterable {
 
 @MainActor @Observable
 final class BackgroundMusic {
+    static let interruptionNotifications: AnyPublisher<Notification, Never> = {
+        let center = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+        #if compiler(>=6.4)
+        if #available(iOS 27, *) {
+            return center.publisher(for: AVAudioSession.didBecomeInactiveNotification, object: session)
+                .merge(with: center.publisher(for: AVAudioSession.resumptionRecommendationNotification,
+                                              object: session))
+                .eraseToAnyPublisher()
+        }
+        #endif
+        return center.publisher(for: AVAudioSession.interruptionNotification, object: session)
+            .eraseToAnyPublisher()
+    }()
+
     struct Context: Equatable {
         var track: BackgroundTrack = .off
         var isSolo = false
@@ -38,29 +54,23 @@ final class BackgroundMusic {
     }
 
     private(set) var playback: Playback?
+    private var previewTrack: BackgroundTrack?
     @ObservationIgnored private var context = Context()
     @ObservationIgnored private var isPracticing = false
-    @ObservationIgnored private var isInterrupted = false
-    @ObservationIgnored private var previewTrack: BackgroundTrack?
     @ObservationIgnored private let player = BackgroundMusicPlayer()
     @ObservationIgnored private var requestedPlayback: Playback?
     @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var previewTimer: Task<Void, Never>?
 
-    var isPreviewing: Bool {
-        if case .preview = playback { return true }
-        return false
-    }
+    var isPreviewing: Bool { previewTrack != nil }
 
     func update(_ newContext: Context) {
-        if newContext.isActive && !context.isActive { isInterrupted = false }
         if newContext.track != context.track && previewTrack != newContext.track { clearPreview() }
         context = newContext
-        if !context.isActive {
-            clearPreview()
-            request(nil, fadeOut: false, force: true)
-        } else {
+        if context.isActive {
             refresh()
+        } else {
+            suspendPlayback()
         }
     }
 
@@ -70,7 +80,7 @@ final class BackgroundMusic {
     }
 
     func togglePreview(_ track: BackgroundTrack) {
-        guard context.isActive, !isInterrupted, track != .off else { return }
+        guard context.isActive, track != .off else { return }
         if previewTrack == track {
             endPreview()
             return
@@ -78,10 +88,6 @@ final class BackgroundMusic {
         clearPreview()
         previewTrack = track
         refresh()
-        previewTimer = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(10)) } catch { return }
-            self?.endPreview()
-        }
     }
 
     func endPreview() {
@@ -91,15 +97,43 @@ final class BackgroundMusic {
     }
 
     func handleInterruption(_ notification: Notification) {
-        guard let value = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: value) else { return }
-        isInterrupted = type == .began
-        if isInterrupted {
-            clearPreview()
-            request(nil, fadeOut: false, force: true)
-        } else {
-            refresh()
+        #if compiler(>=6.4)
+        if #available(iOS 27, *) {
+            switch notification.name {
+            case AVAudioSession.didBecomeInactiveNotification:
+                // The scene lifecycle handles deactivation when the app leaves the foreground.
+                if let event = notification.userInfo?[AVAudioSession.deactivationContextKey]
+                    as? AVAudioSession.DeactivationContext, event.interruptionContext != nil {
+                    suspendPlayback()
+                }
+                return
+            case AVAudioSession.resumptionRecommendationNotification:
+                if let event = notification.userInfo?[AVAudioSession.resumptionContextKey]
+                    as? AVAudioSession.ResumptionContext, event.recommendation == .shouldResume {
+                    refresh()
+                }
+                return
+            default:
+                break
+            }
         }
+        #endif
+        guard notification.name == AVAudioSession.interruptionNotification,
+              let value = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: value) else { return }
+        switch type {
+        case .began:
+            suspendPlayback()
+        case .ended:
+            refresh()
+        @unknown default:
+            break
+        }
+    }
+
+    private func suspendPlayback() {
+        clearPreview()
+        request(nil, fadeOut: false, force: true)
     }
 
     private func clearPreview() {
@@ -109,7 +143,7 @@ final class BackgroundMusic {
     }
 
     private func refresh() {
-        guard context.isActive, !isInterrupted else { return }
+        guard context.isActive else { return }
         if let previewTrack {
             request(.preview(previewTrack))
         } else if context.track != .off && (context.isSolo || isPracticing) {
@@ -128,7 +162,12 @@ final class BackgroundMusic {
             let started = await player.apply(mode, fadeOut: fadeOut)
             guard !Task.isCancelled, let self else { return }
             playback = started
-            if started != mode {
+            if case .preview = started {
+                previewTimer = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                    self?.endPreview()
+                }
+            } else if started != mode {
                 requestedPlayback = nil
                 if previewTrack != nil { endPreview() }
             }
@@ -143,17 +182,14 @@ private actor BackgroundMusicPlayer {
 
     func apply(_ mode: BackgroundMusic.Playback?, fadeOut: Bool) async -> BackgroundMusic.Playback? {
         guard !Task.isCancelled else { return nil }
-        guard let mode else {
-            if fadeOut, let player {
-                player.setVolume(0, fadeDuration: Self.fade)
-                do { try await Task.sleep(for: .seconds(Self.fade)) } catch { return nil }
-                guard !Task.isCancelled else { return nil }
-            }
-            stop()
-            return nil
+        if fadeOut, let player {
+            player.setVolume(0, fadeDuration: Self.fade)
+            do { try await Task.sleep(for: .seconds(Self.fade)) } catch { return nil }
+            guard !Task.isCancelled else { return nil }
         }
 
         stop()
+        guard let mode else { return nil }
         let track: BackgroundTrack
         let volume: Float
         let loops: Int

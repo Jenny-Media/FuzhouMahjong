@@ -1,4 +1,3 @@
-import AVFoundation
 import FuzhouAccess
 import FuzhouCore
 import FuzhouNearby
@@ -155,7 +154,7 @@ private struct HomeView: View {
             }
         }
         .onChange(of: musicContext, initial: true) { _, context in backgroundMusic.update(context) }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) {
+        .onReceive(BackgroundMusic.interruptionNotifications) {
             backgroundMusic.handleInterruption($0)
         }
         .onChange(of: phase) { _, updated in
