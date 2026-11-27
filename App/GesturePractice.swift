@@ -3,7 +3,6 @@ import SwiftUI
 import UIKit
 
 struct GesturePractice: View {
-    @Environment(BackgroundMusic.self) private var backgroundMusic
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -51,8 +50,6 @@ struct GesturePractice: View {
                 }
             }
         }
-        .onAppear { backgroundMusic.setPracticing(true) }
-        .onDisappear { backgroundMusic.setPracticing(false) }
     }
 }
 
