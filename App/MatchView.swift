@@ -1793,7 +1793,7 @@ private struct TableOverview: View {
                 .accessibilityIdentifier("overview-open-history")
 
                 if !recent.isEmpty {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 8) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6, alignment: .top), count: 3), spacing: 8) {
                         ForEach(recent.reversed()) { discard in recentTile(discard) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1814,13 +1814,17 @@ private struct TableOverview: View {
             TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
                 .frame(width: 31, height: 42)
                 .opacity(claim == nil ? 1 : 0.65)
-            HStack(spacing: 2) {
-                Text(name(discard.seat))
+            VStack(spacing: 2) {
+                HStack(spacing: 3) {
+                    Text(table.wind(for: discard.seat).wind)
+                        .fontWeight(.semibold)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Text(name(discard.seat)).truncationMode(.middle)
+                }
                 if let claim {
                     Text("被\(claim.compactAction)")
                         .fontWeight(.semibold)
                         .foregroundStyle(TeaTheme.brass)
-                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .font(.caption2)

@@ -195,6 +195,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private func compactTable(width: CGFloat) -> some View {
         let scrollsDiscard = opening == nil && typeSize.isAccessibilitySize
         let showsSettledDraw = showsDrawDock && table.drawn != nil
+        let reservesDrawDock = showsDrawDock && (!scrollsDiscard || table.drawn != nil)
         return VStack(spacing: gap) {
             if let result = table.result {
                 if let winner = result.winner {
@@ -226,27 +227,32 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 }
             } else {
                 HStack(spacing: 8) {
-                    if opening == nil, !scrollsDiscard, let latest {
-                        discardSummary(latest)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.75)
+                    if opening == nil, let latest {
+                        if scrollsDiscard {
+                            pinnedDiscard(latest)
+                        } else {
+                            discardSummary(latest)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.75)
+                        }
                     }
                     Spacer(minLength: 0)
-                    wallSources
+                    compactWall
                 }
-                .frame(height: scrollsDiscard ? stripHeight : 52)
+                .frame(height: 52)
                 .anchorPreference(key: TableAnchors.self, value: .bounds) { [.center: $0] }
                 ScrollView {
                     VStack(alignment: .leading, spacing: gap) {
                         if scrollsDiscard, let latest {
-                            discardSummary(latest)
+                            discardDetails(latest)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityHidden(true)
                         }
                         compactSeats
                     }
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                scrollingControls(wide: false, width: width)
+                scrollingControls(wide: false, width: width, reservesDrawDock: reservesDrawDock)
             }
         }
     }
@@ -256,22 +262,73 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     }
 
     private func discardSummary(_ discard: TableDiscard) -> some View {
-        HStack(alignment: usesCompactLayout && typeSize.isAccessibilitySize ? .top : .center, spacing: 8) {
-            TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
-                .frame(width: 38, height: 52)
-                .anchorPreference(key: TableAnchors.self, value: .bounds) { [.latestDiscard: $0] }
-                .opacity(flyingDiscard == discard.id ? 0 : 1)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading) {
-                Text("\(name(of: discard.seat))打出\(table.discardDescription(discard.tile))")
-                    .font(.headline)
-                if let claim = table.claim(of: discard) {
-                    Text("\(name(of: claim.seat))\(claim.action)").font(.subheadline)
-                }
-            }
+        HStack(spacing: 8) {
+            discardFace(discard).accessibilityHidden(true)
+            discardDetails(discard)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("latest-discard")
+    }
+
+    private func pinnedDiscard(_ discard: TableDiscard) -> some View {
+        HStack(spacing: 8) {
+            discardFace(discard)
+            Text(table.discardDescription(discard.tile))
+                .font(.headline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([discardOwner(discard), discardClaim(discard)].compactMap { $0 }.joined(separator: "，"))
+        .accessibilityIdentifier("latest-discard")
+    }
+
+    private func discardFace(_ discard: TableDiscard) -> some View {
+        TileFace(kind: discard.tile.kind, gold: table.isGold(discard.tile))
+            .frame(width: 38, height: 52)
+            .anchorPreference(key: TableAnchors.self, value: .bounds) { [.latestDiscard: $0] }
+            .opacity(flyingDiscard == discard.id ? 0 : 1)
+    }
+
+    private func discardDetails(_ discard: TableDiscard) -> some View {
+        VStack(alignment: .leading) {
+            Text(discardOwner(discard)).font(.headline)
+            if let claim = discardClaim(discard) { Text(claim).font(.subheadline) }
+        }
+    }
+
+    private func discardOwner(_ discard: TableDiscard) -> String {
+        "\(name(of: discard.seat))打出\(table.discardDescription(discard.tile))"
+    }
+
+    private func discardClaim(_ discard: TableDiscard) -> String? {
+        table.claim(of: discard).map { "\(name(of: $0.seat))\($0.action)" }
+    }
+
+    private var compactWall: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            wallSources
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: opening?.isDealing != true)) { time in
+                HStack(spacing: 4) {
+                    ForEach(1..<4) { offset in
+                        let seat = table.viewer.advanced(offset)
+                        let dealt = opening?.landed(for: seat, dealer: table.dealer, at: time.date) ?? 0
+                        SeatBadge(seat: table.wind(for: seat), highlighted: pendingDraw == seat, board: board)
+                            .dynamicTypeSize(...DynamicTypeSize.large)
+                            .overlay(alignment: .bottom) {
+                                if opening?.isDealing == true, dealt > 0 {
+                                    Capsule().fill(board.accent)
+                                        .frame(width: 16 * CGFloat(dealt) / CGFloat(FuzhouMatch.rackSize), height: 2)
+                                }
+                            }
+                            .anchorPreference(key: TableAnchors.self, value: .bounds) { [.player(seat): $0] }
+                    }
+                }
+            }
+        }
+        .fixedSize()
+        .accessibilityHidden(true)
     }
 
     private func scrollingLiveTable(width: CGFloat) -> some View {
@@ -289,18 +346,18 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollBounceBehavior(.basedOnSize)
-            scrollingControls(wide: wide, width: width)
+            scrollingControls(wide: wide, width: width, reservesDrawDock: showsDrawDock)
         }
     }
 
-    private func scrollingControls(wide: Bool, width: CGFloat) -> some View {
+    private func scrollingControls(wide: Bool, width: CGFloat, reservesDrawDock: Bool) -> some View {
         HStack(alignment: .bottom, spacing: gap) {
             ViewThatFits(in: .horizontal) {
                 controls().fixedSize()
                 ScrollView(.horizontal) { controls().fixedSize() }
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if showsDrawDock { drawDock().layoutPriority(1) }
+            if reservesDrawDock { drawDock().layoutPriority(1) }
         }
         .frame(maxWidth: wide ? width * 0.46 : .infinity, alignment: .trailing)
     }
@@ -329,7 +386,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             .accessibilityIdentifier("seat-score-\(seat.id)")
             .accessibilityHint("查看这位玩家的亮牌")
             .transformAnchorPreference(key: TableAnchors.self, value: .bounds) { anchors, bounds in
-                // Compact summaries scroll and have no tile backs for an opponent flight to land on.
+                // Compact opponent flights use the fixed badges beside the wall.
                 if !usesCompactLayout { anchors[.player(seat)] = bounds }
                 if opening != nil { anchors[.seatCard(seat)] = bounds }
             }

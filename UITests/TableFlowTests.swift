@@ -1660,6 +1660,27 @@ final class TableFlowTests: XCTestCase {
                      labels: ["board", "rack", "latest discard", "actions"])
     }
 
+    func testLandscapeIPadGivesClaimedDiscardsASeparateCaptionLine() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        let game = try match(seed: 193, after: 7)
+        let timeline = try XCTUnwrap(game.table(for: .south).discardTimeline)
+        let claimedDiscard = try XCTUnwrap(timeline.first)
+        let ordinaryDiscard = try XCTUnwrap(timeline.dropFirst().first)
+        let app = try launchSavedMatch(game, arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"])
+        try XCTSkipUnless(app.windows.firstMatch.frame.width >= 1_050, "This window has room for the table only.")
+
+        let claimed = element("overview-discard-\(claimedDiscard.id)", in: app)
+        let ordinary = element("overview-discard-\(ordinaryDiscard.id)", in: app)
+        XCTAssertTrue(claimed.waitForExistence(timeout: 5))
+        XCTAssertTrue(ordinary.exists)
+        XCTAssertTrue(claimed.label.hasPrefix("电脑甲打出六万，"), claimed.label)
+        XCTAssertGreaterThan(claimed.frame.height, ordinary.frame.height)
+        capture("tablet-landscape-claimed-discard")
+    }
+
     func testSettledHistoryKeepsClaimedAndWinningDiscardsInOrder() throws {
         var game = try match(seed: 35, after: 41)
         while game.result == nil { try playFixtureMove(in: &game) }
