@@ -628,7 +628,7 @@ struct MatchView<Session: MatchSession>: View {
     }
 
     private var names: [Seat: String] {
-        Dictionary(uniqueKeysWithValues: session.players.map { ($0.seat, $0.name) })
+        session.table?.settledPlayerNames ?? Dictionary(uniqueKeysWithValues: session.players.map { ($0.seat, $0.name) })
     }
 
     private func board(_ table: TableState) -> some View {

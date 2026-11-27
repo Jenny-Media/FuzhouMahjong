@@ -24,6 +24,7 @@ struct NearbyView: View {
     @State private var confirmsLeave = false
     @State private var inviteCode = ""
     @FocusState private var enteringInviteCode: Bool
+    private let handReviewVersionRequirement = "公开手牌的牌桌只接受支持此功能的版本。"
 
     var body: some View {
         Group {
@@ -82,8 +83,9 @@ struct NearbyView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Toggle("结算后公开四家手牌", isOn: $revealsSettledHands)
                                 .accessibilityIdentifier("room-reveal-hands-toggle")
-                            Text("开启后，每局结束都能查看各家的手牌。请让同桌玩家更新到支持此功能的版本。")
+                            Text("开启后，每局结束时，同桌玩家都能查看四家的手牌。\(handReviewVersionRequirement)")
                                 .font(.footnote).foregroundStyle(TeaTheme.muted)
+                                .accessibilityIdentifier("room-hand-review-setup-note")
                         }
                         .padding(12)
                         .teaPanel()
@@ -187,7 +189,9 @@ struct NearbyView: View {
                     }
                 }
 
-                if session.isInRoom && !session.automaticallyReturning {
+                if session.needsHandReviewConfirmation {
+                    handReviewConfirmation
+                } else if session.isInRoom && !session.automaticallyReturning {
                     roster
                 } else {
                     discovery
@@ -199,6 +203,23 @@ struct NearbyView: View {
         }
         .modifier(HingeSafeContent())
         .teaBackdrop()
+    }
+
+    private var handReviewConfirmation: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("本桌会公开手牌")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text("每局结束时，同桌玩家都能查看你的手牌。你也可以查看他们的手牌。")
+                .font(.subheadline)
+            Button("同意并加入") { session.confirmHandReview() }
+                .buttonStyle(TeaButtonStyle())
+                .accessibilityIdentifier("confirm-room-hand-review")
+            Button("取消加入") { session.declineHandReview() }
+                .buttonStyle(TeaButtonStyle(prominent: false))
+        }
+        .padding(TeaTheme.gutter)
+        .teaPanel()
     }
 
     private var discovery: some View {
@@ -324,8 +345,11 @@ struct NearbyView: View {
                       systemImage: "rectangle.on.rectangle")
                     .font(.subheadline)
                     .accessibilityIdentifier("room-reveal-hands-rule")
-                Text("旧版玩家在结算前可能看不到别人的暗杠。建议同桌都更新到最新版。")
+                Text(update.revealsSettledHands == true
+                     ? handReviewVersionRequirement
+                     : "旧版玩家在结算前可能看不到别人的暗杠。建议同桌都更新到最新版。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
+                    .accessibilityIdentifier("room-version-note")
             }
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(session.players) { player in

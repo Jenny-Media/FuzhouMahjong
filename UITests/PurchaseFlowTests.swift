@@ -146,6 +146,7 @@ final class PurchaseFlowTests: XCTestCase {
         let handReview = app.switches["room-reveal-hands-toggle"]
         XCTAssertTrue(handReview.waitForExistence(timeout: 5))
         XCTAssertEqual(handReview.value as? String, "0")
+        XCTAssertTrue(app.staticTexts["room-hand-review-setup-note"].label.contains("只接受支持此功能的版本"))
         reveal(handReview, in: app)
         handReview.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
         XCTAssertEqual(handReview.value as? String, "1")
@@ -157,6 +158,7 @@ final class PurchaseFlowTests: XCTestCase {
         XCTAssertTrue(rules.label.contains(desiredTitle))
         let handReviewRule = app.descendants(matching: .any).matching(identifier: "room-reveal-hands-rule").firstMatch
         XCTAssertTrue(handReviewRule.label.contains("开启"))
+        XCTAssertTrue(app.staticTexts["room-version-note"].label.contains("只接受支持此功能的版本"))
         XCTAssertTrue(app.staticTexts["测试房主"].exists)
         app.buttons["离开牌桌"].tap()
         XCTAssertTrue(scan.waitForExistence(timeout: 5))

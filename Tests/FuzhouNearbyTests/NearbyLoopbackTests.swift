@@ -77,12 +77,23 @@ final class NearbyLoopbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let host = NearbySession(loopback: true)
         defer { host.leave() }
-        host.create(name: "房主")
+        host.create(name: "房主", revealsSettledHands: true)
         try await until("host is ready") { host.loopbackRoom != nil }
         let room = try XCTUnwrap(host.loopbackRoom)
 
         var original: NearbySession? = NearbySession(loopback: true, seatFile: file, hostingAllowed: { false })
         original?.join(room, name: "小林")
+        try await until("guest is asked before taking a seat") { original?.needsHandReviewConfirmation == true }
+        XCTAssertFalse(host.canStart)
+        host.startMatch()
+        XCTAssertNil(host.table)
+        XCTAssertNil(original?.update)
+        original?.declineHandReview()
+        XCTAssertFalse(original?.isInRoom == true)
+        XCTAssertNil(original?.lastRoomName)
+        original?.join(room, name: "小林")
+        try await until("guest can reconsider when joining again") { original?.needsHandReviewConfirmation == true }
+        original?.confirmHandReview()
         try await until("host accepted the saved seat") { original?.connected == true }
         host.startMatch()
         try await until("initial hand received") { original?.table != nil }
@@ -109,6 +120,7 @@ final class NearbyLoopbackTests: XCTestCase {
         guest.joinInvite(room.id, name: { "新昵称" })
         guest.discoveredRoomsChanged([room.id: room])
         try await until("original seat resumes without purchase") { guest.connected && !host.paused }
+        XCTAssertFalse(guest.needsHandReviewConfirmation)
         XCTAssertEqual(guest.table, hand)
         XCTAssertNil(guest.openingRound)
         XCTAssertEqual(host.players.count, 2)
@@ -625,6 +637,10 @@ final class NearbyLoopbackTests: XCTestCase {
         let room = try XCTUnwrap(host.loopbackRoom)
         for (index, guest) in guests.enumerated() {
             guest.join(room, name: "Guest \(index + 1)")
+            try await until("guest sees the rule before being seated") { guest.needsHandReviewConfirmation }
+            XCTAssertEqual(host.players.count, index + 1)
+            XCTAssertFalse(guest.connected)
+            guest.confirmHandReview()
             try await until("guest joined") { guest.connected }
             XCTAssertEqual(guest.update?.revealsSettledHands, true)
         }
@@ -717,20 +733,27 @@ final class NearbyLoopbackTests: XCTestCase {
         XCTAssertTrue(clients.allSatisfy { $0.table?.settledHands == settledHands })
         XCTAssertTrue(clients.allSatisfy { $0.moveStatus == nil })
         XCTAssertEqual(Seat.allCases.map(result.delta).reduce(0, +), 0)
+        let departedSeat = try XCTUnwrap(returning.table?.viewer)
+        let settledNames = try XCTUnwrap(host.table?.settledPlayerNames)
+        XCTAssertEqual(settledNames[departedSeat], "Guest 2")
+        returning.leave()
+        try await until("intentional departure releases the seat") {
+            !returning.isInRoom && clients.filter { $0 !== returning }.allSatisfy { $0.players.count == 3 }
+        }
+        let remaining = clients.filter { $0 !== returning }
+        XCTAssertTrue(remaining.allSatisfy { $0.table?.settledPlayerNames == settledNames })
+        XCTAssertTrue(remaining.allSatisfy { $0.table?.settledHands == settledHands })
+        XCTAssertFalse(host.paused)
         guests[0].nextHand()
         XCTAssertEqual(host.table?.result, result)
         host.nextHand()
-        try await until("all four clients advance to the next hand") {
-            clients.allSatisfy { $0.table?.roundNumber == 2 && $0.table?.result == nil }
+        try await until("remaining clients advance to the next hand") {
+            remaining.allSatisfy { $0.table?.roundNumber == 2 && $0.table?.result == nil }
         }
-        XCTAssertTrue(clients.allSatisfy { $0.table?.settledHands == nil })
+        XCTAssertTrue(remaining.allSatisfy { $0.table?.settledHands == nil && $0.table?.settledPlayerNames == nil })
         XCTAssertEqual(host.openingRound, 2)
         XCTAssertTrue(guests.allSatisfy { $0.openingRound == nil })
 
-        returning.leave()
-        try await until("intentional departure releases the seat") {
-            !returning.isInRoom && host.players.count == 3 && !host.paused
-        }
         host.leave()
         try await until("the host ending the table dismisses the other guests") {
             guests.allSatisfy { !$0.isInRoom }

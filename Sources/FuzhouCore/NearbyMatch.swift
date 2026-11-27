@@ -44,7 +44,8 @@ public struct NearbyMatch: Sendable {
     private var match: FuzhouMatch?
     private let ruleset: FuzhouRuleset
     private let houseRules: FuzhouHouseRules?
-    private let revealsSettledHands: Bool
+    public let revealsSettledHands: Bool
+    private var settledPlayerNames: [Seat: String]?
     private var moveFloor = 0
     public private(set) var revision = 0
 
@@ -62,8 +63,8 @@ public struct NearbyMatch: Sendable {
         reservations = [Reservation(key: UUID(), player: .init(seat: .east, name: hostName, connected: true))]
     }
 
-    public mutating func join(key: UUID, name: String, supportsHandReview: Bool = false) -> Seat? {
-        guard !revealsSettledHands || supportsHandReview else { return nil }
+    public mutating func join(key: UUID, name: String, acceptsHandReview: Bool = false) -> Seat? {
+        guard !revealsSettledHands || acceptsHandReview else { return nil }
         if let index = reservations.firstIndex(where: { $0.key == key && $0.player.seat != .east }) {
             reservations[index].player.connected = true
             bump()
@@ -102,15 +103,17 @@ public struct NearbyMatch: Sendable {
     package mutating func start(using random: inout some RandomNumberGenerator) -> Bool {
         guard canStart else { return false }
         match = FuzhouMatch(using: &random, ruleset: ruleset, houseRules: houseRules)
+        recordSettlementNames()
         bump()
         return true
     }
 
     public func update(for seat: Seat) -> RoomUpdate {
-        RoomUpdate(viewer: seat, players: players, revision: revision,
-                   table: match?.table(for: seat, revealsSettledHands: revealsSettledHands),
-                   paused: paused, matchRuleset: ruleset, houseRules: houseRules,
-                   resetsStreakOnPassingDraw: started ? nil : true, revealsSettledHands: revealsSettledHands ? true : nil)
+        var table = match?.table(for: seat, revealsSettledHands: revealsSettledHands)
+        table?.settledPlayerNames = settledPlayerNames
+        return RoomUpdate(viewer: seat, players: players, revision: revision, table: table,
+                          paused: paused, matchRuleset: ruleset, houseRules: houseRules,
+                          resetsStreakOnPassingDraw: started ? nil : true, revealsSettledHands: revealsSettledHands ? true : nil)
     }
 
     @discardableResult
@@ -131,6 +134,7 @@ public struct NearbyMatch: Sendable {
     public mutating func nextHand() -> Bool {
         guard !paused, match?.result != nil else { return false }
         match?.nextRound()
+        recordSettlementNames()
         bump()
         return true
     }
@@ -141,8 +145,15 @@ public struct NearbyMatch: Sendable {
         let after = match?.table(for: seat)
         let sameResponseWindow = (before?.step == .claim || before?.step == .opening) &&
             after?.step == before?.step && after?.offeredTile == before?.offeredTile
+        recordSettlementNames()
         bump(preserveWindow: sameResponseWindow)
         return true
+    }
+
+    private mutating func recordSettlementNames() {
+        settledPlayerNames = revealsSettledHands && match?.result != nil
+            ? Dictionary(uniqueKeysWithValues: reservations.map { ($0.player.seat, $0.player.name) })
+            : nil
     }
 
     private mutating func bump(preserveWindow: Bool = false) {

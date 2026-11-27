@@ -206,6 +206,8 @@ public struct TableState: Equatable, Codable, Sendable {
     public var result: RoundResult?
     /// Final concealed tiles by seat, available only for a finished hand with review enabled.
     public var settledHands: [Seat: [Tile]]? = nil
+    /// Human seat names at settlement, retained while the finished hand is available.
+    public var settledPlayerNames: [Seat: String]? = nil
     /// Set by hosts that count a player's separate draw in Player.rackCount.
     public var rackCountsIncludeDrawnTile: Bool? = nil
     public var discardTimeline: [TableDiscard]? = nil

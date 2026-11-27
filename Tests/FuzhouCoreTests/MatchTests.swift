@@ -986,17 +986,19 @@ final class MatchTests: XCTestCase {
         XCTAssertFalse(host.submit(.pass, seat: .south, basedOn: stale))
     }
 
-    func testHandReviewRoomRequiresSupportedGuestsAndKeepsLiveRacksPrivate() throws {
+    func testHandReviewRoomRequiresConsentAndKeepsLiveRacksPrivate() throws {
         var room = NearbyMatch(hostName: "阿榕", revealsSettledHands: true)
         let guest = UUID()
         XCTAssertNil(room.join(key: guest, name: "小林"))
-        XCTAssertEqual(room.join(key: guest, name: "小林", supportsHandReview: true), .south)
+        XCTAssertFalse(room.canStart)
+        XCTAssertEqual(room.join(key: guest, name: "小林", acceptsHandReview: true), .south)
         XCTAssertEqual(room.update(for: .south).revealsSettledHands, true)
         XCTAssertTrue(room.start())
         let active = try XCTUnwrap(room.update(for: .south).table)
         XCTAssertNil(active.settledHands)
         let packet = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(active)) as? [String: Any])
         XCTAssertNil(packet["settledHands"])
+        XCTAssertNil(packet["settledPlayerNames"])
     }
 
     func testEncryptedFramesRejectReplayAndWrongSession() throws {
