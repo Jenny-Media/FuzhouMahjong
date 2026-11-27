@@ -135,7 +135,7 @@ public final class NearbySession: MatchSession {
     }
 
     private enum GuestMessage: Codable {
-        case join(UUID, String)
+        case join(UUID, String, supportsHandReview: Bool?)
         case move(Move, Int, id: UUID?)
         case leave
     }
@@ -299,13 +299,15 @@ public final class NearbySession: MatchSession {
         rooms = []
     }
 
-    public func create(name: String, ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) {
+    public func create(name: String, ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil,
+                       revealsSettledHands: Bool = false) {
         beginLobbyChoice()
         guard !isInRoom else { return }
         guard hostingAllowed() else { notice = "开启免费体验或解锁完整版后，可以创建牌桌。加入牌友的牌桌免费。"; return }
         cancelInviteSearch()
         let name = NearbyMatch.normalizedName(name)
-        host = HostedRoom(name: name, match: NearbyMatch(hostName: name, ruleset: ruleset, houseRules: houseRules))
+        host = HostedRoom(name: name, match: NearbyMatch(hostName: name, ruleset: ruleset, houseRules: houseRules,
+                                                       revealsSettledHands: revealsSettledHands))
         notice = nil
         broadcast()
         openListener()
@@ -768,9 +770,10 @@ public final class NearbySession: MatchSession {
             guard let clear = try link.cipher?.open(data) else { wire.close(); return }
             links[wire.id] = link
             switch try JSONDecoder().decode(GuestMessage.self, from: clear) {
-            case let .join(key, name):
+            case let .join(key, name, supportsHandReview):
                 guard link.seat == nil else { wire.close(); return }
-                guard let seat = self.host?.match.join(key: key, name: name) else {
+                guard let seat = self.host?.match.join(key: key, name: name,
+                                                       supportsHandReview: supportsHandReview == true) else {
                     sendToGuest(.rejected, wire: wire)
                     return
                 }
@@ -867,7 +870,7 @@ public final class NearbySession: MatchSession {
                 guard let self, guest?.wire.id == wire.id else { return }
                 guard prepareSeatForJoin(room) else { resetRoom(); return }
                 wire.send(guestKey)
-                _ = sendToHost(.join(seatKey, guestName))
+                _ = sendToHost(.join(seatKey, guestName, supportsHandReview: true))
             }
             wire.received = { [weak self] wire, frame in self?.guestReceived(frame, from: wire) }
             wire.ended = { [weak self] wire in self?.guestLost(wire) }

@@ -42,6 +42,7 @@ struct MatchView<Session: MatchSession>: View {
     @State private var showsSettings = false
     @State private var guideLesson: RuleLesson?
     @State private var showsScorecard = false
+    @State private var emphasizedWinner: Seat?
     @State private var openingStage = OpeningDeal.Stage.shuffle(nil)
     @State private var openingAnimationRound: Int?
     @State private var openingSkipStarted: ContinuousClock.Instant?
@@ -192,6 +193,13 @@ struct MatchView<Session: MatchSession>: View {
             guard !Task.isCancelled else { return }
             flowerHighlights.expire(at: clock.now)
         }
+        .task(id: emphasizedWinner) {
+            guard emphasizedWinner != nil else { return }
+            do { try await Task.sleep(for: .milliseconds(180)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.32)) { emphasizedWinner = nil }
+        }
         .task(id: pendingThrow) {
             guard let pendingThrow else { return }
             do { try await Task.sleep(for: .seconds(1.5)) }
@@ -266,6 +274,7 @@ struct MatchView<Session: MatchSession>: View {
         .onChange(of: session.table?.roundNumber) { _, _ in
             closeHandReviewForNewHand()
             resetArrangement()
+            emphasizedWinner = nil
         }
         .onChange(of: session.table?.result) { before, result in
             if result == nil { closeHandReviewForNewHand() }
@@ -548,6 +557,7 @@ struct MatchView<Session: MatchSession>: View {
             if !flowers.isEmpty { flowerHighlights.reveal(flowers, at: .now) }
         }
         if before.result == nil, let winner = after.result?.winner {
+            if !reduceMotion { emphasizedWinner = winner }
             play(.win, by: winner)
             if winner == after.viewer { playHaptic(.win) }
         } else if let meldChange {
@@ -853,7 +863,7 @@ struct MatchView<Session: MatchSession>: View {
         GeometryReader { surface in
             LiveTable(table: table, names: names, latest: table.latestDiscard ?? observedDiscard,
                       opening: dealStage, drawingFromReserve: drawFlight?.fromReserve, pendingDraw: drawCue?.seat,
-                      highlightedFlowers: flowerHighlights.tiles,
+                      highlightedFlowers: flowerHighlights.tiles, emphasizedWinner: emphasizedWinner,
                       paused: session.paused, size: surface.size, showsDrawDock: drawsOnBoard,
                       showsInlineResultActions: showsResultActions, revealInHandPane: revealInHandPane,
                       tabletSeating: tabletSeating, showsDiscardStrip: showsDiscardStrip,

@@ -620,12 +620,13 @@ final class NearbyLoopbackTests: XCTestCase {
             host.leave()
         }
 
-        host.create(name: "阿榕", ruleset: .oldThree)
+        host.create(name: "阿榕", ruleset: .oldThree, revealsSettledHands: true)
         try await until("loopback listener ready") { host.loopbackRoom != nil }
         let room = try XCTUnwrap(host.loopbackRoom)
         for (index, guest) in guests.enumerated() {
             guest.join(room, name: "Guest \(index + 1)")
             try await until("guest joined") { guest.connected }
+            XCTAssertEqual(guest.update?.revealsSettledHands, true)
         }
         XCTAssertTrue(host.canStart)
         host.startMatch()
@@ -634,6 +635,7 @@ final class NearbyLoopbackTests: XCTestCase {
         let clients = [host] + guests
         let states = try clients.map { try XCTUnwrap($0.table) }
         XCTAssertTrue(states.allSatisfy { $0.ruleset == .oldThree && $0.houseRules == nil })
+        XCTAssertTrue(states.allSatisfy { $0.settledHands == nil })
         XCTAssertTrue(clients.allSatisfy { $0.openingRound == 1 })
         guests[0].finishOpening(1)
         XCTAssertNil(guests[0].openingRound)
@@ -684,6 +686,7 @@ final class NearbyLoopbackTests: XCTestCase {
             }
             let actor = try XCTUnwrap(clients.first { $0.table?.moves.isEmpty == false })
             let before = try XCTUnwrap(actor.table)
+            XCTAssertTrue(clients.allSatisfy { $0.table?.settledHands == nil })
             let moves = before.moves
             let move = moves.contains(.win) ? Move.win : moves.contains(.pass) ? .pass : try XCTUnwrap(moves.last)
             XCTAssertTrue(actor.submit(move))
@@ -709,6 +712,9 @@ final class NearbyLoopbackTests: XCTestCase {
         try await until("the same final settlement reaches all four clients") {
             clients.allSatisfy { $0.table?.result == result }
         }
+        let settledHands = try XCTUnwrap(host.table?.settledHands)
+        XCTAssertEqual(Set(settledHands.keys), Set(Seat.allCases))
+        XCTAssertTrue(clients.allSatisfy { $0.table?.settledHands == settledHands })
         XCTAssertTrue(clients.allSatisfy { $0.moveStatus == nil })
         XCTAssertEqual(Seat.allCases.map(result.delta).reduce(0, +), 0)
         guests[0].nextHand()
@@ -717,6 +723,7 @@ final class NearbyLoopbackTests: XCTestCase {
         try await until("all four clients advance to the next hand") {
             clients.allSatisfy { $0.table?.roundNumber == 2 && $0.table?.result == nil }
         }
+        XCTAssertTrue(clients.allSatisfy { $0.table?.settledHands == nil })
         XCTAssertEqual(host.openingRound, 2)
         XCTAssertTrue(guests.allSatisfy { $0.openingRound == nil })
 

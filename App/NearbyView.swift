@@ -18,6 +18,7 @@ struct NearbyView: View {
     @Environment(\.openURL) private var openURL
     @State private var showsNicknameEditor = false
     @State private var showsHostSetup = false
+    @State private var revealsSettledHands = false
     @State private var showsInvite = false
     @State private var showsScanner = false
     @State private var confirmsLeave = false
@@ -78,9 +79,18 @@ struct NearbyView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         RulesetPicker(title: "新牌桌的玩法", selection: $ruleset, selectedCustomID: $customRulesetID)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle("结算后公开四家手牌", isOn: $revealsSettledHands)
+                                .accessibilityIdentifier("room-reveal-hands-toggle")
+                            Text("开启后，每局结束都能查看各家的手牌。请让同桌玩家更新到支持此功能的版本。")
+                                .font(.footnote).foregroundStyle(TeaTheme.muted)
+                        }
+                        .padding(12)
+                        .teaPanel()
                         Button {
                             session.create(name: nickname, ruleset: ruleset,
-                                           houseRules: rulesetLibrary.preset(for: customRulesetID))
+                                           houseRules: rulesetLibrary.preset(for: customRulesetID),
+                                           revealsSettledHands: revealsSettledHands)
                             showsHostSetup = false
                         } label: { Text("确认创建").frame(maxWidth: .infinity) }
                         .buttonStyle(TeaButtonStyle())
@@ -284,8 +294,12 @@ struct NearbyView: View {
 
             Button {
                 session.beginLobbyChoice()
-                if access.authorizeHosting() { showsHostSetup = true }
-                else { purchaseReason = .hosting }
+                if access.authorizeHosting() {
+                    revealsSettledHands = false
+                    showsHostSetup = true
+                } else {
+                    purchaseReason = .hosting
+                }
             } label: { Label("创建牌桌", systemImage: "plus").frame(maxWidth: .infinity) }
             .buttonStyle(TeaButtonStyle(prominent: false))
             .accessibilityIdentifier("host-create")
@@ -306,6 +320,10 @@ struct NearbyView: View {
                     .accessibilityIdentifier("room-ruleset")
                 RulesetDetailsButton(ruleset: update.ruleset, houseRules: update.houseRules,
                                      resetsStreakOnPassingDraw: update.resetsStreakOnPassingDraw)
+                Label("结算后公开四家手牌 · \(update.revealsSettledHands == true ? "开启" : "关闭")",
+                      systemImage: "rectangle.on.rectangle")
+                    .font(.subheadline)
+                    .accessibilityIdentifier("room-reveal-hands-rule")
                 Text("旧版玩家在结算前可能看不到别人的暗杠。建议同桌都更新到最新版。")
                     .font(.footnote).foregroundStyle(TeaTheme.muted)
             }

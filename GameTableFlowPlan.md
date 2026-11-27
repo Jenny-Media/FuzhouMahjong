@@ -13,8 +13,9 @@ Keep the player at the same table through opening play and a win. The board, sea
 ## 2. Reveal the winning hand before scores
 
 - When a win is confirmed, hold the final board and show the winner’s name and win type, **胡**, **自摸**, or **抢金**. Highlight the winning seat and tile.
-- Reveal the full winning hand in a compact area on the felt, with exposed sets kept in their original groups. Keep other players’ concealed tiles private. Use a wrapping layout on narrow screens and keep the reveal clear of the Duo hinge.
+- Reveal the full winning hand and the winner’s point gain in a compact area on the felt, with exposed sets kept in their original groups. Keep other players’ concealed tiles private during play. Use a wrapping layout on narrow screens and keep the reveal clear of the Duo hinge.
 - Leave the winning hand visible until the player taps **查看结算**. The scorecard shows the current scoring details, with **返回牌桌** available to inspect the winning hand again. On **流局**, offer the scorecard from the completed board.
+- Offer **查看四家手牌** from the solo scorecard after a win or draw. Nearby rooms can enable the same option before play, and all players can see the room’s choice in the lobby.
 - Keep **下一局** on the scorecard. In nearby play, each person can open the scorecard independently. When the host starts the next hand, the table and scorecard follow the new hand together.
 
 ## Implementation order

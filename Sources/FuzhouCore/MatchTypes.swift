@@ -204,6 +204,8 @@ public struct TableState: Equatable, Codable, Sendable {
     public var moves: [Move]
     public var players: [Player]
     public var result: RoundResult?
+    /// Final concealed tiles by seat, available only for a finished hand with review enabled.
+    public var settledHands: [Seat: [Tile]]? = nil
     /// Set by hosts that count a player's separate draw in Player.rackCount.
     public var rackCountsIncludeDrawnTile: Bool? = nil
     public var discardTimeline: [TableDiscard]? = nil

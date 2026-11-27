@@ -27,6 +27,7 @@ public struct RoomUpdate: Equatable, Codable, Sendable {
     public var houseRules: FuzhouHouseRules? = nil
     /// Lets guests see the host's draw rule in the lobby before the first deal.
     public var resetsStreakOnPassingDraw: Bool? = nil
+    public var revealsSettledHands: Bool? = nil
     public var moveReceipt: MoveReceipt? = nil
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? table?.ruleset ?? .legacy }
@@ -43,6 +44,7 @@ public struct NearbyMatch: Sendable {
     private var match: FuzhouMatch?
     private let ruleset: FuzhouRuleset
     private let houseRules: FuzhouHouseRules?
+    private let revealsSettledHands: Bool
     private var moveFloor = 0
     public private(set) var revision = 0
 
@@ -52,13 +54,16 @@ public struct NearbyMatch: Sendable {
     public var canStart: Bool { !started && reservations.count >= 2 }
     public var humanSeats: Set<Seat> { Set(reservations.map(\.player.seat)) }
 
-    public init(hostName: String, ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) {
+    public init(hostName: String, ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil,
+                revealsSettledHands: Bool = false) {
         self.ruleset = houseRules?.baseRuleset ?? ruleset
         self.houseRules = houseRules
+        self.revealsSettledHands = revealsSettledHands
         reservations = [Reservation(key: UUID(), player: .init(seat: .east, name: hostName, connected: true))]
     }
 
-    public mutating func join(key: UUID, name: String) -> Seat? {
+    public mutating func join(key: UUID, name: String, supportsHandReview: Bool = false) -> Seat? {
+        guard !revealsSettledHands || supportsHandReview else { return nil }
         if let index = reservations.firstIndex(where: { $0.key == key && $0.player.seat != .east }) {
             reservations[index].player.connected = true
             bump()
@@ -102,9 +107,10 @@ public struct NearbyMatch: Sendable {
     }
 
     public func update(for seat: Seat) -> RoomUpdate {
-        RoomUpdate(viewer: seat, players: players, revision: revision, table: match?.table(for: seat),
+        RoomUpdate(viewer: seat, players: players, revision: revision,
+                   table: match?.table(for: seat, revealsSettledHands: revealsSettledHands),
                    paused: paused, matchRuleset: ruleset, houseRules: houseRules,
-                   resetsStreakOnPassingDraw: started ? nil : true)
+                   resetsStreakOnPassingDraw: started ? nil : true, revealsSettledHands: revealsSettledHands ? true : nil)
     }
 
     @discardableResult
