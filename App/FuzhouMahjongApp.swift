@@ -154,8 +154,8 @@ private struct HomeView: View {
             }
         }
         .onChange(of: musicContext, initial: true) { _, context in backgroundMusic.update(context) }
-        .onReceive(BackgroundMusic.interruptionNotifications) {
-            backgroundMusic.handleInterruption($0)
+        .onReceive(BackgroundMusic.audioSessionNotifications) {
+            backgroundMusic.handleAudioSessionNotification($0)
         }
         .onChange(of: phase) { _, updated in
             if updated == .background { nearby.setBackgrounded(true) }

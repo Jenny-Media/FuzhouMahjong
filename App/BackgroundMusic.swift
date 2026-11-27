@@ -27,18 +27,22 @@ enum BackgroundTrack: String, CaseIterable {
 
 @MainActor @Observable
 final class BackgroundMusic {
-    static let interruptionNotifications: AnyPublisher<Notification, Never> = {
+    static let audioSessionNotifications: AnyPublisher<Notification, Never> = {
         let center = NotificationCenter.default
         let session = AVAudioSession.sharedInstance()
+        let playbackChanges = center.publisher(for: AVAudioSession.routeChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .merge(with: center.publisher(for: AVAudioSession.mediaServicesWereResetNotification))
         #if compiler(>=6.4)
         if #available(iOS 27, *) {
-            return center.publisher(for: AVAudioSession.didBecomeInactiveNotification, object: session)
-                .merge(with: center.publisher(for: AVAudioSession.resumptionRecommendationNotification,
-                                              object: session))
+            return playbackChanges
+                .merge(with: center.publisher(for: AVAudioSession.didBecomeInactiveNotification, object: session),
+                       center.publisher(for: AVAudioSession.resumptionRecommendationNotification, object: session))
                 .eraseToAnyPublisher()
         }
         #endif
-        return center.publisher(for: AVAudioSession.interruptionNotification, object: session)
+        return playbackChanges
+            .merge(with: center.publisher(for: AVAudioSession.interruptionNotification, object: session))
             .eraseToAnyPublisher()
     }()
 
@@ -59,13 +63,19 @@ final class BackgroundMusic {
     @ObservationIgnored private var isPracticing = false
     @ObservationIgnored private let player = BackgroundMusicPlayer()
     @ObservationIgnored private var requestedPlayback: Playback?
+    @ObservationIgnored private var needsPlaybackRequest = false
+    @ObservationIgnored private var needsImmediateStop = false
     @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var previewTimer: Task<Void, Never>?
 
     var isPreviewing: Bool { previewTrack != nil }
 
     func update(_ newContext: Context) {
-        if newContext.track != context.track && previewTrack != newContext.track { clearPreview() }
+        if newContext.track != context.track {
+            needsPlaybackRequest = false
+            if previewTrack != newContext.track { clearPreview() }
+        }
+        if newContext.isSolo && !context.isSolo { needsPlaybackRequest = false }
         context = newContext
         if context.isActive {
             refresh()
@@ -75,6 +85,7 @@ final class BackgroundMusic {
     }
 
     func setPracticing(_ practicing: Bool) {
+        if practicing && !isPracticing { needsPlaybackRequest = false }
         isPracticing = practicing
         refresh()
     }
@@ -86,6 +97,7 @@ final class BackgroundMusic {
             return
         }
         clearPreview()
+        needsPlaybackRequest = false
         previewTrack = track
         refresh()
     }
@@ -96,14 +108,26 @@ final class BackgroundMusic {
         refresh()
     }
 
-    func handleInterruption(_ notification: Notification) {
+    func handleAudioSessionNotification(_ notification: Notification) {
+        switch notification.name {
+        case AVAudioSession.mediaServicesWereResetNotification:
+            pauseUntilPlaybackRequested()
+            return
+        case AVAudioSession.routeChangeNotification:
+            if let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+               AVAudioSession.RouteChangeReason(rawValue: value) == .oldDeviceUnavailable {
+                pauseUntilPlaybackRequested()
+            }
+            return
+        default:
+            break
+        }
         #if compiler(>=6.4)
         if #available(iOS 27, *) {
             switch notification.name {
             case AVAudioSession.didBecomeInactiveNotification:
-                // The scene lifecycle handles deactivation when the app leaves the foreground.
                 if let event = notification.userInfo?[AVAudioSession.deactivationContextKey]
-                    as? AVAudioSession.DeactivationContext, event.interruptionContext != nil {
+                    as? AVAudioSession.DeactivationContext, event.source == .system {
                     suspendPlayback()
                 }
                 return
@@ -131,9 +155,15 @@ final class BackgroundMusic {
         }
     }
 
+    private func pauseUntilPlaybackRequested() {
+        needsPlaybackRequest = true
+        suspendPlayback()
+    }
+
     private func suspendPlayback() {
         clearPreview()
-        request(nil, fadeOut: false, force: true)
+        needsImmediateStop = true
+        request(nil, force: true)
     }
 
     private func clearPreview() {
@@ -143,7 +173,7 @@ final class BackgroundMusic {
     }
 
     private func refresh() {
-        guard context.isActive else { return }
+        guard context.isActive, !needsPlaybackRequest else { return }
         if let previewTrack {
             request(.preview(previewTrack))
         } else if context.track != .off && (context.isSolo || isPracticing) {
@@ -153,18 +183,22 @@ final class BackgroundMusic {
         }
     }
 
-    private func request(_ mode: Playback?, fadeOut: Bool = true, force: Bool = false) {
+    private func request(_ mode: Playback?, force: Bool = false) {
         guard force || requestedPlayback != mode else { return }
         requestedPlayback = mode
         playback = nil
         transition?.cancel()
+        // A replacement task must stop the old player immediately if it supersedes a suspension.
+        let fadeOut = !needsImmediateStop
         transition = Task { [weak self, player] in
             let started = await player.apply(mode, fadeOut: fadeOut)
             guard !Task.isCancelled, let self else { return }
+            needsImmediateStop = false
             playback = started
             if case .preview = started {
                 previewTimer = Task { [weak self] in
                     do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                    guard !Task.isCancelled else { return }
                     self?.endPreview()
                 }
             } else if started != mode {

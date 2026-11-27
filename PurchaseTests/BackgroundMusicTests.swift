@@ -61,11 +61,11 @@ final class BackgroundMusicTests: XCTestCase {
         music.togglePreview(.teaHouse)
         await expectPlayback(.preview(.teaHouse), in: music)
 
-        music.handleInterruption(interruption(.began))
+        music.handleAudioSessionNotification(interruption(.began))
         XCTAssertFalse(music.isPreviewing)
         XCTAssertNil(music.playback)
 
-        music.handleInterruption(interruption(.ended))
+        music.handleAudioSessionNotification(interruption(.ended))
         await expectPlayback(.loop(.teaHouse), in: music)
     }
 
@@ -75,7 +75,7 @@ final class BackgroundMusicTests: XCTestCase {
         music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
         await expectPlayback(.loop(.teaHouse), in: music)
 
-        music.handleInterruption(interruption(.began))
+        music.handleAudioSessionNotification(interruption(.began))
         XCTAssertNil(music.playback)
         music.togglePreview(.teaHouse)
         await expectPlayback(.preview(.teaHouse), in: music)
@@ -97,6 +97,55 @@ final class BackgroundMusicTests: XCTestCase {
         await expectPlayback(.loop(.teaHouse), in: music)
 
         XCTAssertGreaterThanOrEqual(stoppedAt.duration(to: clock.now), .milliseconds(220))
+    }
+
+    func testOutputDisconnectStopsMusicUntilTheNextExplicitPreview() async throws {
+        let music = BackgroundMusic()
+        var solo = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: true)
+        defer { music.update(.init()) }
+        music.update(solo)
+        await expectPlayback(.loop(.teaHouse), in: music)
+
+        music.handleAudioSessionNotification(routeChange(.newDeviceAvailable))
+        XCTAssertEqual(music.playback, .loop(.teaHouse))
+        music.handleAudioSessionNotification(routeChange(.oldDeviceUnavailable))
+        XCTAssertNil(music.playback)
+
+        solo.isActive = false
+        music.update(solo)
+        solo.isActive = true
+        music.update(solo)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertNil(music.playback)
+
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+        music.endPreview()
+        await expectPlayback(.loop(.teaHouse), in: music)
+    }
+
+    func testMediaServicesResetClearsPreviewAndWaitsForNewRequest() async throws {
+        let music = BackgroundMusic()
+        defer { music.update(.init()) }
+        music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+
+        music.handleAudioSessionNotification(Notification(name: AVAudioSession.mediaServicesWereResetNotification))
+        XCTAssertFalse(music.isPreviewing)
+        XCTAssertNil(music.playback)
+        music.handleAudioSessionNotification(interruption(.ended))
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertNil(music.playback)
+
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+    }
+
+    private func routeChange(_ reason: AVAudioSession.RouteChangeReason) -> Notification {
+        Notification(name: AVAudioSession.routeChangeNotification, userInfo: [
+            AVAudioSessionRouteChangeReasonKey: reason.rawValue,
+        ])
     }
 
     private func interruption(_ type: AVAudioSession.InterruptionType) -> Notification {
