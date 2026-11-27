@@ -522,9 +522,12 @@ struct MatchView<Session: MatchSession>: View {
         } else if let pendingThrow, !after.moves.contains(.discard(pendingThrow.tileID)) {
             self.pendingThrow = nil
         }
-        let meldingPlayer = pairs.first { $1.melds != $0.melds }
+        let meldingPlayer = pairs.first {
+            $1.meldCount != $0.meldCount || ($1.melds != $0.melds && after.result == nil)
+        }
         let meld = meldingPlayer.flatMap { old, new in new.melds.first { !old.melds.contains($0) } }
-        let contact = discard != nil || meld != nil
+        let meldKind = meld?.kind ?? meldingPlayer.map { _ in MeldKind.concealedKong }
+        let contact = discard != nil || meldKind != nil
         var contactDelay: Duration = contact ? .milliseconds(168) : .zero
         var animatesMeld = false
         if before.step == .claim, let (_, player) = meldingPlayer, let meld, let claimed = before.latestDiscard,
@@ -551,21 +554,21 @@ struct MatchView<Session: MatchSession>: View {
         if before.result == nil, let winner = after.result?.winner {
             play(.win, by: winner)
             if winner == after.viewer { playHaptic(.win) }
-        } else if let (_, player) = meldingPlayer, let meld {
+        } else if let (_, player) = meldingPlayer, let meldKind {
             if !animatesMeld {
-                playContact(TableImpact(meld: meld.kind), seat: player.seat)
+                playContact(TableImpact(meld: meldKind), seat: player.seat)
             }
         } else if let discard, discardFlight?.tile.id != discard.tile.id {
             playContact(.discard, seat: discard.seat)
         }
 
         let legacyDraw = after.remaining < before.remaining || (after.drawn != nil && after.drawn != before.drawn) ||
-            replacedFlower || meld.map { $0.kind != .chow && $0.kind != .pung } == true
+            replacedFlower || meldKind.map { $0 != .chow && $0 != .pung } == true
         if after.step == .turn, let draw = after.lastDraw, draw != before.lastDraw {
             drawCue = DrawCue(seat: draw.seat, contactDelay: contactDelay, fromReserve: draw.fromReserve,
                               replacesFlowers: draw.flowersReplaced > 0)
         } else if after.step == .turn, after.lastDraw == nil, legacyDraw {
-            drawCue = DrawCue(seat: after.current, contactDelay: contactDelay, fromReserve: meld != nil,
+            drawCue = DrawCue(seat: after.current, contactDelay: contactDelay, fromReserve: meldKind != nil,
                               replacesFlowers: replacedFlower)
         } else if before.current != after.current || before.step != after.step || contact {
             drawCue = nil
@@ -1870,7 +1873,7 @@ private struct TableHistory: View {
                     } else if !table.hasKnownDiscard {
                         Text("本局还没有出牌").foregroundStyle(TeaTheme.muted)
                     }
-                    Text("各家亮牌").font(.headline).accessibilityAddTraits(.isHeader)
+                    Text("各家牌组").font(.headline).accessibilityAddTraits(.isHeader)
                     ForEach(table.players) { player in
                         VStack(alignment: .leading, spacing: 6) {
                             Text("\(table.wind(for: player.seat).wind) · \(displayName(player.seat, viewer: table.viewer, names: names))")
@@ -1878,9 +1881,10 @@ private struct TableHistory: View {
                                 .foregroundStyle(TeaTheme.brass)
                             Text("花牌 \(player.flowerCount) · 积分 \(player.score)")
                                 .font(.subheadline.monospacedDigit()).foregroundStyle(TeaTheme.muted)
-                            ForEach(player.melds) { meld in
+                            ForEach(Array(table.displayedMelds(for: player).enumerated()), id: \.offset) { index, meld in
                                 MeldTiles(meld: meld, width: 23)
-                                if let source = meld.from {
+                                    .accessibilityIdentifier("history-meld-\(player.seat.id)-\(index)")
+                                if let source = meld?.from {
                                     Text("来自\(name(source))的出牌").font(.caption).foregroundStyle(TeaTheme.muted)
                                 }
                             }

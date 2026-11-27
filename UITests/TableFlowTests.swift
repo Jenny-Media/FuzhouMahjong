@@ -1077,6 +1077,11 @@ final class TableFlowTests: XCTestCase {
             let app = try launchSavedMatch(fixture)
             let rack = element("table-rack", in: app)
             let original = rack.frame
+            let east = element("seat-score-\(Seat.east.id)", in: app)
+            let west = element("seat-score-\(Seat.west.id)", in: app)
+            XCTAssertTrue(east.isHittable)
+            XCTAssertTrue(west.isHittable)
+            XCTAssertLessThan(east.frame.midX, west.frame.midX)
             let backs = element("concealed-rack-\(player.seat.id)", in: app)
             XCTAssertEqual(backs.label, "手牌 \(player.rackCount) 张")
             let seat = element("seat-score-\(player.seat.id)", in: app)
@@ -1094,6 +1099,37 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(app.buttons["declare-win"].isHittable)
             app.terminate()
         }
+    }
+
+    func testOpponentConcealedKongStaysHiddenOnTableAndInHistory() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        var game = try match(seed: 76, after: 0)
+        let kong = try XCTUnwrap(game.legalMoves(for: .east).first {
+            if case .meld(.concealedKong, _) = $0 { return true }
+            return false
+        })
+        XCTAssertTrue(game.apply(kong, by: .east))
+        XCTAssertTrue(game.apply(.discard(25), by: .east))
+        XCTAssertEqual(game.table(for: .south).step, .claim)
+        XCTAssertTrue(game.legalMoves(for: .south).contains(.pass))
+
+        let app = try launchSavedMatch(game)
+        let tableKong = element("table-meld-concealed-\(Seat.east.id)-0", in: app)
+        XCTAssertTrue(tableKong.waitForExistence(timeout: 5))
+        XCTAssertEqual(tableKong.label, "暗杠")
+
+        element("seat-score-\(Seat.east.id)", in: app).tap()
+        let inspectedKong = element("inspected-meld-concealed-0", in: app)
+        XCTAssertTrue(inspectedKong.waitForExistence(timeout: 5))
+        XCTAssertEqual(inspectedKong.label, "暗杠")
+        XCTAssertGreaterThanOrEqual(inspectedKong.frame.width, 4 * 40)
+        app.buttons["完成"].tap()
+
+        app.buttons["table-history"].tap()
+        let historyKong = element("history-meld-\(Seat.east.id)-0", in: app)
+        XCTAssertTrue(historyKong.waitForExistence(timeout: 5))
+        XCTAssertEqual(historyKong.label, "暗杠")
     }
 
     func testOverriddenPungExplainsTheResultOnTheTable() throws {

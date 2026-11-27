@@ -107,6 +107,50 @@ final class MatchTests: XCTestCase {
         XCTAssertNil(decoded.exposedFlowers)
     }
 
+    func testConcealedKongIsPrivateUntilSettlement() throws {
+        let kong = TileKind(.characters, 1)
+        let rack = Array(repeating: kong, count: 4) + completed.dropFirst(3).dropLast(2)
+        // The reserve tail is flipped for gold, leaving the winning tile as the kong replacement.
+        var match = try fixture(hands: [.east: rack], gold: completed[16],
+                                draws: [completed[15]], ruleset: .pureSuit, openingTail: [.init(.bamboo, 9)])
+        resolveOpening(&match)
+        let move = try XCTUnwrap(match.legalMoves(for: .east).first {
+            if case .meld(.concealedKong, _) = $0 { return true }
+            return false
+        })
+        XCTAssertTrue(match.apply(move, by: .east))
+
+        let owner = match.table(for: .east)
+        XCTAssertEqual(owner.drawn?.kind, completed[16])
+        let ownerPlayer = owner.players[Seat.east.id]
+        let meld = try XCTUnwrap(ownerPlayer.melds.first)
+        XCTAssertEqual(meld.tiles.map(\.kind), Array(repeating: kong, count: 4))
+        XCTAssertEqual(owner.displayedMelds(for: ownerPlayer), [meld])
+
+        let encoded = try JSONEncoder().encode(match.table(for: .south))
+        let guest = try JSONDecoder().decode(TableState.self, from: encoded)
+        let guestPlayer = guest.players[Seat.east.id]
+        XCTAssertEqual(guestPlayer.concealedKongPositions, [0])
+        XCTAssertTrue(guestPlayer.melds.isEmpty)
+        XCTAssertEqual(guest.displayedMelds(for: guestPlayer), [nil])
+        XCTAssertEqual(guestPlayer.meldCount, 1)
+        XCTAssertEqual(guest.concealedCount(for: guestPlayer), ownerPlayer.rackCount)
+        XCTAssertFalse(guest.isOpeningLayout)
+        XCTAssertEqual(guest.lastDraw?.fromReserve, true)
+
+        var olderHost = guest
+        olderHost.players[Seat.east.id].concealedKongPositions = nil
+        olderHost.players[Seat.east.id].melds = [meld]
+        XCTAssertEqual(olderHost.displayedMelds(for: olderHost.players[Seat.east.id]), [nil])
+
+        XCTAssertTrue(match.apply(.win, by: .east))
+        let settled = match.table(for: .south)
+        let settledPlayer = settled.players[Seat.east.id]
+        XCTAssertEqual(settled.step, .finished)
+        XCTAssertNil(settledPlayer.concealedKongPositions)
+        XCTAssertEqual(settled.displayedMelds(for: settledPlayer), [meld])
+    }
+
     func testGuestRobGoldKeepsDealerExtraAndOldOpeningSavesCanFinish() throws {
         let indicator = TileKind(.bamboo, 5)
         let waiting = Array(completed.dropLast())

@@ -83,9 +83,15 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                    step: step, offeredTile: offeredTile, moves: openingDiscards == nil ? moves : [.win, .pass],
                    players: Seat.allCases.map {
                        let count = hands[$0.id].count + ($0 == current && drawn != nil ? 1 : 0)
+                       var visibleMelds = melds[$0.id]
+                       let hiddenKongs = step != .finished && $0 != viewer
+                           ? visibleMelds.indices.filter { visibleMelds[$0].kind == .concealedKong }
+                           : []
+                       for index in hiddenKongs.reversed() { visibleMelds.remove(at: index) }
                        return .init(seat: $0, rackCount: count, flowerCount: flowers[$0.id].count,
-                                    discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id],
-                                    exposedFlowers: flowers[$0.id])
+                                    discards: ponds[$0.id], melds: visibleMelds, score: scores[$0.id],
+                                    exposedFlowers: flowers[$0.id],
+                                    concealedKongPositions: hiddenKongs.isEmpty ? nil : hiddenKongs)
                    }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards,
                    discardClaimFeedback: claimFeedback, openingIndicatorFlowerIDs: openingIndicatorFlowerIDs,

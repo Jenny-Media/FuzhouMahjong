@@ -142,6 +142,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         if let player = visiblePlayer(seat) {
+                            let melds = table.displayedMelds(for: player)
                             Text("\(table.wind(for: seat).wind)风 · \(player.score)分")
                                 .font(.subheadline).foregroundStyle(TeaTheme.muted)
                             if let count = inspectedHandCount(for: player) {
@@ -162,12 +163,12 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                                     .accessibilityIdentifier("inspected-flowers-\(seat.id)")
                                 }
                             }
-                            if player.melds.isEmpty, player.flowerCount == 0 {
+                            if melds.isEmpty, player.flowerCount == 0 {
                                 Text("还没有亮出的牌")
                             }
-                            ForEach(player.melds) { meld in
+                            ForEach(Array(melds.enumerated()), id: \.offset) { index, meld in
                                 MeldTiles(meld: meld, width: 40)
-                                    .accessibilityIdentifier("inspected-meld-\(meld.id)")
+                                    .accessibilityIdentifier("inspected-meld-\(meld.map { String($0.id) } ?? "concealed-\(index)")")
                             }
                         }
                     }
@@ -377,8 +378,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     if table.result == nil, seat != table.viewer {
                         Text(opening?.title ?? "手牌 \(table.concealedCount(for: player)) 张").font(.caption)
                     }
-                    if table.result == nil, player.flowerCount > 0 || !player.melds.isEmpty {
-                        Text("花牌 \(player.flowerCount) 张 · 亮牌 \(player.melds.count) 组").font(.caption)
+                    if table.result == nil, player.flowerCount > 0 || player.meldCount > 0 {
+                        Text("花牌 \(player.flowerCount) 张 · 牌组 \(player.meldCount) 组").font(.caption)
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget, alignment: .leading)
@@ -411,11 +412,11 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             playingArea(width: width, height: middleHeight) { focusHeight in
                 HStack(alignment: .top, spacing: gap) {
                     // Keep the seats centered in the live area when the winning hand gains space.
-                    seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
+                    seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
                         .frame(height: liveFocusHeight)
                     discardFocus(width: middleWidth, height: focusHeight,
                                  stacked: !tabletSeating || focusHeight >= 150)
-                    seatCard(table.viewer.advanced(3), width: sideWidth, height: sideHeight, vertical: true)
+                    seatCard(table.viewer.advanced(1), width: sideWidth, height: sideHeight, vertical: true)
                         .frame(height: liveFocusHeight)
                 }
             }
@@ -445,12 +446,12 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             VStack(spacing: gap) {
                 Grid(horizontalSpacing: gap, verticalSpacing: gap) {
                     GridRow {
-                        seatCard(table.viewer.advanced(1), width: seatWidth, height: seatHeight)
+                        seatCard(table.viewer.advanced(3), width: seatWidth, height: seatHeight)
                         seatCard(table.viewer.advanced(2), width: seatWidth, height: seatHeight)
                     }
                     GridRow {
                         seatCard(table.viewer, width: seatWidth, height: seatHeight)
-                        seatCard(table.viewer.advanced(3), width: seatWidth, height: seatHeight)
+                        seatCard(table.viewer.advanced(1), width: seatWidth, height: seatHeight)
                     }
                 }
                 tableStrip(width: playersWidth)
@@ -505,7 +506,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                         Text(name).font((tabletSeating ? Font.subheadline : .caption).weight(.semibold))
                         HStack(spacing: 2) {
                             Text(dealer ? "庄 · \(player.score)" : "\(player.score)")
-                            if !player.melds.isEmpty || player.flowerCount > 0 {
+                            if player.meldCount > 0 || player.flowerCount > 0 {
                                 Image(systemName: "magnifyingglass")
                             }
                         }
@@ -524,13 +525,14 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 .accessibilityAction { inspectedSeat = seat }
 
                 let counts = OpponentRackCounts(player, at: table, pendingDraw: pendingDraw, reduceMotion: reduceMotion)
+                let melds = table.displayedMelds(for: player)
                 let rackHeight = max(1, vertical ? height - (tabletSeating ? 46 : 40) : height - 6)
                 let hasFlowers = player.flowerCount > 0
                 let flowerHeight = hasFlowers ? min(tabletSeating ? 23 : 19, rackHeight * 0.44) : 0
                 let groupHeight = max(0, rackHeight - (hasFlowers ? flowerHeight + 2 : 0))
                 VStack(alignment: .leading, spacing: 2) {
                     VStack(alignment: .leading, spacing: 2) {
-                        if player.melds.isEmpty {
+                        if melds.isEmpty {
                             if seat != table.viewer, !won {
                                 opponentRack(player, counts: counts)
                             }
@@ -544,9 +546,10 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                                     .accessibilityLabel("手牌 \(counts.total) 张")
                                     .accessibilityIdentifier("concealed-rack-\(seat.id)")
                             }
-                            meldSummary(player.melds, width: meldWidth, height: groupHeight - (showsBacks ? backsHeight + 2 : 0))
+                            meldSummary(melds, seat: seat, width: meldWidth,
+                                        height: groupHeight - (showsBacks ? backsHeight + 2 : 0))
                                 .accessibilityElement(children: .contain)
-                                .accessibilityLabel("\(name)亮出的牌组")
+                                .accessibilityLabel("\(name)的牌组")
                                 .accessibilityIdentifier("seat-melds-\(seat.id)")
                         }
                     }
@@ -637,8 +640,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         .accessibilityIdentifier("concealed-rack-\(player.seat.id)")
     }
 
-    private func meldSummary(_ melds: [Meld], width: CGFloat, height: CGFloat) -> some View {
-        let largestSet = melds.map(\.tiles.count).max() ?? 4
+    private func meldSummary(_ melds: [Meld?], seat: Seat, width: CGFloat, height: CGFloat) -> some View {
+        let largestSet = melds.map { $0?.tiles.count ?? 4 }.max() ?? 4
         func faceWidth(columns: Int) -> CGFloat {
             let rows = (melds.count + columns - 1) / columns
             let cell = (width - CGFloat(columns - 1) * 3) / CGFloat(columns)
@@ -654,18 +657,23 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
         return ZStack(alignment: .leading) {
             Color.clear.accessibilityHidden(true)
             LazyVGrid(columns: grid, alignment: .leading, spacing: 2) {
-                ForEach(melds) { meld in
-                    HStack(spacing: 1) {
-                        ForEach(meld.tiles) { tile in
-                            TileFace(kind: tile.kind)
-                                .frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
-                                .opacity(tile.id == flyingClaim ? 0 : 1)
-                                .anchorPreference(key: TableAnchors.self, value: .bounds) { [.meldTile(tile.id): $0] }
+                ForEach(Array(melds.enumerated()), id: \.offset) { index, meld in
+                    if let meld {
+                        HStack(spacing: 1) {
+                            ForEach(meld.tiles) { tile in
+                                TileFace(kind: tile.kind)
+                                    .frame(width: tileWidth, height: tileWidth / TileFace.artworkAspectRatio)
+                                    .opacity(tile.id == flyingClaim ? 0 : 1)
+                                    .anchorPreference(key: TableAnchors.self, value: .bounds) { [.meldTile(tile.id): $0] }
+                            }
                         }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(meld.spokenName)
+                        .accessibilityIdentifier("table-meld-\(meld.id)")
+                    } else {
+                        MeldTiles(meld: nil, width: tileWidth, showsLabel: false, spacing: 1)
+                            .accessibilityIdentifier("table-meld-concealed-\(seat.id)-\(index)")
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(meld.kind.label)，\(meld.tiles.map { $0.kind.spokenName }.joined(separator: "、"))")
-                    .accessibilityIdentifier("table-meld-\(meld.id)")
                 }
             }
         }
@@ -860,19 +868,30 @@ extension TableState {
 }
 
 struct MeldTiles: View {
-    let meld: Meld
+    let meld: Meld?
     let width: CGFloat
     var showsLabel = true
+    var spacing: CGFloat = 2
 
     var body: some View {
-        HStack(spacing: 2) {
-            if showsLabel { Text(meld.kind.label).font(.caption2).padding(.trailing, 1) }
-            ForEach(meld.tiles) { tile in
-                TileFace(kind: tile.kind).frame(width: width, height: width * 1.34)
+        HStack(spacing: spacing) {
+            if showsLabel { Text(meld?.kind.label ?? "暗杠").font(.caption2).padding(.trailing, 1) }
+            if let meld {
+                ForEach(meld.tiles) { tile in
+                    TileFace(kind: tile.kind).frame(width: width, height: width * 1.34)
+                }
+            } else {
+                ForEach(0..<4) { _ in
+                    TileBack().frame(width: width, height: width / TileFace.artworkAspectRatio)
+                }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(meld.kind.label)，\(meld.tiles.map { $0.kind.spokenName }.joined(separator: "、"))")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(meld?.spokenName ?? "暗杠")
     }
+}
+
+private extension Meld {
+    var spokenName: String { "\(kind.label)，\(tiles.map { $0.kind.spokenName }.joined(separator: "、"))" }
 }
