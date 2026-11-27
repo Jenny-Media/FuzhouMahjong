@@ -32,6 +32,7 @@ public final class NearbySession: MatchSession {
         let seatKey: UUID
         let guestName: String
         var confirmed: Bool? = false // Absent in the two legacy file layouts.
+        var acceptsHandReview: Bool? = nil
     }
 
     private struct PendingInvite {
@@ -135,13 +136,14 @@ public final class NearbySession: MatchSession {
     }
 
     private enum GuestMessage: Codable {
-        case join(UUID, String)
+        case join(UUID, String, supportsHandReview: Bool?, acceptsHandReview: Bool?)
         case move(Move, Int, id: UUID?)
         case leave
     }
 
     private enum HostMessage: Codable {
         case update(RoomUpdate)
+        case handReviewConfirmationRequired
         case rejected
         case closed
     }
@@ -226,6 +228,7 @@ public final class NearbySession: MatchSession {
     public private(set) var rooms: [DiscoveredRoom] = []
     public private(set) var update: RoomUpdate?
     public private(set) var connected = false
+    public private(set) var needsHandReviewConfirmation = false
     public private(set) var revision = 0
     public private(set) var notice: String?
     public private(set) var openingRound: Int?
@@ -299,13 +302,15 @@ public final class NearbySession: MatchSession {
         rooms = []
     }
 
-    public func create(name: String, ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil) {
+    public func create(name: String, ruleset: FuzhouRuleset = .pureSuit, houseRules: FuzhouHouseRules? = nil,
+                       revealsSettledHands: Bool = false) {
         beginLobbyChoice()
         guard !isInRoom else { return }
         guard hostingAllowed() else { notice = "开启免费体验或解锁完整版后，可以创建牌桌。加入牌友的牌桌免费。"; return }
         cancelInviteSearch()
         let name = NearbyMatch.normalizedName(name)
-        host = HostedRoom(name: name, match: NearbyMatch(hostName: name, ruleset: ruleset, houseRules: houseRules))
+        host = HostedRoom(name: name, match: NearbyMatch(hostName: name, ruleset: ruleset, houseRules: houseRules,
+                                                       revealsSettledHands: revealsSettledHands))
         notice = nil
         broadcast()
         openListener()
@@ -332,6 +337,23 @@ public final class NearbySession: MatchSession {
         didConnect = false
         notice = "正在加入牌桌…"
         connect(room)
+    }
+
+    public func confirmHandReview() {
+        guard needsHandReviewConfirmation, let target,
+              let index = seats.firstIndex(where: { $0.roomID == target.id }) else { return }
+        seats[index].acceptsHandReview = true
+        guard persistSeats() else { return }
+        needsHandReviewConfirmation = false
+        notice = "正在加入牌桌…"
+        let room = rooms.first { $0.id == target.id && $0.publicKey == target.publicKey } ?? target
+        connect(room)
+    }
+
+    public func declineHandReview() {
+        guard needsHandReviewConfirmation, let target else { return }
+        forgetSeat(in: target.id)
+        resetRoom()
     }
 
     public func resumeLastRoom(automatically: Bool = false) {
@@ -627,6 +649,7 @@ public final class NearbySession: MatchSession {
         host = nil
         target = nil
         update = nil
+        needsHandReviewConfirmation = false
         clearSubmission()
         overriddenSubmission = nil
         openingRound = nil
@@ -768,9 +791,14 @@ public final class NearbySession: MatchSession {
             guard let clear = try link.cipher?.open(data) else { wire.close(); return }
             links[wire.id] = link
             switch try JSONDecoder().decode(GuestMessage.self, from: clear) {
-            case let .join(key, name):
+            case let .join(key, name, supportsHandReview, acceptsHandReview):
                 guard link.seat == nil else { wire.close(); return }
-                guard let seat = self.host?.match.join(key: key, name: name) else {
+                if host.match.revealsSettledHands, supportsHandReview == true, acceptsHandReview != true {
+                    sendToGuest(.handReviewConfirmationRequired, wire: wire)
+                    return
+                }
+                guard let seat = self.host?.match.join(key: key, name: name,
+                                                       acceptsHandReview: supportsHandReview == true && acceptsHandReview == true) else {
                     sendToGuest(.rejected, wire: wire)
                     return
                 }
@@ -867,7 +895,8 @@ public final class NearbySession: MatchSession {
                 guard let self, guest?.wire.id == wire.id else { return }
                 guard prepareSeatForJoin(room) else { resetRoom(); return }
                 wire.send(guestKey)
-                _ = sendToHost(.join(seatKey, guestName))
+                _ = sendToHost(.join(seatKey, guestName, supportsHandReview: true,
+                                     acceptsHandReview: seat(in: room.id)?.acceptsHandReview))
             }
             wire.received = { [weak self] wire, frame in self?.guestReceived(frame, from: wire) }
             wire.ended = { [weak self] wire in self?.guestLost(wire) }
@@ -901,6 +930,14 @@ public final class NearbySession: MatchSession {
                 }
                 wire.accepted()
                 publish(update, resuming: resuming)
+            case .handReviewConfirmationRequired:
+                // A guest awaiting consent has no host reservation and can decide while disconnected.
+                guest = nil
+                wire.close()
+                clearRecovery()
+                automaticallyReturning = false
+                needsHandReviewConfirmation = true
+                notice = nil
             case .rejected:
                 let returning = didConnect || seat(in: target.id)?.confirmed == true
                 forgetSeat(in: target.id)
@@ -958,7 +995,8 @@ public final class NearbySession: MatchSession {
     }
 
     private func tryReconnect() {
-        guard !suspended, recovery != .unavailable, guest == nil, retry == nil, let target else { return }
+        guard !suspended, !needsHandReviewConfirmation, recovery != .unavailable,
+              guest == nil, retry == nil, let target else { return }
         retry = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
             guard let self else { return }

@@ -29,6 +29,22 @@ struct MatchResults: View {
                     } ?? "其余三家各付 \(result.points) 分"
                     banner("\(name) · \(result.winTitle)", value: "\(signed(result.delta(for: table.viewer))) 分",
                            valueLabel: "你的积分变化", detail: payment)
+                } else {
+                    banner("本局无人胡牌", value: "流局", detail: "四家积分不变")
+                }
+
+                if let hands = table.settledHands {
+                    NavigationLink {
+                        SettledHandsReview(table: table, result: result, names: names, hands: hands)
+                    } label: {
+                        Label("查看四家手牌", systemImage: "rectangle.on.rectangle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(TeaButtonStyle(prominent: false))
+                    .accessibilityIdentifier("review-settled-hands")
+                }
+
+                if let winner = result.winner {
                     winningTiles(for: winner)
                     scoreGroup("每份得分") {
                         ForEach(result.lines) { line in
@@ -37,8 +53,6 @@ struct MatchResults: View {
                         scoreRow("每份合计", amount: "\(result.points)", emphasized: true)
                             .accessibilityIdentifier("score-total")
                     }
-                } else {
-                    banner("本局无人胡牌", value: "流局", detail: "四家积分不变")
                 }
 
                 scoreGroup("本局积分变化") {
@@ -134,12 +148,95 @@ struct MatchResults: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
     }
+}
 
-    private func signed(_ delta: Int) -> String {
-        if delta > 0 { return "+\(delta)" }
-        if delta < 0 { return "−\(-delta)" }
-        return "0"
+private struct SettledHandsReview: View {
+    let table: TableState
+    let result: RoundResult
+    let names: [Seat: String]
+    let hands: [Seat: [Tile]]
+    @State private var seat: Seat
+
+    init(table: TableState, result: RoundResult, names: [Seat: String], hands: [Seat: [Tile]]) {
+        self.table = table
+        self.result = result
+        self.names = names
+        self.hands = hands
+        _seat = State(initialValue: result.winner ?? table.viewer)
     }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Picker("座位", selection: $seat) {
+                    ForEach(Seat.allCases) { seat in
+                        Text(table.wind(for: seat).wind)
+                            .accessibilityLabel("\(table.wind(for: seat).wind)风，\(displayName(seat, viewer: table.viewer, names: names))")
+                            .tag(seat)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("settled-seat-picker")
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("\(table.wind(for: seat).wind)风 · \(displayName(seat, viewer: table.viewer, names: names))")
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("settled-seat-name")
+                    if seat == result.winner {
+                        Text("\(result.winTitle) · \(signed(result.delta(for: seat))) 分")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(TeaTheme.brass)
+                    }
+                    Text("手牌").font(.subheadline.weight(.semibold))
+                    tileGrid(hands[seat] ?? [])
+                        .accessibilityIdentifier("settled-hand-\(seat.id)")
+
+                    if let player = table.players.first(where: { $0.seat == seat }) {
+                        if !player.melds.isEmpty {
+                            Text("牌组").font(.subheadline.weight(.semibold))
+                            ForEach(player.melds) { meld in
+                                MeldTiles(meld: meld, width: 36)
+                            }
+                        }
+                        if let flowers = player.exposedFlowers, !flowers.isEmpty {
+                            Text("花牌").font(.subheadline.weight(.semibold))
+                            tileGrid(flowers)
+                        }
+                    }
+                }
+                .padding(12)
+                .teaPanel()
+            }
+            .padding(TeaTheme.gutter)
+            .frame(maxWidth: TeaTheme.contentWidth)
+            .frame(maxWidth: .infinity)
+        }
+        .modifier(HingeSafeContent())
+        .teaBackdrop()
+        .navigationTitle("四家手牌")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func tileGrid(_ tiles: [Tile]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 36), spacing: 4)], spacing: 4) {
+            ForEach(tiles) { tile in
+                let winning = seat == result.winner && tile.id == result.winningTile?.id
+                let gold = table.isGold(tile)
+                TileFace(kind: tile.kind, gold: gold, selected: winning)
+                    .frame(width: 36, height: 36 / TileFace.artworkAspectRatio)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(tile.kind.spokenName)\(gold ? "，金牌" : "")\(winning ? "，胡牌" : "")")
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private func signed(_ delta: Int) -> String {
+    if delta > 0 { return "+\(delta)" }
+    if delta < 0 { return "−\(-delta)" }
+    return "0"
 }
 
 struct WinningHandReveal<SeatDetails: View>: View {
@@ -165,12 +262,17 @@ struct WinningHandReveal<SeatDetails: View>: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 6) {
-                    Text("\(name) · \(result.winTitle)")
-                        .font(width >= 300 ? .headline : .caption.weight(.bold))
-                        .foregroundStyle(board.accent)
-                        .multilineTextAlignment(.center)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("winning-hand-reveal")
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            winnerTitle
+                            winnerGain
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        VStack(spacing: 3) {
+                            winnerTitle
+                            winnerGain
+                        }
+                    }
                     WinningGroups(table: table, result: result, winner: winner,
                                   boardSize: CGSize(width: width, height: geometry.size.height))
                     seatDetails()
@@ -182,6 +284,22 @@ struct WinningHandReveal<SeatDetails: View>: View {
             .accessibilityIdentifier("winning-hand-scroll")
         }
         .frame(width: width)
+    }
+
+    private var winnerTitle: some View {
+        Text("\(name) · \(result.winTitle)")
+            .font(width >= 300 ? .headline : .caption.weight(.bold))
+            .foregroundStyle(board.accent)
+            .multilineTextAlignment(.center)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("winning-hand-reveal")
+    }
+
+    private var winnerGain: some View {
+        Text("\(signed(result.delta(for: winner))) 分")
+            .font(.caption.monospacedDigit().weight(.semibold))
+            .foregroundStyle(board.accent)
+            .accessibilityIdentifier("winning-gain")
     }
 }
 

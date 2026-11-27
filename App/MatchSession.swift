@@ -137,7 +137,7 @@ final class SoloMatch: MatchSession {
     }
     private func updateMatch(_ updated: FuzhouMatch) {
         match = updated
-        table = updated.table(for: FuzhouMatch.player)
+        table = updated.table(for: FuzhouMatch.player, revealsSettledHands: true)
     }
     private func persist() {
         guard let match, let data = try? JSONEncoder().encode(match) else { return }

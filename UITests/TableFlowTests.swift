@@ -1880,6 +1880,41 @@ final class TableFlowTests: XCTestCase {
         XCTAssertTrue(count.waitForExistence(timeout: 3))
     }
 
+    func testSettledHandsCanBeInspectedAfterAWinOrDraw() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let fixtures: [(seed: UInt64, moves: Int, winner: Seat?)] = [(14, 29, .west), (0, 36, nil)]
+        for fixture in fixtures {
+            var completed = try match(seed: fixture.seed, after: fixture.moves)
+            while completed.result == nil { try playFixtureMove(in: &completed) }
+            let result = try XCTUnwrap(completed.result)
+            XCTAssertEqual(result.winner, fixture.winner)
+            let app = try launchSavedMatch(completed)
+            let scorecard = app.buttons["view-scorecard"]
+            XCTAssertTrue(scorecard.waitForExistence(timeout: 5))
+            if let winner = result.winner {
+                XCTAssertEqual(element("winning-gain", in: app).label, "+\(result.delta(for: winner)) 分")
+            }
+            scorecard.tap()
+            let review = element("review-settled-hands", in: app)
+            XCTAssertTrue(review.waitForExistence(timeout: 5))
+            review.tap()
+            XCTAssertTrue(app.navigationBars["四家手牌"].exists)
+
+            let selected = result.winner ?? .south
+            XCTAssertTrue(element("settled-hand-\(selected.id)", in: app).waitForExistence(timeout: 5))
+            if result.winner != nil { capture("settled-hand-review-win") }
+            let other = selected.advanced(1)
+            let wind = ["东", "南", "西", "北"][completed.table(for: .south).wind(for: other).id]
+            let picker = app.segmentedControls["settled-seat-picker"]
+            let nextSeat = picker.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", wind)).firstMatch
+            XCTAssertTrue(nextSeat.exists)
+            nextSeat.tap()
+            XCTAssertTrue(element("settled-hand-\(other.id)", in: app).waitForExistence(timeout: 5))
+            app.terminate()
+        }
+    }
+
     func testWinRevealAndScorecardFollowTheSameHand() async throws {
         continueAfterFailure = false
         defer { XCUIDevice.shared.orientation = .portrait }

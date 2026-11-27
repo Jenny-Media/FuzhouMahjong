@@ -50,6 +50,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     let drawingFromReserve: Bool?
     var pendingDraw: Seat? = nil
     var highlightedFlowers: Set<Tile.ID> = []
+    var emphasizedWinner: Seat? = nil
     let paused: Bool
     let size: CGSize
     let showsDrawDock: Bool
@@ -77,6 +78,10 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private let stripHeight: CGFloat = 24
     private let liveControlsHeight = TeaTheme.hitTarget + 48 + 4 + 12
     private var usesCompactLayout: Bool { scrollsInShortWindows && size.height - 2 * inset < 365 }
+
+    private func winnerBorderWidth(for seat: Seat) -> CGFloat {
+        !reduceMotion && emphasizedWinner == seat ? 5 : 2.5
+    }
 
     private func visiblePlayer(_ seat: Seat) -> TableState.Player? {
         guard let player = table.players.first(where: { $0.seat == seat }) else { return nil }
@@ -369,7 +374,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     @ViewBuilder
     private func seatSummary(_ seat: Seat) -> some View {
         if let player = visiblePlayer(seat) {
-            let role = table.result?.winner == seat ? "胡牌" : opening == nil && !paused && table.step == .turn && table.current == seat ? "当前回合" : nil
+            let won = table.result?.winner == seat
+            let role = won ? "胡牌" : opening == nil && !paused && table.step == .turn && table.current == seat ? "当前回合" : nil
+            let shape = RoundedRectangle(cornerRadius: 8)
             let melds = table.displayedMelds(for: player)
             let hiddenKongs = melds.indices.filter { melds[$0] == nil }
             Button { inspectedSeat = seat } label: {
@@ -389,7 +396,13 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget, alignment: .leading)
                 .padding(.horizontal, 6)
-                .background(board.seatSurface, in: RoundedRectangle(cornerRadius: 8))
+                .background(board.seatSurface, in: shape)
+                .overlay {
+                    if won {
+                        shape.strokeBorder(board.accent, lineWidth: winnerBorderWidth(for: seat))
+                            .allowsHitTesting(false)
+                    }
+                }
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("seat-score-\(seat.id)")
@@ -569,7 +582,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             .background(board.seatSurface.opacity(highlighted ? 0.94 : 0.72), in: shape)
             .overlay {
                 shape.strokeBorder(board.accent.opacity(highlighted ? 1 : 0.34),
-                                   lineWidth: won ? 2.5 : acting ? 1.5 : 1)
+                                   lineWidth: won ? winnerBorderWidth(for: seat) : acting ? 1.5 : 1)
                     .allowsHitTesting(false)
             }
             .contentShape(Rectangle())

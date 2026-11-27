@@ -67,7 +67,7 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
         deal(deck)
     }
 
-    public func table(for viewer: Seat) -> TableState {
+    public func table(for viewer: Seat, revealsSettledHands: Bool = false) -> TableState {
         let moves = legalMoves(for: viewer)
         let openingDiscards = step == .opening && viewer == dealer && moves.contains(.win) ? openingDealerGoldDiscards : nil
         let claimFeedback: DiscardClaimFeedback?
@@ -75,6 +75,16 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
             claimFeedback = .pending(move)
         } else {
             claimFeedback = overriddenClaims?[viewer]
+        }
+        let settledHands: [Seat: [Tile]]? = if revealsSettledHands, step == .finished, let result {
+            Dictionary(uniqueKeysWithValues: Seat.allCases.map { seat in
+                let tiles = seat == result.winner
+                    ? result.winningHand
+                    : hands[seat.id] + (seat == current ? [drawn].compactMap { $0 } : [])
+                return (seat, tiles.sorted { ($0.kind, $0.id) < ($1.kind, $1.id) })
+            })
+        } else {
+            nil
         }
         return TableState(viewer: viewer, hand: hands[viewer.id], drawn: current == viewer ? drawn : nil,
                    gold: gold, remaining: wall.count, dealer: dealer, continuation: continuation,
@@ -92,7 +102,8 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                                     discards: ponds[$0.id], melds: visibleMelds, score: scores[$0.id],
                                     exposedFlowers: flowers[$0.id],
                                     concealedKongPositions: hiddenKongs.isEmpty ? nil : hiddenKongs)
-                   }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
+                   }, result: result, settledHands: settledHands, rackCountsIncludeDrawnTile: true,
+                   discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards,
                    discardClaimFeedback: claimFeedback, openingIndicatorFlowerIDs: openingIndicatorFlowerIDs,
                    resetsStreakOnPassingDraw: resetsStreakOnPassingDraw)

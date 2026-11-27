@@ -255,6 +255,7 @@ final class MatchTests: XCTestCase {
                                   draws: [.init(.bamboo, 9)], ruleset: .pureSuit)
         let dealerDraw = try XCTUnwrap(opening.drawn)
         XCTAssertEqual(opening.table(for: .south).step, .opening)
+        XCTAssertNil(opening.table(for: .south, revealsSettledHands: true).settledHands)
 
         var winning = opening
         XCTAssertTrue(winning.apply(.win, by: .south))
@@ -262,6 +263,16 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(winning.result?.winner, .south)
         XCTAssertEqual(winning.table(for: .east).drawn, dealerDraw)
         XCTAssertNil(winning.table(for: .south).drawn)
+        XCTAssertNil(winning.table(for: .south).settledHands)
+        let settled = winning.table(for: .south, revealsSettledHands: true)
+        let hands = try XCTUnwrap(settled.settledHands)
+        XCTAssertEqual(Set(hands.keys), Set(Seat.allCases))
+        XCTAssertEqual(Set(hands[.south] ?? []), Set(winning.result?.winningHand ?? []))
+        XCTAssertEqual(Set(hands[.east] ?? []), Set(winning.table(for: .east).hand + [dealerDraw]))
+        XCTAssertEqual(try JSONDecoder().decode(TableState.self, from: JSONEncoder().encode(settled)), settled)
+        var next = winning
+        next.nextRound()
+        XCTAssertNil(next.table(for: .south, revealsSettledHands: true).settledHands)
 
         let data = try JSONEncoder().encode(opening)
         var oldFields = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -528,6 +539,8 @@ final class MatchTests: XCTestCase {
             saved["step"] = "finished"
             saved["result"] = try JSONSerialization.jsonObject(with: encoder.encode(RoundResult.draw))
             var match = try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: saved))
+            XCTAssertEqual(match.table(for: .south, revealsSettledHands: true).settledHands?.count, 4)
+            XCTAssertNil(match.table(for: .south).settledHands)
             match.nextRound()
             XCTAssertEqual(match.dealer, keepDealer ? .east : .south)
             XCTAssertEqual(match.continuation, keepDealer ? 3 : 0)
@@ -971,6 +984,21 @@ final class MatchTests: XCTestCase {
         XCTAssertFalse(host.paused)
         XCTAssertEqual(host.update(for: .south).table, south)
         XCTAssertFalse(host.submit(.pass, seat: .south, basedOn: stale))
+    }
+
+    func testHandReviewRoomRequiresConsentAndKeepsLiveRacksPrivate() throws {
+        var room = NearbyMatch(hostName: "阿榕", revealsSettledHands: true)
+        let guest = UUID()
+        XCTAssertNil(room.join(key: guest, name: "小林"))
+        XCTAssertFalse(room.canStart)
+        XCTAssertEqual(room.join(key: guest, name: "小林", acceptsHandReview: true), .south)
+        XCTAssertEqual(room.update(for: .south).revealsSettledHands, true)
+        XCTAssertTrue(room.start())
+        let active = try XCTUnwrap(room.update(for: .south).table)
+        XCTAssertNil(active.settledHands)
+        let packet = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(active)) as? [String: Any])
+        XCTAssertNil(packet["settledHands"])
+        XCTAssertNil(packet["settledPlayerNames"])
     }
 
     func testEncryptedFramesRejectReplayAndWrongSession() throws {
