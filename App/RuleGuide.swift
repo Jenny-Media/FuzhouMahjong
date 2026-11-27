@@ -260,7 +260,9 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
     }
 
     fileprivate func explanation(claim: Claim, ruleset: FuzhouRuleset, indicators: FuzhouHouseRules.GoldIndicators) -> String {
-        let turnOrder = "庄家先出牌，之后按逆时针行牌。上家出牌后，如果没人吃、碰、杠或胡，游戏会自动帮你摸一张。吃、碰后直接出牌，杠后先补一张。"
+        let turnOrder = "庄家先出牌，之后按逆时针行牌。" +
+            "上家出牌后，如果没人吃、碰、杠或胡，游戏会自动帮你摸一张。没牌可摸时，这局流局。" +
+            "吃、碰后直接出牌，杠后先补一张。"
         return switch self {
         case .turn:
             if ruleset == .legacy {

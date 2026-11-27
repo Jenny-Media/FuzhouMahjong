@@ -138,6 +138,16 @@ final class MatchTests: XCTestCase {
         XCTAssertFalse(guest.isOpeningLayout)
         XCTAssertEqual(guest.lastDraw?.fromReserve, true)
 
+        struct OlderGuestPlayer: Decodable {
+            let rackCount: Int
+            let melds: [Meld]
+        }
+        let legacyDecoder = JSONDecoder()
+        let encoder = JSONEncoder()
+        let olderGuest = try legacyDecoder.decode(OlderGuestPlayer.self, from: encoder.encode(guestPlayer))
+        XCTAssertEqual(olderGuest.rackCount, ownerPlayer.rackCount)
+        XCTAssertTrue(olderGuest.melds.isEmpty)
+
         var olderHost = guest
         olderHost.players[Seat.east.id].concealedKongPositions = nil
         olderHost.players[Seat.east.id].melds = [meld]
@@ -149,6 +159,93 @@ final class MatchTests: XCTestCase {
         XCTAssertEqual(settled.step, .finished)
         XCTAssertNil(settledPlayer.concealedKongPositions)
         XCTAssertEqual(settled.displayedMelds(for: settledPlayer), [meld])
+        let olderGuestAtSettlement = try legacyDecoder.decode(OlderGuestPlayer.self, from: encoder.encode(settledPlayer))
+        XCTAssertEqual(olderGuestAtSettlement.melds, [meld])
+    }
+
+    func testComputerChoiceDoesNotDependOnAnOpponentsConcealedKong() throws {
+        func tiles(_ suit: Suit, _ rank: Int, _ count: Int = 4) -> [Tile] {
+            Array(Tile.fullSet.filter { $0.kind == TileKind(suit, rank) }.prefix(count))
+        }
+        let publicMelds = (1...4).map { Meld(kind: .pung, tiles: tiles(.characters, $0, 3), from: .east) }
+        let rack = tiles(.circles, 9, 2) + tiles(.bamboo, 2, 1) + tiles(.bamboo, 4, 1)
+        let drawn = try XCTUnwrap(tiles(.bamboo, 6, 1).first)
+        let gold = try XCTUnwrap(tiles(.characters, 9, 1).first)
+        let encoder = JSONEncoder()
+        func json(_ value: some Encodable) throws -> Any {
+            try JSONSerialization.jsonObject(with: encoder.encode(value), options: [.fragmentsAllowed])
+        }
+        let initial = try XCTUnwrap(json(FuzhouMatch()) as? [String: Any])
+        func match(hiddenRank: Int) throws -> FuzhouMatch {
+            let hidden = Meld(kind: .concealedKong, tiles: tiles(.bamboo, hiddenRank), from: nil)
+            let allocated = Set(publicMelds.flatMap(\.tiles) + hidden.tiles + rack + [drawn, gold])
+            let rest = Tile.fullSet.filter { !allocated.contains($0) }
+            let fillers = rest.filter { !$0.kind.isFlower }
+            let hands = [Array(fillers[0..<13]), rack, Array(fillers[13..<29]), Array(fillers[29..<45])]
+            let undealt = rest.filter { !hands.joined().contains($0) }
+            var snapshot = initial
+            snapshot["hands"] = try json(hands)
+            snapshot["drawn"] = try json(drawn)
+            snapshot["gold"] = try json(gold)
+            snapshot["melds"] = try json([[hidden], publicMelds, [], []])
+            snapshot["wall"] = try json(undealt.dropLast(18))
+            snapshot["reserve"] = try json(undealt.suffix(18))
+            snapshot["flowers"] = [[], [], [], []]
+            snapshot["openingIndicatorFlowerIDs"] = []
+            snapshot["lastDraw"] = nil
+            snapshot["ponds"] = [[], [], [], []]
+            snapshot["current"] = Seat.south.id
+            snapshot["step"] = TableState.Step.turn.rawValue
+            snapshot["responses"] = []
+            return try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: snapshot))
+        }
+        let rankThree = try match(hiddenRank: 3)
+        let rankFive = try match(hiddenRank: 5)
+        XCTAssertEqual(rankThree.table(for: .south), rankFive.table(for: .south))
+        let humans: Set<Seat> = [.east, .west, .north]
+        let first = try XCTUnwrap(rankThree.nextComputerMove(excluding: humans))
+        let second = try XCTUnwrap(rankFive.nextComputerMove(excluding: humans))
+        XCTAssertEqual(first.0, .south)
+        XCTAssertEqual(second.0, .south)
+        XCTAssertEqual(first.1, second.1)
+    }
+
+    func testMeldFeedbackDistinguishesTerminalKongMovesFromSettlementReveal() throws {
+        let tiles = Tile.fullSet
+        let hidden = Meld(kind: .concealedKong, tiles: Array(tiles[0..<4]), from: nil)
+        let original = Meld(kind: .pung, tiles: Array(tiles[4..<7]), from: .south)
+        let added = Meld(kind: .addedKong, tiles: Array(tiles[4..<8]), from: .south)
+        let claimed = Meld(kind: .openKong, tiles: Array(tiles[8..<12]), from: .south)
+        var before = FuzhouMatch().table(for: .south)
+        before.step = .turn
+        before.players[Seat.east.id].melds = [original]
+        before.players[Seat.east.id].concealedKongPositions = [0]
+
+        var after = before
+        after.step = .finished
+        after.result = .draw
+        after.players[Seat.east.id].concealedKongPositions = nil
+        after.players[Seat.east.id].melds = [hidden, original]
+        XCTAssertNil(after.meldChange(since: before))
+
+        after.players[Seat.east.id].melds = [hidden, added]
+        let addedChange = try XCTUnwrap(after.meldChange(since: before))
+        XCTAssertEqual(addedChange.seat, .east)
+        XCTAssertEqual(addedChange.kind, .addedKong)
+        XCTAssertEqual(addedChange.meld, added)
+
+        after.players[Seat.east.id].melds = [hidden, original, claimed]
+        let claimedChange = try XCTUnwrap(after.meldChange(since: before))
+        XCTAssertEqual(claimedChange.seat, .east)
+        XCTAssertEqual(claimedChange.kind, .openKong)
+        XCTAssertEqual(claimedChange.meld, claimed)
+
+        var live = before
+        live.players[Seat.east.id].concealedKongPositions = [0, 2]
+        let hiddenChange = try XCTUnwrap(live.meldChange(since: before))
+        XCTAssertEqual(hiddenChange.seat, .east)
+        XCTAssertEqual(hiddenChange.kind, .concealedKong)
+        XCTAssertNil(hiddenChange.meld)
     }
 
     func testGuestRobGoldKeepsDealerExtraAndOldOpeningSavesCanFinish() throws {

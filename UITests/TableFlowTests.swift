@@ -1106,17 +1106,7 @@ final class TableFlowTests: XCTestCase {
     func testOpponentConcealedKongStaysHiddenOnTableAndInHistory() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        var game = try match(seed: 76, after: 0)
-        let kong = try XCTUnwrap(game.legalMoves(for: .east).first {
-            if case .meld(.concealedKong, _) = $0 { return true }
-            return false
-        })
-        XCTAssertTrue(game.apply(kong, by: .east))
-        XCTAssertTrue(game.apply(.discard(25), by: .east))
-        XCTAssertEqual(game.table(for: .south).step, .claim)
-        XCTAssertTrue(game.legalMoves(for: .south).contains(.pass))
-
-        let app = try launchSavedMatch(game)
+        let app = try launchSavedMatch(opponentConcealedKongMatch())
         let tableKong = element("table-meld-concealed-\(Seat.east.id)-0", in: app)
         XCTAssertTrue(tableKong.waitForExistence(timeout: 5))
         XCTAssertEqual(tableKong.label, "暗杠")
@@ -1132,6 +1122,17 @@ final class TableFlowTests: XCTestCase {
         let historyKong = element("history-meld-\(Seat.east.id)-0", in: app)
         XCTAssertTrue(historyKong.waitForExistence(timeout: 5))
         XCTAssertEqual(historyKong.label, "暗杠")
+    }
+
+    func testLargeTextTableAnnouncesConcealedKongInSeatSummary() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = try launchSavedMatch(opponentConcealedKongMatch(),
+                                      arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let summary = element("seat-score-\(Seat.east.id)", in: app)
+        XCTAssertTrue(summary.waitForExistence(timeout: 5))
+        XCTAssertTrue(summary.label.contains("暗杠"), summary.label)
+        capture("large-text-concealed-kong")
     }
 
     func testOverriddenPungExplainsTheResultOnTheTable() throws {
@@ -2123,6 +2124,19 @@ final class TableFlowTests: XCTestCase {
             ["chose": ["_0": Seat.north.rawValue, "_1": ["win": [String: String]()]]],
         ]
         return try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: saved))
+    }
+
+    private func opponentConcealedKongMatch() throws -> FuzhouMatch {
+        var game = try match(seed: 76, after: 0)
+        let kong = try XCTUnwrap(game.legalMoves(for: .east).first {
+            if case .meld(.concealedKong, _) = $0 { return true }
+            return false
+        })
+        XCTAssertTrue(game.apply(kong, by: .east))
+        XCTAssertTrue(game.apply(.discard(25), by: .east))
+        XCTAssertEqual(game.table(for: .south).step, .claim)
+        XCTAssertTrue(game.legalMoves(for: .south).contains(.pass))
+        return game
     }
 
     private func match(seed: UInt64, after moves: Int, houseRules: FuzhouHouseRules? = nil) throws -> FuzhouMatch {

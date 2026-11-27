@@ -232,6 +232,22 @@ public struct TableState: Equatable, Codable, Sendable {
         return melds
     }
 
+    /// Identifies a move while treating the settlement reveal as a change in visibility.
+    public func meldChange(since before: Self) -> (seat: Seat, kind: MeldKind, meld: Meld?)? {
+        guard roundNumber == before.roundNumber, viewer == before.viewer else { return nil }
+        for (old, new) in zip(before.players, players) {
+            if let meld = new.melds.first(where: {
+                (new.seat == viewer || $0.kind != .concealedKong) && !old.melds.contains($0)
+            }) {
+                return (new.seat, meld.kind, meld)
+            }
+            if new.meldCount > old.meldCount {
+                return (new.seat, .concealedKong, nil)
+            }
+        }
+        return nil
+    }
+
     public func concealedCount(for player: Player) -> Int {
         if rackCountsIncludeDrawnTile == true { return player.rackCount }
         if player.seat == viewer { return hand.count + (drawn == nil ? 0 : 1) }

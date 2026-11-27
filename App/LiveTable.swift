@@ -315,7 +315,7 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
             wallSources
             TimelineView(.animation(minimumInterval: 1 / 30, paused: opening?.isDealing != true)) { time in
                 HStack(spacing: 4) {
-                    ForEach(1..<4) { offset in
+                    ForEach([3, 2, 1], id: \.self) { offset in
                         let seat = table.viewer.advanced(offset)
                         let dealt = opening?.landed(for: seat, dealer: table.dealer, at: time.date) ?? 0
                         SeatBadge(seat: table.wind(for: seat), highlighted: pendingDraw == seat, board: board)
@@ -370,6 +370,8 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
     private func seatSummary(_ seat: Seat) -> some View {
         if let player = visiblePlayer(seat) {
             let role = table.result?.winner == seat ? "胡牌" : opening == nil && !paused && table.step == .turn && table.current == seat ? "当前回合" : nil
+            let melds = table.displayedMelds(for: player)
+            let hiddenKongs = melds.indices.filter { melds[$0] == nil }
             Button { inspectedSeat = seat } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(table.wind(for: seat).wind) · \(name(of: seat))").font(.subheadline.weight(.semibold))
@@ -380,6 +382,9 @@ struct LiveTable<Controls: View, DrawDock: View>: View {
                     }
                     if table.result == nil, player.flowerCount > 0 || player.meldCount > 0 {
                         Text("花牌 \(player.flowerCount) 张 · 牌组 \(player.meldCount) 组").font(.caption)
+                    }
+                    ForEach(hiddenKongs, id: \.self) { _ in
+                        MeldTiles(meld: nil, width: 15)
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: TeaTheme.hitTarget, alignment: .leading)

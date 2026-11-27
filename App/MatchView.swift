@@ -522,15 +522,11 @@ struct MatchView<Session: MatchSession>: View {
         } else if let pendingThrow, !after.moves.contains(.discard(pendingThrow.tileID)) {
             self.pendingThrow = nil
         }
-        let meldingPlayer = pairs.first {
-            $1.meldCount != $0.meldCount || ($1.melds != $0.melds && after.result == nil)
-        }
-        let meld = meldingPlayer.flatMap { old, new in new.melds.first { !old.melds.contains($0) } }
-        let meldKind = meld?.kind ?? meldingPlayer.map { _ in MeldKind.concealedKong }
-        let contact = discard != nil || meldKind != nil
+        let meldChange = after.meldChange(since: before)
+        let contact = discard != nil || meldChange != nil
         var contactDelay: Duration = contact ? .milliseconds(168) : .zero
         var animatesMeld = false
-        if before.step == .claim, let (_, player) = meldingPlayer, let meld, let claimed = before.latestDiscard,
+        if before.step == .claim, let meldChange, let meld = meldChange.meld, let claimed = before.latestDiscard,
            meld.from == claimed.seat, meld.tiles.contains(claimed.tile),
            meld.kind == .chow || meld.kind == .pung || meld.kind == .openKong {
             if after.latestDiscard == nil, discard == nil { observedDiscard = claimed }
@@ -538,7 +534,7 @@ struct MatchView<Session: MatchSession>: View {
                frame.round == before.roundNumber, frame.tileID == claimed.id {
                 if discardFlight?.tile.id == claimed.id { discardFlight = nil }
                 claimFlight = .init(tile: claimed.tile, isGold: before.isGold(claimed.tile), globalSource: frame.bounds,
-                                    seat: player.seat, impact: TableImpact(meld: meld.kind))
+                                    seat: meldChange.seat, impact: TableImpact(meld: meld.kind))
                 animatesMeld = true
                 contactDelay = .seconds(DiscardFlight.duration)
             }
@@ -554,21 +550,21 @@ struct MatchView<Session: MatchSession>: View {
         if before.result == nil, let winner = after.result?.winner {
             play(.win, by: winner)
             if winner == after.viewer { playHaptic(.win) }
-        } else if let (_, player) = meldingPlayer, let meldKind {
+        } else if let meldChange {
             if !animatesMeld {
-                playContact(TableImpact(meld: meldKind), seat: player.seat)
+                playContact(TableImpact(meld: meldChange.kind), seat: meldChange.seat)
             }
         } else if let discard, discardFlight?.tile.id != discard.tile.id {
             playContact(.discard, seat: discard.seat)
         }
 
         let legacyDraw = after.remaining < before.remaining || (after.drawn != nil && after.drawn != before.drawn) ||
-            replacedFlower || meldKind.map { $0 != .chow && $0 != .pung } == true
+            replacedFlower || meldChange.map { $0.kind != .chow && $0.kind != .pung } == true
         if after.step == .turn, let draw = after.lastDraw, draw != before.lastDraw {
             drawCue = DrawCue(seat: draw.seat, contactDelay: contactDelay, fromReserve: draw.fromReserve,
                               replacesFlowers: draw.flowersReplaced > 0)
         } else if after.step == .turn, after.lastDraw == nil, legacyDraw {
-            drawCue = DrawCue(seat: after.current, contactDelay: contactDelay, fromReserve: meldKind != nil,
+            drawCue = DrawCue(seat: after.current, contactDelay: contactDelay, fromReserve: meldChange != nil,
                               replacesFlowers: replacedFlower)
         } else if before.current != after.current || before.step != after.step || contact {
             drawCue = nil

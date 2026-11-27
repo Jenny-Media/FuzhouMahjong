@@ -250,8 +250,11 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private func availableDraws(seenBy seat: Seat) -> [TileKind: Int] {
         let indicator = gold?.kind
         var copies = Self.tileCopies
+        let visibleMelds = melds.enumerated().flatMap { index, groups in
+            groups.filter { index == seat.id || $0.kind != .concealedKong }
+        }
         let visible = combinedHand(for: seat) + ponds.flatMap { $0 }
-            + melds.flatMap { $0 }.flatMap(\.tiles) + flowers[seat.id] + [gold].compactMap { $0 }
+            + visibleMelds.flatMap(\.tiles) + flowers[seat.id] + [gold].compactMap { $0 }
         for tile in Set(visible) { copies[tile.kind, default: 0] -= 1 }
         var suited: [TileKind: Int] = [:]
         for (kind, count) in copies where count > 0 {
