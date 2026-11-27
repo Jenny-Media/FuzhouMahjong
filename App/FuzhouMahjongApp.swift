@@ -88,14 +88,20 @@ private struct HomeView: View {
                     Menu {
                         Button("玩法教程", systemImage: "book") { path.append(.rules) }
                             .accessibilityIdentifier("rules-entry")
-                        Button("设置", systemImage: "gearshape") { sheet = .settings }
+                        Button("设置", systemImage: "gearshape") {
+                            backgroundMusic.setSettingsPresented(true)
+                            sheet = .settings
+                        }
                     } label: {
                         Label("更多", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
                     }
                     .accessibilityIdentifier("home-more")
                 }
             }
-            .sheet(item: $sheet, onDismiss: openPreparedSoloGame) { destination in
+            .sheet(item: $sheet, onDismiss: {
+                backgroundMusic.setSettingsPresented(false)
+                openPreparedSoloGame()
+            }) { destination in
                 switch destination {
                 case .settings:
                     SettingsView()
@@ -537,7 +543,5 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showsNicknameEditor) { NearbyNicknameEditor(nickname: $nickname) }
         .gameAppearance(appearance)
-        .onAppear { backgroundMusic.setSettingsPresented(true) }
-        .onDisappear { backgroundMusic.setSettingsPresented(false) }
     }
 }

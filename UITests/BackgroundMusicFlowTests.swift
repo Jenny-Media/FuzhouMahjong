@@ -5,6 +5,7 @@ final class BackgroundMusicFlowTests: XCTestCase {
     func testQuickMusicControlIsSharedBySoloAndPractice() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
         app.launchArguments = ["-play-access.archive.v1", "", "-backgroundMusic.track", "tea-house",
                                "-backgroundMusic.paused", "NO", "--ui-test-manual-opening"]
@@ -28,6 +29,8 @@ final class BackgroundMusicFlowTests: XCTestCase {
         add(tableCapture)
         music.tap()
         XCTAssertEqual(music.label, "继续播放音乐")
+        music.tap()
+        XCTAssertEqual(music.label, "暂停音乐")
 
         let settings = app.buttons["table-settings"]
         if settings.exists {
@@ -42,13 +45,30 @@ final class BackgroundMusicFlowTests: XCTestCase {
         reveal(preview, in: app)
         preview.tap()
         XCTAssertEqual(preview.label, "停止试听")
+        preview.tap()
+        XCTAssertEqual(preview.label, "试听")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let nickname = app.buttons["nearby-nickname"]
+        reveal(nickname, in: app)
+        nickname.tap()
+        let nicknameInput = app.textFields["nearby-nickname-input"]
+        XCTAssertTrue(nicknameInput.waitForExistence(timeout: 5))
+        app.buttons["取消"].tap()
+        XCTAssertTrue(nicknameInput.waitForNonExistence(timeout: 5))
+        XCUIDevice.shared.orientation = .portrait
         let done = app.navigationBars["设置"].buttons["完成"]
-        for _ in 0..<4 where !done.isHittable {
-            app.collectionViews.firstMatch.swipeDown()
-        }
-        XCTAssertTrue(done.isHittable)
+        let portraitSettings = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let window = app.frame
+            guard window.width < window.height, done.exists else { return false }
+            let button = done.frame
+            return !button.isEmpty && window.contains(button)
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [portraitSettings], timeout: 5), .completed)
         done.tap()
         XCTAssertTrue(music.waitForExistence(timeout: 5))
+        XCTAssertEqual(music.label, "暂停音乐")
+        music.tap()
         XCTAssertEqual(music.label, "继续播放音乐")
 
         app.buttons["BackButton"].tap()

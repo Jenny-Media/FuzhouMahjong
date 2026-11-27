@@ -70,17 +70,24 @@ final class BackgroundMusic {
         case untilPlaybackRequested
     }
 
+    private enum PendingResumption {
+        case retryOnRejection
+        case holdAfterPreview
+    }
+
     private(set) var playback: Playback?
     private var previewTrack: BackgroundTrack?
     private var pausedByPlayer: Bool
     private var playbackPause: PlaybackPause?
+    private var isLoopUnavailable = false
     @ObservationIgnored private var context = Context()
     @ObservationIgnored private var isPracticing = false
     @ObservationIgnored private var isSettingsPresented = false
     @ObservationIgnored private let player: any BackgroundMusicPlaying
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private var requestedPlayback: Playback?
-    @ObservationIgnored private var resumptionPending = false
+    @ObservationIgnored private var isExplicitPlaybackPending = false
+    @ObservationIgnored private var pendingResumption: PendingResumption?
     @ObservationIgnored private var needsImmediateStop = false
     @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var previewTimer: Task<Void, Never>?
@@ -92,13 +99,12 @@ final class BackgroundMusic {
     }
 
     var isPreviewing: Bool { previewTrack != nil }
-    var isLoopPaused: Bool { pausedByPlayer || playbackPause != nil }
+    var isLoopPaused: Bool { pausedByPlayer || playbackPause != nil || isLoopUnavailable }
 
     func toggleLoopPause() {
         pausedByPlayer = !isLoopPaused
-        if !pausedByPlayer { playbackPause = nil }
         defaults?.set(pausedByPlayer, forKey: Self.pauseStorageKey)
-        refresh()
+        refresh(explicitlyRequested: !pausedByPlayer)
     }
 
     func setSettingsPresented(_ presented: Bool) {
@@ -110,10 +116,9 @@ final class BackgroundMusic {
 
     func update(_ newContext: Context) {
         if newContext.track != context.track {
-            playbackPause = nil
             if previewTrack != newContext.track { clearPreview() }
+            isLoopUnavailable = false
         }
-        if newContext.isSolo && !context.isSolo { playbackPause = nil }
         context = newContext
         if context.isActive {
             refresh()
@@ -123,7 +128,6 @@ final class BackgroundMusic {
     }
 
     func setPracticing(_ practicing: Bool) {
-        if practicing && !isPracticing { playbackPause = nil }
         isPracticing = practicing
         refresh()
     }
@@ -184,9 +188,12 @@ final class BackgroundMusic {
               let type = AVAudioSession.InterruptionType(rawValue: value) else { return }
         switch type {
         case .began:
-            suspendPlayback()
+            systemInterruptionBegan()
         case .ended:
-            handleSystemResumption(shouldResume: true)
+            let options = AVAudioSession.InterruptionOptions(
+                rawValue: notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            )
+            handleSystemResumption(shouldResume: options.contains(.shouldResume))
         @unknown default:
             break
         }
@@ -199,15 +206,19 @@ final class BackgroundMusic {
 
     func handleSystemResumption(shouldResume: Bool) {
         guard shouldResume else {
-            // A rejected activation can produce a recommendation without a deactivation event.
-            if playback == nil, playbackPause == nil || requestedPlayback != nil {
+            pendingResumption = isExplicitPlaybackPending && isPreviewing ? .holdAfterPreview : nil
+            if isExplicitPlaybackPending || isPreviewing {
+                // Let the explicit request continue while holding its automatic successor.
+                if playbackPause == nil { playbackPause = .systemInterruption }
+            } else if playback == nil, playbackPause == nil || requestedPlayback != nil {
+                // A recommendation can arrive without a deactivation event.
                 systemInterruptionBegan()
             }
             return
         }
         if playbackPause == .systemInterruption { playbackPause = nil }
         if requestedPlayback != nil, playback == nil {
-            resumptionPending = true
+            pendingResumption = .retryOnRejection
         }
         refresh()
     }
@@ -229,36 +240,46 @@ final class BackgroundMusic {
         previewTrack = nil
     }
 
-    private func refresh() {
+    private func refresh(explicitlyRequested: Bool = false) {
         guard context.isActive else { return }
         if let previewTrack {
-            request(.preview(previewTrack))
-        } else if !isSettingsPresented, !isLoopPaused, context.track != .off, context.isSolo || isPracticing {
-            request(.loop(context.track))
-        } else {
-            request(nil)
+            request(.preview(previewTrack), explicitlyRequested: true)
+            return
         }
+        let loop = Playback.loop(context.track)
+        let explicitlyResuming = explicitlyRequested || (isExplicitPlaybackPending && requestedPlayback == loop)
+        guard !isSettingsPresented, !pausedByPlayer, !isLoopPaused || explicitlyResuming,
+              context.track != .off, context.isSolo || isPracticing else {
+            request(nil)
+            return
+        }
+        request(loop, explicitlyRequested: explicitlyResuming)
     }
 
-    private func request(_ mode: Playback?, force: Bool = false) {
+    private func request(_ mode: Playback?, force: Bool = false, explicitlyRequested: Bool = false) {
         guard force || requestedPlayback != mode else { return }
         requestedPlayback = mode
+        isExplicitPlaybackPending = explicitlyRequested
         playback = nil
-        resumptionPending = false
+        pendingResumption = nil
         transition?.cancel()
         // A replacement task must stop the old player immediately if it supersedes a suspension.
         let fadeOut = !needsImmediateStop
         transition = Task { [weak self, player] in
             let result = await player.apply(mode, fadeOut: fadeOut)
             guard !Task.isCancelled, let self else { return }
+            isExplicitPlaybackPending = false
             needsImmediateStop = false
-            let shouldRetry = resumptionPending
-            resumptionPending = false
+            let resumption = pendingResumption
+            pendingResumption = nil
             switch result {
             case .applied:
                 playback = mode
+                if explicitlyRequested, mode != nil {
+                    playbackPause = resumption == .holdAfterPreview ? .systemInterruption : nil
+                    isLoopUnavailable = false
+                }
                 if case .preview = mode {
-                    playbackPause = nil
                     previewTimer = Task { [weak self] in
                         do { try await Task.sleep(for: .seconds(10)) } catch { return }
                         guard !Task.isCancelled else { return }
@@ -267,11 +288,12 @@ final class BackgroundMusic {
                 }
             case .unavailable:
                 requestedPlayback = nil
+                if case .loop = mode { isLoopUnavailable = true }
                 if previewTrack != nil { endPreview() }
             case .activationRejected:
                 requestedPlayback = nil
-                if shouldRetry {
-                    refresh()
+                if resumption == .retryOnRejection {
+                    refresh(explicitlyRequested: explicitlyRequested)
                 } else {
                     systemInterruptionBegan()
                 }

@@ -23,6 +23,7 @@ struct FlowerHighlights {
 struct MatchView<Session: MatchSession>: View {
     let session: Session
     @Environment(GameAccess.self) private var access
+    @Environment(BackgroundMusic.self) private var backgroundMusic
     @State private var purchaseReason: AccessReason?
     @State private var tablePurchaseReason: AccessReason?
 
@@ -125,6 +126,7 @@ struct MatchView<Session: MatchSession>: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("设置", systemImage: "gearshape") {
                     audio.stop()
+                    backgroundMusic.setSettingsPresented(true)
                     showsSettings = true
                 }
                 .disabled(opening != nil)
@@ -133,7 +135,9 @@ struct MatchView<Session: MatchSession>: View {
         }
         .modifier(TableToolbarPlacement())
         .fullScreenCover(isPresented: $showsScorecard) { scorecard }
-        .sheet(isPresented: $showsSettings) { SettingsView() }
+        .sheet(isPresented: $showsSettings, onDismiss: {
+            backgroundMusic.setSettingsPresented(false)
+        }) { SettingsView() }
         .sheet(item: $tablePurchaseReason) { PurchaseSheet(reason: $0) }
         .sheet(isPresented: $showsHistory) {
             if let table = session.table { TableHistory(table: table, names: names) }
