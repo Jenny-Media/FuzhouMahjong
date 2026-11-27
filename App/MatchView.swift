@@ -970,6 +970,10 @@ struct MatchView<Session: MatchSession>: View {
             }
             .lineLimit(1)
             Spacer(minLength: 0)
+            if session.players.isEmpty {
+                BackgroundMusicButton()
+                    .buttonStyle(TeaButtonStyle(prominent: false))
+            }
             if let opening {
                 Button { finishOpening(opening) } label: {
                     tableControlLabel("跳过动画", primary: true, holdStarted: openingSkipStarted)

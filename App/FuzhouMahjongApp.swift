@@ -41,7 +41,7 @@ private struct HomeView: View {
     @AppStorage("solo.ruleset") private var ruleset = FuzhouRuleset.pureSuit
     @AppStorage(BackgroundTrack.storageKey) private var musicTrack = BackgroundTrack.off
     @AppStorage("solo.customRulesetID") private var customRulesetID = ""
-    @State private var backgroundMusic = BackgroundMusic()
+    @State private var backgroundMusic = BackgroundMusic(defaults: .standard)
     @State private var access: GameAccess
     @State private var session: SoloMatch
     @State private var nearby: NearbySession
@@ -537,5 +537,7 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showsNicknameEditor) { NearbyNicknameEditor(nickname: $nickname) }
         .gameAppearance(appearance)
+        .onAppear { backgroundMusic.setSettingsPresented(true) }
+        .onDisappear { backgroundMusic.setSettingsPresented(false) }
     }
 }

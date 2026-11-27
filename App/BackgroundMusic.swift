@@ -27,6 +27,8 @@ enum BackgroundTrack: String, CaseIterable {
 
 @MainActor @Observable
 final class BackgroundMusic {
+    static let pauseStorageKey = "backgroundMusic.paused"
+
     static let audioSessionNotifications: AnyPublisher<Notification, Never> = {
         let center = NotificationCenter.default
         let session = AVAudioSession.sharedInstance()
@@ -70,21 +72,41 @@ final class BackgroundMusic {
 
     private(set) var playback: Playback?
     private var previewTrack: BackgroundTrack?
+    private var pausedByPlayer: Bool
+    private var playbackPause: PlaybackPause?
     @ObservationIgnored private var context = Context()
     @ObservationIgnored private var isPracticing = false
+    @ObservationIgnored private var isSettingsPresented = false
     @ObservationIgnored private let player: any BackgroundMusicPlaying
+    @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private var requestedPlayback: Playback?
-    @ObservationIgnored private var playbackPause: PlaybackPause?
     @ObservationIgnored private var resumptionPending = false
     @ObservationIgnored private var needsImmediateStop = false
     @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var previewTimer: Task<Void, Never>?
 
-    init(player: (any BackgroundMusicPlaying)? = nil) {
+    init(player: (any BackgroundMusicPlaying)? = nil, defaults: UserDefaults? = nil) {
         self.player = player ?? BackgroundMusicPlayer()
+        self.defaults = defaults
+        pausedByPlayer = defaults?.bool(forKey: Self.pauseStorageKey) ?? false
     }
 
     var isPreviewing: Bool { previewTrack != nil }
+    var isLoopPaused: Bool { pausedByPlayer || playbackPause != nil }
+
+    func toggleLoopPause() {
+        pausedByPlayer = !isLoopPaused
+        if !pausedByPlayer { playbackPause = nil }
+        defaults?.set(pausedByPlayer, forKey: Self.pauseStorageKey)
+        refresh()
+    }
+
+    func setSettingsPresented(_ presented: Bool) {
+        guard isSettingsPresented != presented else { return }
+        isSettingsPresented = presented
+        if !presented { clearPreview() }
+        refresh()
+    }
 
     func update(_ newContext: Context) {
         if newContext.track != context.track {
@@ -211,7 +233,7 @@ final class BackgroundMusic {
         guard context.isActive else { return }
         if let previewTrack {
             request(.preview(previewTrack))
-        } else if playbackPause == nil, context.track != .off, context.isSolo || isPracticing {
+        } else if !isSettingsPresented, !isLoopPaused, context.track != .off, context.isSolo || isPracticing {
             request(.loop(context.track))
         } else {
             request(nil)
@@ -266,6 +288,8 @@ protocol BackgroundMusicPlaying: Actor {
 private actor BackgroundMusicPlayer: BackgroundMusicPlaying {
     private static let fade = 0.24
     private var player: AVAudioPlayer?
+    private var loopTrack: BackgroundTrack?
+    private var loopPosition: (track: BackgroundTrack, time: TimeInterval)?
 
     func apply(_ mode: BackgroundMusic.Playback?, fadeOut: Bool) async -> BackgroundMusic.PlaybackResult {
         guard !Task.isCancelled else { return .unavailable }
@@ -275,7 +299,12 @@ private actor BackgroundMusicPlayer: BackgroundMusicPlaying {
             guard !Task.isCancelled else { return .unavailable }
         }
 
-        stop()
+        if let player, let loopTrack {
+            loopPosition = (loopTrack, player.currentTime)
+        }
+        player?.stop()
+        player = nil
+        loopTrack = nil
         guard let mode else { return .applied }
         let track: BackgroundTrack
         let volume: Float
@@ -300,6 +329,10 @@ private actor BackgroundMusicPlayer: BackgroundMusicPlaying {
             }
         }
         newPlayer.numberOfLoops = loops
+        if case .loop = mode, let loopPosition,
+           loopPosition.track == track, loopPosition.time < newPlayer.duration {
+            newPlayer.currentTime = loopPosition.time
+        }
         newPlayer.volume = 0
         guard !Task.isCancelled else { return .unavailable }
         guard newPlayer.play() else { return .activationRejected }
@@ -309,11 +342,34 @@ private actor BackgroundMusicPlayer: BackgroundMusicPlaying {
         }
         newPlayer.setVolume(volume, fadeDuration: Self.fade)
         player = newPlayer
+        if case .loop = mode {
+            loopTrack = track
+            loopPosition = nil
+        }
         return .applied
     }
+}
 
-    private func stop() {
-        player?.stop()
-        player = nil
+struct BackgroundMusicButton: View {
+    @Environment(BackgroundMusic.self) private var music
+    @AppStorage(BackgroundTrack.storageKey) private var track = BackgroundTrack.off
+
+    var body: some View {
+        if track != .off {
+            let paused = music.isLoopPaused
+            Button(action: music.toggleLoopPause) {
+                Label {
+                    Text(paused ? "继续播放音乐" : "暂停音乐")
+                } icon: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "music.note")
+                        Image(systemName: paused ? "play.fill" : "pause.fill")
+                            .font(.caption2)
+                    }
+                }
+                .labelStyle(.iconOnly)
+            }
+            .accessibilityIdentifier("background-music-toggle")
+        }
     }
 }

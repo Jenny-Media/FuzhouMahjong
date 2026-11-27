@@ -43,6 +43,7 @@ struct GesturePractice: View {
                     Button("关闭") { dismiss() }
                         .accessibilityIdentifier("gesture-practice-picker-close")
                 }
+                ToolbarItem(placement: .topBarTrailing) { BackgroundMusicButton() }
             }
             .navigationDestination(for: GestureLesson.self) { lesson in
                 switch lesson {
@@ -116,6 +117,9 @@ struct GesturePracticeLayout<Instructions: View, Board: View, Actions: View>: Vi
         .teaBackdrop()
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { BackgroundMusicButton() }
+        }
     }
 }
 

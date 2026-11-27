@@ -231,15 +231,80 @@ final class BackgroundMusicTests: XCTestCase {
         defer { music.update(.init()) }
         music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
         await expectPlayback(.loop(.teaHouse), in: music)
+        music.setSettingsPresented(true)
         music.togglePreview(.teaHouse)
         await expectPlayback(.preview(.teaHouse), in: music)
 
         let clock = ContinuousClock()
         let stoppedAt = clock.now
-        music.endPreview()
+        music.setSettingsPresented(false)
         await expectPlayback(.loop(.teaHouse), in: music)
 
         XCTAssertGreaterThanOrEqual(stoppedAt.duration(to: clock.now), .milliseconds(220))
+    }
+
+    func testSettingsStaysQuietAfterASelectionChangeAndAfterStoppingPreview() async throws {
+        let player = GatedMusicPlayer(rejectingAttempt: .max)
+        let music = BackgroundMusic(player: player)
+        var solo = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: true)
+        defer { music.update(.init()) }
+        music.update(solo)
+        await expectPlayback(.loop(.teaHouse), in: music)
+
+        music.setSettingsPresented(true)
+        XCTAssertNil(music.playback)
+        solo.track = .tablePulse
+        music.update(solo)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(music.playback)
+        let attemptsBeforePreview = await player.attempts
+        XCTAssertEqual(attemptsBeforePreview, [.loop(.teaHouse)])
+
+        music.togglePreview(.tablePulse)
+        await expectPlayback(.preview(.tablePulse), in: music)
+        music.endPreview()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(music.playback)
+        let attemptsAfterPreview = await player.attempts
+        XCTAssertEqual(attemptsAfterPreview, [.loop(.teaHouse), .preview(.tablePulse)])
+
+        music.setSettingsPresented(false)
+        await expectPlayback(.loop(.tablePulse), in: music)
+    }
+
+    func testPlayerPauseSurvivesSettingsAndRelaunch() async throws {
+        let suite = "BackgroundMusicTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let music = BackgroundMusic(player: GatedMusicPlayer(rejectingAttempt: .max), defaults: defaults)
+        let solo = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: true)
+        music.update(solo)
+        await expectPlayback(.loop(.teaHouse), in: music)
+
+        music.toggleLoopPause()
+        XCTAssertTrue(music.isLoopPaused)
+        XCTAssertNil(music.playback)
+        music.setSettingsPresented(true)
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+        music.setSettingsPresented(false)
+        XCTAssertFalse(music.isPreviewing)
+        XCTAssertTrue(music.isLoopPaused)
+        XCTAssertNil(music.playback)
+        music.update(.init())
+
+        let player = GatedMusicPlayer(rejectingAttempt: .max)
+        let reopened = BackgroundMusic(player: player, defaults: defaults)
+        defer { reopened.update(.init()) }
+        reopened.update(.init(track: .teaHouse, isActive: true))
+        reopened.setPracticing(true)
+        XCTAssertTrue(reopened.isLoopPaused)
+        XCTAssertNil(reopened.playback)
+        reopened.toggleLoopPause()
+        await expectPlayback(.loop(.teaHouse), in: reopened)
+        let attempts = await player.attempts
+        XCTAssertEqual(attempts, [.loop(.teaHouse)])
+        XCTAssertFalse(defaults.bool(forKey: BackgroundMusic.pauseStorageKey))
     }
 
     func testOutputDisconnectStopsMusicUntilTheNextExplicitPreview() async throws {
