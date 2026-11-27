@@ -869,16 +869,20 @@ final class TableFlowTests: XCTestCase {
         let anchors = [table, rack] + Seat.allCases.map { element("seat-score-\($0.id)", in: app) }
         let frames = anchors.map(\.frame)
         let isSplit = element("table-region", in: app).exists
+        let isIPadDockInRack = UIDevice.current.userInterfaceIdiom == .pad
+            && rack.descendants(matching: .any).matching(identifier: "drawn-tile-dock").firstMatch.exists
         assertContains(table.frame, actions.frame)
         if isSplit {
             assertContains(app.windows.firstMatch.frame, dock.frame)
             XCTAssertFalse(table.frame.intersects(dock.frame))
+        } else if isIPadDockInRack {
+            assertContains(rack.frame, dock.frame)
         } else {
             assertContains(table.frame, dock.frame)
         }
-        let handCenterX = isSplit ? rack.frame.midX : table.frame.midX
+        let handCenterX = isSplit || isIPadDockInRack ? rack.frame.midX : table.frame.midX
         XCTAssertGreaterThan(dock.frame.midX, handCenterX)
-        XCTAssertLessThan(dock.frame.maxY, rack.frame.minY)
+        if !isIPadDockInRack { XCTAssertLessThan(dock.frame.maxY, rack.frame.minY) }
         capture("turn-actions-and-drawn-dock")
 
         let drawnTile = app.buttons["tile-\(drawn.id)"]
@@ -1508,19 +1512,27 @@ final class TableFlowTests: XCTestCase {
             let skip = app.buttons["skip-opening"]
             XCTAssertTrue(skip.waitForExistence(timeout: 5))
             let table = element("table-surface", in: app)
+            let isIPad = UIDevice.current.userInterfaceIdiom == .pad
             let felt = table.coordinate(withNormalizedOffset: point)
+            // Keep the iPad drags short enough to cross the boundary before the skip timer fires.
+            let edgeFelt = isIPad
+                ? table.coordinate(withNormalizedOffset: CGVector(dx: 0.035, dy: point.dy))
+                : felt
             let outside = table.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: point.dy))
+                .withOffset(CGVector(dx: isIPad ? -20 : 0, dy: 0))
             let seat = element("seat-score-\(Seat.north.id)", in: app)
             XCTAssertTrue(seat.exists)
             let seatCenter = seat.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let seatFelt = isIPad ? seatCenter.withOffset(CGVector(dx: 0, dy: 55)) : felt
+            let earlyHold = isIPad ? 0.08 : 0.15
             felt.tap()
             XCTAssertTrue(skip.exists)
             felt.press(forDuration: 0.25)
             XCTAssertTrue(skip.exists)
 
-            felt.press(forDuration: 0.15, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 1)
+            edgeFelt.press(forDuration: earlyHold, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 1)
             XCTAssertTrue(skip.exists, "Leaving the board early should cancel the hold.")
-            felt.press(forDuration: 0.15, thenDragTo: seatCenter, withVelocity: .fast, thenHoldForDuration: 1)
+            seatFelt.press(forDuration: earlyHold, thenDragTo: seatCenter, withVelocity: .fast, thenHoldForDuration: 1)
             XCTAssertTrue(skip.exists, "Entering a seat early should cancel the hold.")
 
             seat.tap()
@@ -1530,7 +1542,7 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(closeInspector.waitForNonExistence(timeout: 3))
 
             felt.tap()
-            felt.press(forDuration: 0.6, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.2)
+            seatFelt.press(forDuration: 0.6, thenDragTo: outside, withVelocity: .fast, thenHoldForDuration: 0.2)
             XCTAssertTrue(skip.waitForNonExistence(timeout: 2))
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tile-"))
                 .firstMatch.waitForExistence(timeout: 3))
