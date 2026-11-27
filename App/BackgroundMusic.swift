@@ -57,13 +57,18 @@ final class BackgroundMusic {
         case preview(BackgroundTrack)
     }
 
+    private enum PlaybackPause: Equatable {
+        case systemInterruption
+        case untilPlaybackRequested
+    }
+
     private(set) var playback: Playback?
     private var previewTrack: BackgroundTrack?
     @ObservationIgnored private var context = Context()
     @ObservationIgnored private var isPracticing = false
     @ObservationIgnored private let player = BackgroundMusicPlayer()
     @ObservationIgnored private var requestedPlayback: Playback?
-    @ObservationIgnored private var needsPlaybackRequest = false
+    @ObservationIgnored private var playbackPause: PlaybackPause?
     @ObservationIgnored private var needsImmediateStop = false
     @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var previewTimer: Task<Void, Never>?
@@ -72,10 +77,10 @@ final class BackgroundMusic {
 
     func update(_ newContext: Context) {
         if newContext.track != context.track {
-            needsPlaybackRequest = false
+            playbackPause = nil
             if previewTrack != newContext.track { clearPreview() }
         }
-        if newContext.isSolo && !context.isSolo { needsPlaybackRequest = false }
+        if newContext.isSolo && !context.isSolo { playbackPause = nil }
         context = newContext
         if context.isActive {
             refresh()
@@ -85,7 +90,7 @@ final class BackgroundMusic {
     }
 
     func setPracticing(_ practicing: Bool) {
-        if practicing && !isPracticing { needsPlaybackRequest = false }
+        if practicing && !isPracticing { playbackPause = nil }
         isPracticing = practicing
         refresh()
     }
@@ -97,7 +102,7 @@ final class BackgroundMusic {
             return
         }
         clearPreview()
-        needsPlaybackRequest = false
+        playbackPause = nil
         previewTrack = track
         refresh()
     }
@@ -128,13 +133,13 @@ final class BackgroundMusic {
             case AVAudioSession.didBecomeInactiveNotification:
                 if let event = notification.userInfo?[AVAudioSession.deactivationContextKey]
                     as? AVAudioSession.DeactivationContext, event.source == .system {
-                    suspendPlayback()
+                    systemInterruptionBegan()
                 }
                 return
             case AVAudioSession.resumptionRecommendationNotification:
                 if let event = notification.userInfo?[AVAudioSession.resumptionContextKey]
-                    as? AVAudioSession.ResumptionContext, event.recommendation == .shouldResume {
-                    refresh()
+                    as? AVAudioSession.ResumptionContext {
+                    handleSystemResumption(shouldResume: event.recommendation == .shouldResume)
                 }
                 return
             default:
@@ -155,8 +160,19 @@ final class BackgroundMusic {
         }
     }
 
+    func systemInterruptionBegan() {
+        if playbackPause == nil { playbackPause = .systemInterruption }
+        suspendPlayback()
+    }
+
+    func handleSystemResumption(shouldResume: Bool) {
+        guard shouldResume else { return }
+        if playbackPause == .systemInterruption { playbackPause = nil }
+        refresh()
+    }
+
     private func pauseUntilPlaybackRequested() {
-        needsPlaybackRequest = true
+        playbackPause = .untilPlaybackRequested
         suspendPlayback()
     }
 
@@ -173,7 +189,7 @@ final class BackgroundMusic {
     }
 
     private func refresh() {
-        guard context.isActive, !needsPlaybackRequest else { return }
+        guard context.isActive, playbackPause == nil else { return }
         if let previewTrack {
             request(.preview(previewTrack))
         } else if context.track != .off && (context.isSolo || isPracticing) {

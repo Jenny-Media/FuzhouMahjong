@@ -83,6 +83,43 @@ final class BackgroundMusicTests: XCTestCase {
         await expectPlayback(.loop(.teaHouse), in: music)
     }
 
+    func testSystemInterruptionKeepsMusicPausedAcrossForegroundChanges() async throws {
+        let music = BackgroundMusic()
+        var solo = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: true)
+        defer { music.update(.init()) }
+        music.update(solo)
+        await expectPlayback(.loop(.teaHouse), in: music)
+
+        music.systemInterruptionBegan()
+        solo.isActive = false
+        music.update(solo)
+        music.handleSystemResumption(shouldResume: false)
+        solo.isActive = true
+        music.update(solo)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertNil(music.playback)
+
+        solo.isActive = false
+        music.update(solo)
+        music.handleSystemResumption(shouldResume: true)
+        XCTAssertNil(music.playback)
+        solo.isActive = true
+        music.update(solo)
+        await expectPlayback(.loop(.teaHouse), in: music)
+    }
+
+    func testExplicitPreviewCanRetryWhileWaitingForSystemResumption() async {
+        let music = BackgroundMusic()
+        defer { music.update(.init()) }
+        music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
+        await expectPlayback(.loop(.teaHouse), in: music)
+
+        music.systemInterruptionBegan()
+        XCTAssertNil(music.playback)
+        music.togglePreview(.teaHouse)
+        await expectPlayback(.preview(.teaHouse), in: music)
+    }
+
     func testPreviewFadesBeforeReturningToSoloMusic() async {
         let music = BackgroundMusic()
         defer { music.update(.init()) }
@@ -110,6 +147,8 @@ final class BackgroundMusicTests: XCTestCase {
         XCTAssertEqual(music.playback, .loop(.teaHouse))
         music.handleAudioSessionNotification(routeChange(.oldDeviceUnavailable))
         XCTAssertNil(music.playback)
+        music.systemInterruptionBegan()
+        music.handleSystemResumption(shouldResume: true)
 
         solo.isActive = false
         music.update(solo)
