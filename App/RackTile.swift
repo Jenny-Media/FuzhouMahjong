@@ -2,6 +2,9 @@ import FuzhouCore
 import SwiftUI
 
 struct RackTile: View {
+    static let standardRackCellWidth: CGFloat = 46
+    static let rackSidePadding: CGFloat = 6
+
     let tile: Tile
     let isGold: Bool
     let isSelected: Bool
@@ -94,6 +97,10 @@ struct RackTile: View {
             let rise = -translation.height
             return rise >= 22 && isUpward(translation) && (rise >= 48 || -predictedEnd.height >= 77)
         }
+    }
+
+    static func singleRowFits(in rackWidth: CGFloat) -> Bool {
+        rackWidth >= CGFloat(FuzhouMatch.rackSize + 1) * standardRackCellWidth + 2 * rackSidePadding
     }
 
     static func faceSize(for rackCellWidth: CGFloat?) -> CGSize {

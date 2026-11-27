@@ -25,6 +25,28 @@ final class TablePresentationTests: XCTestCase {
         XCTAssertTrue(table.hasKnownDiscard)
     }
 
+    func testIPadRackKeepsTwoRowsUntilAllTilesAndTheDrawSlotFit() {
+        let gutters = 2 * TeaTheme.tableGutter
+        XCTAssertFalse(RackTile.singleRowFits(in: 599 - gutters))
+        XCTAssertFalse(RackTile.singleRowFits(in: 600 - gutters))
+        XCTAssertFalse(RackTile.singleRowFits(in: 500 - gutters))
+        XCTAssertFalse(RackTile.singleRowFits(in: 793))
+        XCTAssertTrue(RackTile.singleRowFits(in: 794))
+    }
+
+    func testAddedKongKeepsTheOriginalPungInRecentDiscards() throws {
+        var table = FuzhouMatch().table(for: .east)
+        let tiles = Array(Tile.fullSet.prefix(4))
+        let discard = TableDiscard(seat: .south, tile: tiles[0])
+        table.players[Seat.east.id].melds = [Meld(kind: .pung, tiles: Array(tiles.prefix(3)), from: .south)]
+        XCTAssertEqual(table.claim(of: discard)?.compactAction, "碰")
+
+        table.players[Seat.east.id].melds = [Meld(kind: .addedKong, tiles: tiles, from: .south)]
+        let claim = try XCTUnwrap(table.claim(of: discard))
+        XCTAssertEqual(claim.compactAction, "碰")
+        XCTAssertEqual(claim.action, "碰（后加杠）")
+    }
+
     func testOpeningStagesShowOnlyWhatHasHappenedUnderTheHouseRules() {
         for indicators in FuzhouHouseRules.GoldIndicators.allCases {
             let rules = FuzhouHouseRules(name: "测试", goldIndicators: indicators)
