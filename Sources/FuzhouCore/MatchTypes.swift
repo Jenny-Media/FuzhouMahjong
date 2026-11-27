@@ -180,6 +180,10 @@ public struct TableState: Equatable, Codable, Sendable {
         public var score: Int
         /// Flowers already shown at this seat. Older hosts supply only the count.
         public var exposedFlowers: [Tile]? = nil
+        /// Positions of concealed kongs whose tiles are withheld from this viewer.
+        public var concealedKongPositions: [Int]? = nil
+
+        public var meldCount: Int { melds.count + (concealedKongPositions?.count ?? 0) }
     }
     public enum Step: String, Codable, Sendable { case opening, turn, claim, finished }
 
@@ -217,12 +221,39 @@ public struct TableState: Equatable, Codable, Sendable {
 
     public var ruleset: FuzhouRuleset { matchRuleset ?? .legacy }
 
+    /// A nil entry represents four face-down tiles, including when an older host sent their faces.
+    public func displayedMelds(for player: Player) -> [Meld?] {
+        var melds: [Meld?] = player.melds.map { meld in
+            step != .finished && player.seat != viewer && meld.kind == .concealedKong ? nil : meld
+        }
+        for position in player.concealedKongPositions ?? [] where (0...melds.count).contains(position) {
+            melds.insert(nil, at: position)
+        }
+        return melds
+    }
+
+    /// Identifies a move while treating the settlement reveal as a change in visibility.
+    public func meldChange(since before: Self) -> (seat: Seat, kind: MeldKind, meld: Meld?)? {
+        guard roundNumber == before.roundNumber, viewer == before.viewer else { return nil }
+        for (old, new) in zip(before.players, players) {
+            if let meld = new.melds.first(where: {
+                (new.seat == viewer || $0.kind != .concealedKong) && !old.melds.contains($0)
+            }) {
+                return (new.seat, meld.kind, meld)
+            }
+            if new.meldCount > old.meldCount {
+                return (new.seat, .concealedKong, nil)
+            }
+        }
+        return nil
+    }
+
     public func concealedCount(for player: Player) -> Int {
         if rackCountsIncludeDrawnTile == true { return player.rackCount }
         if player.seat == viewer { return hand.count + (drawn == nil ? 0 : 1) }
         // Both older formats used protocol v1. Some included the draw, others sent only the rack.
         // A chow or pung already leaves an extra tile in the rack before the claimant discards.
-        guard player.seat == current, player.rackCount == FuzhouMatch.rackSize - 3 * player.melds.count else {
+        guard player.seat == current, player.rackCount == FuzhouMatch.rackSize - 3 * player.meldCount else {
             return player.rackCount
         }
         let dealerHoldsExtra = player.seat == dealer && lastDraw?.isOpeningDeal == true
@@ -261,6 +292,6 @@ public struct TableState: Equatable, Codable, Sendable {
     public func wind(for seat: Seat) -> Seat { Seat.east.advanced(seat.id - dealer.id) }
 
     public var isOpeningLayout: Bool {
-        result == nil && players.allSatisfy { $0.discards.isEmpty && $0.melds.isEmpty }
+        result == nil && players.allSatisfy { $0.discards.isEmpty && $0.meldCount == 0 }
     }
 }

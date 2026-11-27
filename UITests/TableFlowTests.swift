@@ -1076,12 +1076,19 @@ final class TableFlowTests: XCTestCase {
             XCUIDevice.shared.orientation = orientation
             let app = try launchSavedMatch(fixture)
             let rack = element("table-rack", in: app)
+            let east = element("seat-score-\(Seat.east.id)", in: app)
+            let west = element("seat-score-\(Seat.west.id)", in: app)
+            // The Duo can expose the table while its navigation insets are still changing.
+            let seatsHittable = NSPredicate { _, _ in east.isHittable && west.isHittable }
+            let seatsReady = XCTWaiter.wait(for: [expectation(for: seatsHittable, evaluatedWith: app)], timeout: 5)
+            capture("live-melds-\(orientation.rawValue)")
+            XCTAssertEqual(seatsReady, .completed, "East: \(east.frame); west: \(west.frame)")
+            XCTAssertLessThan(east.frame.midX, west.frame.midX)
             let original = rack.frame
             let backs = element("concealed-rack-\(player.seat.id)", in: app)
             XCTAssertEqual(backs.label, "手牌 \(player.rackCount) 张")
             let seat = element("seat-score-\(player.seat.id)", in: app)
             XCTAssertTrue(seat.isHittable)
-            capture("live-melds-\(orientation.rawValue)")
             seat.tap()
             for meld in player.melds {
                 let shown = element("inspected-meld-\(meld.id)", in: app)
@@ -1094,6 +1101,38 @@ final class TableFlowTests: XCTestCase {
             XCTAssertTrue(app.buttons["declare-win"].isHittable)
             app.terminate()
         }
+    }
+
+    func testOpponentConcealedKongStaysHiddenOnTableAndInHistory() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = try launchSavedMatch(opponentConcealedKongMatch())
+        let tableKong = element("table-meld-concealed-\(Seat.east.id)-0", in: app)
+        XCTAssertTrue(tableKong.waitForExistence(timeout: 5))
+        XCTAssertEqual(tableKong.label, "暗杠")
+
+        element("seat-score-\(Seat.east.id)", in: app).tap()
+        let inspectedKong = element("inspected-meld-concealed-0", in: app)
+        XCTAssertTrue(inspectedKong.waitForExistence(timeout: 5))
+        XCTAssertEqual(inspectedKong.label, "暗杠")
+        XCTAssertGreaterThanOrEqual(inspectedKong.frame.width, 4 * 40)
+        app.buttons["完成"].tap()
+
+        app.buttons["table-history"].tap()
+        let historyKong = element("history-meld-\(Seat.east.id)-0", in: app)
+        XCTAssertTrue(historyKong.waitForExistence(timeout: 5))
+        XCTAssertEqual(historyKong.label, "暗杠")
+    }
+
+    func testLargeTextTableAnnouncesConcealedKongInSeatSummary() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = try launchSavedMatch(opponentConcealedKongMatch(),
+                                      arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let summary = element("seat-score-\(Seat.east.id)", in: app)
+        XCTAssertTrue(summary.waitForExistence(timeout: 5))
+        XCTAssertTrue(summary.label.contains("暗杠"), summary.label)
+        capture("large-text-concealed-kong")
     }
 
     func testOverriddenPungExplainsTheResultOnTheTable() throws {
@@ -2085,6 +2124,19 @@ final class TableFlowTests: XCTestCase {
             ["chose": ["_0": Seat.north.rawValue, "_1": ["win": [String: String]()]]],
         ]
         return try JSONDecoder().decode(FuzhouMatch.self, from: JSONSerialization.data(withJSONObject: saved))
+    }
+
+    private func opponentConcealedKongMatch() throws -> FuzhouMatch {
+        var game = try match(seed: 76, after: 0)
+        let kong = try XCTUnwrap(game.legalMoves(for: .east).first {
+            if case .meld(.concealedKong, _) = $0 { return true }
+            return false
+        })
+        XCTAssertTrue(game.apply(kong, by: .east))
+        XCTAssertTrue(game.apply(.discard(25), by: .east))
+        XCTAssertEqual(game.table(for: .south).step, .claim)
+        XCTAssertTrue(game.legalMoves(for: .south).contains(.pass))
+        return game
     }
 
     private func match(seed: UInt64, after moves: Int, houseRules: FuzhouHouseRules? = nil) throws -> FuzhouMatch {

@@ -260,14 +260,17 @@ enum RuleLesson: Int, CaseIterable, Identifiable {
     }
 
     fileprivate func explanation(claim: Claim, ruleset: FuzhouRuleset, indicators: FuzhouHouseRules.GoldIndicators) -> String {
-        switch self {
+        let turnOrder = "庄家先出牌，之后按逆时针行牌。" +
+            "上家出牌后，如果没人吃、碰、杠或胡，游戏会自动帮你摸一张。没牌可摸时，这局流局。" +
+            "吃、碰后直接出牌，杠后先补一张。"
+        return switch self {
         case .turn:
             if ruleset == .legacy {
-                "开局每人拿 16 张牌，补花、开金后由庄家先摸牌。平时轮到你时，通常是先摸一张，再打一张。"
+                "开局每人拿 16 张牌，补花、开金后由庄家先摸牌。" + turnOrder
             } else {
                 "开局每人拿 16 张牌，庄家再拿一张，叫坎门。" +
                     (indicators.revealsBeforeFlowers ? "先开金，再补花。本局作金的字牌留在手中。" : "接着补花，再开金。") +
-                    "平时轮到你时，通常是先摸一张，再打一张。"
+                    turnOrder
             }
         case .flowers: "东南西北、中发白、梅兰竹菊、春夏秋冬通常都算花牌。摸到花牌时，先亮出来，再从牌尾补一张。图中亮出的是梅，补到的是三筒。"
         case .claims: claim.explanation

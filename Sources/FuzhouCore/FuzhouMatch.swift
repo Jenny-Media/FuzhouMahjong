@@ -83,9 +83,15 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
                    step: step, offeredTile: offeredTile, moves: openingDiscards == nil ? moves : [.win, .pass],
                    players: Seat.allCases.map {
                        let count = hands[$0.id].count + ($0 == current && drawn != nil ? 1 : 0)
+                       var visibleMelds = melds[$0.id]
+                       let hiddenKongs = step != .finished && $0 != viewer
+                           ? visibleMelds.indices.filter { visibleMelds[$0].kind == .concealedKong }
+                           : []
+                       for index in hiddenKongs.reversed() { visibleMelds.remove(at: index) }
                        return .init(seat: $0, rackCount: count, flowerCount: flowers[$0.id].count,
-                                    discards: ponds[$0.id], melds: melds[$0.id], score: scores[$0.id],
-                                    exposedFlowers: flowers[$0.id])
+                                    discards: ponds[$0.id], melds: visibleMelds, score: scores[$0.id],
+                                    exposedFlowers: flowers[$0.id],
+                                    concealedKongPositions: hiddenKongs.isEmpty ? nil : hiddenKongs)
                    }, result: result, rackCountsIncludeDrawnTile: true, discardTimeline: discardTimeline, lastDraw: lastDraw,
                    matchRuleset: matchRuleset, houseRules: houseRules, robGoldDiscardIDs: openingDiscards,
                    discardClaimFeedback: claimFeedback, openingIndicatorFlowerIDs: openingIndicatorFlowerIDs,
@@ -244,8 +250,11 @@ public struct FuzhouMatch: Equatable, Codable, Sendable {
     private func availableDraws(seenBy seat: Seat) -> [TileKind: Int] {
         let indicator = gold?.kind
         var copies = Self.tileCopies
+        let visibleMelds = melds.enumerated().flatMap { index, groups in
+            groups.filter { index == seat.id || $0.kind != .concealedKong }
+        }
         let visible = combinedHand(for: seat) + ponds.flatMap { $0 }
-            + melds.flatMap { $0 }.flatMap(\.tiles) + flowers[seat.id] + [gold].compactMap { $0 }
+            + visibleMelds.flatMap(\.tiles) + flowers[seat.id] + [gold].compactMap { $0 }
         for tile in Set(visible) { copies[tile.kind, default: 0] -= 1 }
         var suited: [TileKind: Int] = [:]
         for (kind, count) in copies where count > 0 {

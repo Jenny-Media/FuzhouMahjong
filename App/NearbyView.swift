@@ -306,6 +306,8 @@ struct NearbyView: View {
                     .accessibilityIdentifier("room-ruleset")
                 RulesetDetailsButton(ruleset: update.ruleset, houseRules: update.houseRules,
                                      resetsStreakOnPassingDraw: update.resetsStreakOnPassingDraw)
+                Text("旧版玩家在结算前可能看不到别人的暗杠。建议同桌都更新到最新版。")
+                    .font(.footnote).foregroundStyle(TeaTheme.muted)
             }
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(session.players) { player in
