@@ -461,6 +461,24 @@ final class BackgroundMusicTests: XCTestCase {
         XCTAssertFalse(defaults.bool(forKey: BackgroundMusic.pauseStorageKey))
     }
 
+    func testOutputDisconnectOnHomeDoesNotPauseNextLoop() async {
+        for startsPractice in [false, true] {
+            let music = BackgroundMusic(player: GatedMusicPlayer(gatedAttempt: .max))
+            defer { music.update(.init()) }
+            music.update(.init(track: .teaHouse, isActive: true))
+
+            music.handleAudioSessionNotification(routeChange(.oldDeviceUnavailable))
+            XCTAssertFalse(music.isLoopPaused)
+
+            if startsPractice {
+                music.setPracticing(true)
+            } else {
+                music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
+            }
+            await expectPlayback(.loop(.teaHouse), in: music)
+        }
+    }
+
     func testOutputDisconnectStopsMusicUntilTheNextExplicitPreview() async throws {
         let music = BackgroundMusic()
         var solo = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: true)

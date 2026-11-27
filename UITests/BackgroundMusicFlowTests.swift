@@ -7,8 +7,10 @@ final class BackgroundMusicFlowTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
-        app.launchArguments = ["-play-access.archive.v1", "", "-backgroundMusic.track", "tea-house",
-                               "-backgroundMusic.paused", "NO", "--ui-test-manual-opening"]
+        app.launchArguments = [
+            "-play-access.archive.v1", "", "-solo-match.v2", "", "-solo-match.second.v1", "",
+            "-backgroundMusic.track", "tea-house", "-backgroundMusic.paused", "NO", "--ui-test-manual-opening",
+        ]
         app.launch()
 
         let solo = app.buttons["practice-entry"]

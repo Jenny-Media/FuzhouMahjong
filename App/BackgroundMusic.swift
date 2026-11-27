@@ -100,6 +100,7 @@ final class BackgroundMusic {
 
     var isPreviewing: Bool { previewTrack != nil }
     var isLoopPaused: Bool { pausedByPlayer || playbackPause != nil || isLoopUnavailable }
+    private var hasLoopContext: Bool { context.track != .off && (context.isSolo || isPracticing) }
 
     func toggleLoopPause() {
         pausedByPlayer = !isLoopPaused
@@ -156,7 +157,8 @@ final class BackgroundMusic {
             return
         case AVAudioSession.routeChangeNotification:
             if let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-               AVAudioSession.RouteChangeReason(rawValue: value) == .oldDeviceUnavailable {
+               AVAudioSession.RouteChangeReason(rawValue: value) == .oldDeviceUnavailable,
+               requestedPlayback != nil || (hasLoopContext && !pausedByPlayer) {
                 pauseUntilPlaybackRequested()
             }
             return
@@ -248,8 +250,7 @@ final class BackgroundMusic {
         }
         let loop = Playback.loop(context.track)
         let explicitlyResuming = explicitlyRequested || (isExplicitPlaybackPending && requestedPlayback == loop)
-        guard !isSettingsPresented, !pausedByPlayer, !isLoopPaused || explicitlyResuming,
-              context.track != .off, context.isSolo || isPracticing else {
+        guard !isSettingsPresented, !pausedByPlayer, !isLoopPaused || explicitlyResuming, hasLoopContext else {
             request(nil)
             return
         }
