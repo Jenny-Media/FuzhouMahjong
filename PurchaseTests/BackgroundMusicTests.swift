@@ -136,6 +136,50 @@ final class BackgroundMusicTests: XCTestCase {
         await expectPlayback(.preview(.teaHouse), in: music)
     }
 
+    func testEarlyResumeRecommendationRetriesAfterAnActivationRejection() async {
+        let player = GatedMusicPlayer(rejectingAttempt: 1)
+        let music = BackgroundMusic(player: player)
+        defer { music.update(.init()) }
+        music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
+        await expectPendingRejection(in: player)
+
+        music.handleSystemResumption(shouldResume: true)
+        await player.finishRejection()
+        await expectPlayback(.loop(.teaHouse), in: music)
+
+        let attempts = await player.attempts
+        XCTAssertEqual(attempts, [.loop(.teaHouse), .loop(.teaHouse)])
+    }
+
+    func testRejectedPreviewKeepsSoloMusicPausedUntilResume() async throws {
+        let player = GatedMusicPlayer(rejectingAttempt: 2)
+        let music = BackgroundMusic(player: player)
+        var solo = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: true)
+        defer { music.update(.init()) }
+        music.update(solo)
+        await expectPlayback(.loop(.teaHouse), in: music)
+        music.systemInterruptionBegan()
+        music.togglePreview(.teaHouse)
+        await expectPendingRejection(in: player)
+        await player.finishRejection()
+
+        for _ in 0..<50 where music.isPreviewing {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(music.isPreviewing)
+        solo.isActive = false
+        music.update(solo)
+        solo.isActive = true
+        music.update(solo)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(music.playback)
+        let attemptsBeforeResume = await player.attempts
+        XCTAssertEqual(attemptsBeforeResume, [.loop(.teaHouse), .preview(.teaHouse)])
+
+        music.handleSystemResumption(shouldResume: true)
+        await expectPlayback(.loop(.teaHouse), in: music)
+    }
+
     func testPreviewFadesBeforeReturningToSoloMusic() async {
         let music = BackgroundMusic()
         defer { music.update(.init()) }
@@ -216,5 +260,39 @@ final class BackgroundMusicTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertEqual(music.playback, expected, file: file, line: line)
+    }
+
+    private func expectPendingRejection(in player: GatedMusicPlayer,
+                                        file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<50 {
+            if await player.isRejecting { return }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Expected a pending activation rejection", file: file, line: line)
+    }
+}
+
+private actor GatedMusicPlayer: BackgroundMusicPlaying {
+    private let rejectingAttempt: Int
+    private var rejection: CheckedContinuation<Void, Never>?
+    private(set) var attempts: [BackgroundMusic.Playback] = []
+
+    var isRejecting: Bool { rejection != nil }
+
+    init(rejectingAttempt: Int) {
+        self.rejectingAttempt = rejectingAttempt
+    }
+
+    func apply(_ mode: BackgroundMusic.Playback?, fadeOut: Bool) async -> BackgroundMusic.PlaybackResult {
+        guard let mode else { return .applied }
+        attempts.append(mode)
+        guard attempts.count == rejectingAttempt else { return .applied }
+        await withCheckedContinuation { rejection = $0 }
+        return .activationRejected
+    }
+
+    func finishRejection() {
+        rejection?.resume()
+        rejection = nil
     }
 }

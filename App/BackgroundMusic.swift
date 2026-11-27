@@ -57,6 +57,12 @@ final class BackgroundMusic {
         case preview(BackgroundTrack)
     }
 
+    enum PlaybackResult {
+        case applied
+        case unavailable
+        case activationRejected
+    }
+
     private enum PlaybackPause: Equatable {
         case systemInterruption
         case untilPlaybackRequested
@@ -66,12 +72,17 @@ final class BackgroundMusic {
     private var previewTrack: BackgroundTrack?
     @ObservationIgnored private var context = Context()
     @ObservationIgnored private var isPracticing = false
-    @ObservationIgnored private let player = BackgroundMusicPlayer()
+    @ObservationIgnored private let player: any BackgroundMusicPlaying
     @ObservationIgnored private var requestedPlayback: Playback?
     @ObservationIgnored private var playbackPause: PlaybackPause?
+    @ObservationIgnored private var resumptionPending = false
     @ObservationIgnored private var needsImmediateStop = false
     @ObservationIgnored private var transition: Task<Void, Never>?
     @ObservationIgnored private var previewTimer: Task<Void, Never>?
+
+    init(player: (any BackgroundMusicPlaying)? = nil) {
+        self.player = player ?? BackgroundMusicPlayer()
+    }
 
     var isPreviewing: Bool { previewTrack != nil }
 
@@ -154,7 +165,7 @@ final class BackgroundMusic {
         case .began:
             suspendPlayback()
         case .ended:
-            refresh()
+            handleSystemResumption(shouldResume: true)
         @unknown default:
             break
         }
@@ -172,6 +183,9 @@ final class BackgroundMusic {
             return
         }
         if playbackPause == .systemInterruption { playbackPause = nil }
+        if playbackPause == nil, requestedPlayback != nil, playback == nil {
+            resumptionPending = true
+        }
         refresh()
     }
 
@@ -207,43 +221,60 @@ final class BackgroundMusic {
         guard force || requestedPlayback != mode else { return }
         requestedPlayback = mode
         playback = nil
+        resumptionPending = false
         transition?.cancel()
         // A replacement task must stop the old player immediately if it supersedes a suspension.
         let fadeOut = !needsImmediateStop
         transition = Task { [weak self, player] in
-            let started = await player.apply(mode, fadeOut: fadeOut)
+            let result = await player.apply(mode, fadeOut: fadeOut)
             guard !Task.isCancelled, let self else { return }
             needsImmediateStop = false
-            playback = started
-            if case .preview = started {
-                previewTimer = Task { [weak self] in
-                    do { try await Task.sleep(for: .seconds(10)) } catch { return }
-                    guard !Task.isCancelled else { return }
-                    self?.endPreview()
+            let shouldRetry = resumptionPending
+            resumptionPending = false
+            switch result {
+            case .applied:
+                playback = mode
+                if case .preview = mode {
+                    previewTimer = Task { [weak self] in
+                        do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                        guard !Task.isCancelled else { return }
+                        self?.endPreview()
+                    }
                 }
-            } else if started != mode {
+            case .unavailable:
                 requestedPlayback = nil
                 if previewTrack != nil { endPreview() }
+            case .activationRejected:
+                requestedPlayback = nil
+                if shouldRetry {
+                    refresh()
+                } else {
+                    systemInterruptionBegan()
+                }
             }
         }
     }
 }
 
+protocol BackgroundMusicPlaying: Actor {
+    func apply(_ mode: BackgroundMusic.Playback?, fadeOut: Bool) async -> BackgroundMusic.PlaybackResult
+}
+
 // Audio session setup and file playback can block. The player owns them off the UI actor.
-private actor BackgroundMusicPlayer {
+private actor BackgroundMusicPlayer: BackgroundMusicPlaying {
     private static let fade = 0.24
     private var player: AVAudioPlayer?
 
-    func apply(_ mode: BackgroundMusic.Playback?, fadeOut: Bool) async -> BackgroundMusic.Playback? {
-        guard !Task.isCancelled else { return nil }
+    func apply(_ mode: BackgroundMusic.Playback?, fadeOut: Bool) async -> BackgroundMusic.PlaybackResult {
+        guard !Task.isCancelled else { return .unavailable }
         if fadeOut, let player {
             player.setVolume(0, fadeDuration: Self.fade)
-            do { try await Task.sleep(for: .seconds(Self.fade)) } catch { return nil }
-            guard !Task.isCancelled else { return nil }
+            do { try await Task.sleep(for: .seconds(Self.fade)) } catch { return .unavailable }
+            guard !Task.isCancelled else { return .unavailable }
         }
 
         stop()
-        guard let mode else { return nil }
+        guard let mode else { return .applied }
         let track: BackgroundTrack
         let volume: Float
         let loops: Int
@@ -257,25 +288,26 @@ private actor BackgroundMusicPlayer {
             volume = 0.65
             loops = 0
         }
-        guard let url = track.recording, let newPlayer = try? AVAudioPlayer(contentsOf: url) else { return nil }
+        guard let url = track.recording, let newPlayer = try? AVAudioPlayer(contentsOf: url) else { return .unavailable }
         let session = AVAudioSession.sharedInstance()
         if session.category != .ambient {
             do {
                 try session.setCategory(.ambient)
             } catch {
-                return nil
+                return .unavailable
             }
         }
         newPlayer.numberOfLoops = loops
         newPlayer.volume = 0
-        guard !Task.isCancelled, newPlayer.play() else { return nil }
+        guard !Task.isCancelled else { return .unavailable }
+        guard newPlayer.play() else { return .activationRejected }
         guard !Task.isCancelled else {
             newPlayer.stop()
-            return nil
+            return .unavailable
         }
         newPlayer.setVolume(volume, fadeDuration: Self.fade)
         player = newPlayer
-        return mode
+        return .applied
     }
 
     private func stop() {
