@@ -11,6 +11,7 @@
 		0700432083D327C0B883C25E /* TableFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B144A418CDF5D8AA50827047 /* TableFlowTests.swift */; };
 		07F9CF0E29AD697994C7CFB8 /* FuzhouMahjong.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 049D58468392C495742BBB6D /* FuzhouMahjong.storekit */; };
 		08F4126F1592BFBC3D4EC6EA /* win.wav in Resources */ = {isa = PBXBuildFile; fileRef = 12D19ED7EE2E40CFFC550B32 /* win.wav */; };
+		09444B77DF22E25C9CEEEA01 /* BackgroundMusic in Resources */ = {isa = PBXBuildFile; fileRef = 8659BD00E171E51D26F1828B /* BackgroundMusic */; };
 		0C40399E50B1CBA52F53F4E0 /* FuzhouMahjong.storekit in Resources */ = {isa = PBXBuildFile; fileRef = 049D58468392C495742BBB6D /* FuzhouMahjong.storekit */; };
 		1185CD94CEF686BAD0F3A5BE /* NearbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 587F0BF9F6FB8E3EFB9DF5C5 /* NearbyView.swift */; };
 		16967D6F3B4A3A9CB51CE340 /* MatchSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6607E458A43F0DFF33AB36D4 /* MatchSession.swift */; };
@@ -24,6 +25,7 @@
 		470414B7D31822ADF3D62411 /* OpeningDeal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F5D7F294DCF1FD483E7CC4A /* OpeningDeal.swift */; };
 		47A2C90DD0E67CFDE1D36987 /* FuzhouAccess in Frameworks */ = {isa = PBXBuildFile; productRef = C57D5CD21420E23324757E6E /* FuzhouAccess */; };
 		4A0CC925A72854B6EE30715D /* discard.wav in Resources */ = {isa = PBXBuildFile; fileRef = 9FC73357F7C2FBE19391BA91 /* discard.wav */; };
+		5899AD4EB54C77AEFDC6D227 /* BackgroundMusicFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B255866949C6681033BB56 /* BackgroundMusicFlowTests.swift */; };
 		6EC7C087998C0DF31AD49A13 /* FuzhouAccess in Frameworks */ = {isa = PBXBuildFile; productRef = 6C4C419B440A19680E9926F5 /* FuzhouAccess */; };
 		70A80988AE5F03CB65514D6C /* GesturePractice.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1A61E57372AD9C2B2A44A1 /* GesturePractice.swift */; };
 		70DA1DF79E62C7C0792A842D /* FuzhouNearby in Frameworks */ = {isa = PBXBuildFile; productRef = 5B77474B0063C3F5FB6BABC8 /* FuzhouNearby */; };
@@ -41,6 +43,7 @@
 		A872B12BE6A1DCD66488260C /* CustomRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B5F54F0B45C8C24C16E168 /* CustomRules.swift */; };
 		AB1716F840DD121326EF3CAF /* FuzhouCore in Frameworks */ = {isa = PBXBuildFile; productRef = D6D5DCDDE6EFD0A0CEC2B596 /* FuzhouCore */; };
 		AB39673C311AE8A18BB0FE1C /* MaterialCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903AE3CFF5A301DEBD9715F1 /* MaterialCatalogTests.swift */; };
+		B12B562DCBA710908EC59094 /* BackgroundMusicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E78D79E95D65F61F5549C0C8 /* BackgroundMusicTests.swift */; };
 		B67863D0CB40D80C746E8CF8 /* FoldLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */; };
 		B7625D1D3F8C4A537060443E /* TablePresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E91900CAA4008F8AFAFE2A3 /* TablePresentationTests.swift */; };
 		CC0B3F636CB4CDD0E2061F48 /* deal.wav in Resources */ = {isa = PBXBuildFile; fileRef = A31F82099C976632E7E997E9 /* deal.wav */; };
@@ -49,6 +52,7 @@
 		D7738BC7D6909502ECCE29D3 /* ShuffleMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E8385EBD42496E8363BC33 /* ShuffleMotion.swift */; };
 		DE4437C5C30D3AE6C8D4DF8C /* FuzhouCore in Frameworks */ = {isa = PBXBuildFile; productRef = A57DCE4D2583B5337C912AB8 /* FuzhouCore */; };
 		E814F7AECDB7D0639137E7D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1341A781DB8EE5A24CC07824 /* Assets.xcassets */; };
+		F072EC825EE5434A67AFB6DD /* BackgroundMusic.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95C5B8DFC4FE23808904FEA /* BackgroundMusic.swift */; };
 		F12D6C23D2B22B4A1CBDB59F /* MaterialSounds in Resources */ = {isa = PBXBuildFile; fileRef = 0BB375AF5EAF9BC3EE3349D7 /* MaterialSounds */; };
 		F585C9CCDC9C56697F2733AB /* Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 658421D9AF838407845449F1 /* Appearance.swift */; };
 		F8E31689128D619FAEE1AFA3 /* RackTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D5BABB5CFF891D9502EEC64 /* RackTile.swift */; };
@@ -89,6 +93,7 @@
 		7A629B7892E0A45831EF258C /* MeldGesturePractice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeldGesturePractice.swift; sourceTree = "<group>"; };
 		81AFEB6B07439A07178BD24D /* FuzhouPurchasesTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FuzhouPurchasesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		86444A5042E90190736FD0A3 /* RuleGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleGuide.swift; sourceTree = "<group>"; };
+		8659BD00E171E51D26F1828B /* BackgroundMusic */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BackgroundMusic; path = App/Sounds/BackgroundMusic; sourceTree = SOURCE_ROOT; };
 		88EE8907E6A93E97606D3591 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		8D5BABB5CFF891D9502EEC64 /* RackTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RackTile.swift; sourceTree = "<group>"; };
 		8F5D7F294DCF1FD483E7CC4A /* OpeningDeal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpeningDeal.swift; sourceTree = "<group>"; };
@@ -104,10 +109,13 @@
 		B4E33F096EF56DB090D04C00 /* InviteScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteScanner.swift; sourceTree = "<group>"; };
 		BA1A61E57372AD9C2B2A44A1 /* GesturePractice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GesturePractice.swift; sourceTree = "<group>"; };
 		BF9267C701E59AC2BDE8B535 /* FoldLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldLayout.swift; sourceTree = "<group>"; };
+		C95C5B8DFC4FE23808904FEA /* BackgroundMusic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundMusic.swift; sourceTree = "<group>"; };
+		D3B255866949C6681033BB56 /* BackgroundMusicFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundMusicFlowTests.swift; sourceTree = "<group>"; };
 		D701A87529DDD1708E00402A /* TableHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableHaptics.swift; sourceTree = "<group>"; };
 		E3059DC43C7E3FFA403209A5 /* FuzhouMahjongApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzhouMahjongApp.swift; sourceTree = "<group>"; };
 		E40B293A1DA162DAFE3643A8 /* DrawPickup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawPickup.swift; sourceTree = "<group>"; };
 		E785A5197FED77CAA078C5FE /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		E78D79E95D65F61F5549C0C8 /* BackgroundMusicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundMusicTests.swift; sourceTree = "<group>"; };
 		E7BFB09CE55A2BAA3057A8ED /* shuffle.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = shuffle.wav; sourceTree = "<group>"; };
 		EF52DE60C8F3F2339851A75D /* TileFace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileFace.swift; sourceTree = "<group>"; };
 		F2AF21576D2A802DE9F9B814 /* PurchaseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchaseView.swift; sourceTree = "<group>"; };
@@ -150,6 +158,7 @@
 		0906D3E56F3B3A3939D1EC95 /* PurchaseTests */ = {
 			isa = PBXGroup;
 			children = (
+				E78D79E95D65F61F5549C0C8 /* BackgroundMusicTests.swift */,
 				049D58468392C495742BBB6D /* FuzhouMahjong.storekit */,
 				903AE3CFF5A301DEBD9715F1 /* MaterialCatalogTests.swift */,
 				1003A09EAEE135277481D775 /* PurchaseTests.swift */,
@@ -161,6 +170,7 @@
 		35F66B5CAFF0CDB3CB757147 = {
 			isa = PBXGroup;
 			children = (
+				8659BD00E171E51D26F1828B /* BackgroundMusic */,
 				0BB375AF5EAF9BC3EE3349D7 /* MaterialSounds */,
 				6169359C906710A7687B3D75 /* App */,
 				49BA015CF62795633E9D7EBD /* Packages */,
@@ -183,6 +193,7 @@
 			children = (
 				658421D9AF838407845449F1 /* Appearance.swift */,
 				1341A781DB8EE5A24CC07824 /* Assets.xcassets */,
+				C95C5B8DFC4FE23808904FEA /* BackgroundMusic.swift */,
 				F4B5F54F0B45C8C24C16E168 /* CustomRules.swift */,
 				919A18AC837AB8DC2874F393 /* DiscardFlight.swift */,
 				E40B293A1DA162DAFE3643A8 /* DrawPickup.swift */,
@@ -237,6 +248,7 @@
 		F7739AA612BCA8A69832F7C4 /* UITests */ = {
 			isa = PBXGroup;
 			children = (
+				D3B255866949C6681033BB56 /* BackgroundMusicFlowTests.swift */,
 				AD6EC24B27F2D70711401700 /* PurchaseFlowTests.swift */,
 				B144A418CDF5D8AA50827047 /* TableFlowTests.swift */,
 			);
@@ -358,6 +370,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E814F7AECDB7D0639137E7D5 /* Assets.xcassets in Resources */,
+				09444B77DF22E25C9CEEEA01 /* BackgroundMusic in Resources */,
 				F12D6C23D2B22B4A1CBDB59F /* MaterialSounds in Resources */,
 				89848FEA1F59AEBA75985494 /* PrivacyInfo.xcprivacy in Resources */,
 				CC0B3F636CB4CDD0E2061F48 /* deal.wav in Resources */,
@@ -391,6 +404,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B12B562DCBA710908EC59094 /* BackgroundMusicTests.swift in Sources */,
 				AB39673C311AE8A18BB0FE1C /* MaterialCatalogTests.swift in Sources */,
 				CD9F30563E5833FBD30E0A2E /* PurchaseTests.swift in Sources */,
 				B7625D1D3F8C4A537060443E /* TablePresentationTests.swift in Sources */,
@@ -402,6 +416,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F585C9CCDC9C56697F2733AB /* Appearance.swift in Sources */,
+				F072EC825EE5434A67AFB6DD /* BackgroundMusic.swift in Sources */,
 				A872B12BE6A1DCD66488260C /* CustomRules.swift in Sources */,
 				A0A67205773E374DD360288A /* DiscardFlight.swift in Sources */,
 				3DF695986221511559E75CF7 /* DrawPickup.swift in Sources */,
@@ -432,6 +447,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5899AD4EB54C77AEFDC6D227 /* BackgroundMusicFlowTests.swift in Sources */,
 				1D9447A8BD24F6171492D658 /* PurchaseFlowTests.swift in Sources */,
 				0700432083D327C0B883C25E /* TableFlowTests.swift in Sources */,
 			);

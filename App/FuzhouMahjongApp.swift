@@ -39,7 +39,9 @@ private struct HomeView: View {
     @AppStorage("table.tileFaceStyle") private var tileFaceStyle = TileFaceStyle.photoMatched
     @AppStorage("table.boardStyle") private var boardStyle = BoardStyle.automatic
     @AppStorage("solo.ruleset") private var ruleset = FuzhouRuleset.pureSuit
+    @AppStorage(BackgroundTrack.storageKey) private var musicTrack = BackgroundTrack.off
     @AppStorage("solo.customRulesetID") private var customRulesetID = ""
+    @State private var backgroundMusic = BackgroundMusic()
     @State private var access: GameAccess
     @State private var session: SoloMatch
     @State private var nearby: NearbySession
@@ -68,6 +70,10 @@ private struct HomeView: View {
         _session = State(initialValue: session)
         _soloPrompt = State(initialValue: session.removedLegacySave ? .legacyRemoved : nil)
         _nearby = State(initialValue: NearbySession(hostingAllowed: { access.authorizeHosting() }))
+    }
+
+    private var musicContext: BackgroundMusic.Context {
+        BackgroundMusic.Context(track: musicTrack, isSolo: path.last == .solo, isActive: phase == .active)
     }
 
     var body: some View {
@@ -133,6 +139,7 @@ private struct HomeView: View {
             }
         }
         .environment(access)
+        .environment(backgroundMusic)
         .environment(rulesetLibrary)
         .environment(\.boardStyle, boardStyle.resolved(for: colorScheme))
         .environment(\.tileMaterial, TileMaterialStyle(storedValue: storedTileMaterial).resolved(for: colorScheme))
@@ -145,6 +152,10 @@ private struct HomeView: View {
                 access.refreshClock()
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
+        }
+        .onChange(of: musicContext, initial: true) { _, context in backgroundMusic.update(context) }
+        .onReceive(BackgroundMusic.audioSessionNotifications) {
+            backgroundMusic.handleAudioSessionNotification($0)
         }
         .onChange(of: phase) { _, updated in
             if updated == .background { nearby.setBackgrounded(true) }
@@ -438,9 +449,11 @@ private struct SoloSetup: View {
 
 struct SettingsView: View {
     @Environment(GameAccess.self) private var access
+    @Environment(BackgroundMusic.self) private var backgroundMusic
     @Environment(\.dismiss) private var dismiss
     @AppStorage("practice.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("table.sound.enabled") private var soundEnabled = true
+    @AppStorage(BackgroundTrack.storageKey) private var musicTrack = BackgroundTrack.off
     @AppStorage("table.sound.nearbyOwnMovesOnly") private var nearbyOwnMovesOnly = true
     @AppStorage(NearbyNickname.storageKey) private var nickname = ""
     @AppStorage("appearance.mode") private var appearance = GameAppearance.system
@@ -482,6 +495,25 @@ struct SettingsView: View {
                         .font(.footnote)
                 }
                 .listRowBackground(TeaTheme.surface)
+                Section {
+                    Picker("背景音乐", selection: $musicTrack) {
+                        ForEach(BackgroundTrack.allCases, id: \.self) { track in
+                            Text(track.title).tag(track)
+                        }
+                    }
+                    .accessibilityValue(musicTrack.title)
+                    .accessibilityIdentifier("background-music-track")
+                    if musicTrack != .off {
+                        Button(backgroundMusic.isPreviewing ? "停止试听" : "试听",
+                               systemImage: backgroundMusic.isPreviewing ? "stop.fill" : "play.fill") {
+                            backgroundMusic.togglePreview(musicTrack)
+                        }
+                        .accessibilityIdentifier("background-music-preview")
+                    }
+                } footer: {
+                    Text("单机牌局和手势练习中播放。")
+                }
+                .listRowBackground(TeaTheme.surface)
                 Section("附近联机") {
                     NearbyNicknameButton(nickname: nickname) { showsNicknameEditor = true }
                 }
@@ -497,6 +529,7 @@ struct SettingsView: View {
             .modifier(HingeSafeContent())
             .teaBackdrop()
             .navigationTitle("设置")
+            .onDisappear { backgroundMusic.endPreview() }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
