@@ -113,7 +113,6 @@ final class BackgroundMusic {
             return
         }
         clearPreview()
-        playbackPause = nil
         previewTrack = track
         refresh()
     }
@@ -179,11 +178,13 @@ final class BackgroundMusic {
     func handleSystemResumption(shouldResume: Bool) {
         guard shouldResume else {
             // A rejected activation can produce a recommendation without a deactivation event.
-            if playbackPause == nil && playback == nil { systemInterruptionBegan() }
+            if playback == nil, playbackPause == nil || requestedPlayback != nil {
+                systemInterruptionBegan()
+            }
             return
         }
         if playbackPause == .systemInterruption { playbackPause = nil }
-        if playbackPause == nil, requestedPlayback != nil, playback == nil {
+        if requestedPlayback != nil, playback == nil {
             resumptionPending = true
         }
         refresh()
@@ -207,10 +208,10 @@ final class BackgroundMusic {
     }
 
     private func refresh() {
-        guard context.isActive, playbackPause == nil else { return }
+        guard context.isActive else { return }
         if let previewTrack {
             request(.preview(previewTrack))
-        } else if context.track != .off && (context.isSolo || isPracticing) {
+        } else if playbackPause == nil, context.track != .off, context.isSolo || isPracticing {
             request(.loop(context.track))
         } else {
             request(nil)
@@ -235,6 +236,7 @@ final class BackgroundMusic {
             case .applied:
                 playback = mode
                 if case .preview = mode {
+                    playbackPause = nil
                     previewTimer = Task { [weak self] in
                         do { try await Task.sleep(for: .seconds(10)) } catch { return }
                         guard !Task.isCancelled else { return }

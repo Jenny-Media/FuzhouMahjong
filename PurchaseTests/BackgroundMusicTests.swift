@@ -180,6 +180,52 @@ final class BackgroundMusicTests: XCTestCase {
         await expectPlayback(.loop(.teaHouse), in: music)
     }
 
+    func testStoppingPendingPreviewPreservesSoloMusicPause() async throws {
+        let player = GatedMusicPlayer(rejectingAttempt: 2)
+        let music = BackgroundMusic(player: player)
+        defer { music.update(.init()) }
+        music.update(.init(track: .teaHouse, isSolo: true, isActive: true))
+        await expectPlayback(.loop(.teaHouse), in: music)
+        music.systemInterruptionBegan()
+        music.togglePreview(.teaHouse)
+        await expectPendingRejection(in: player)
+
+        music.togglePreview(.teaHouse)
+        await player.finishRejection()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(music.isPreviewing)
+        XCTAssertNil(music.playback)
+        let attempts = await player.attempts
+        XCTAssertEqual(attempts, [.loop(.teaHouse), .preview(.teaHouse)])
+
+        music.handleSystemResumption(shouldResume: true)
+        await expectPlayback(.loop(.teaHouse), in: music)
+    }
+
+    func testLeavingDuringPendingPreviewPreservesOutputLossPause() async throws {
+        let player = GatedMusicPlayer(rejectingAttempt: 2)
+        let music = BackgroundMusic(player: player)
+        var solo = BackgroundMusic.Context(track: .teaHouse, isSolo: true, isActive: true)
+        defer { music.update(.init()) }
+        music.update(solo)
+        await expectPlayback(.loop(.teaHouse), in: music)
+        music.handleAudioSessionNotification(routeChange(.oldDeviceUnavailable))
+        music.togglePreview(.teaHouse)
+        await expectPendingRejection(in: player)
+
+        solo.isActive = false
+        music.update(solo)
+        solo.isActive = true
+        music.update(solo)
+        await player.finishRejection()
+        music.handleSystemResumption(shouldResume: true)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(music.isPreviewing)
+        XCTAssertNil(music.playback)
+        let attempts = await player.attempts
+        XCTAssertEqual(attempts, [.loop(.teaHouse), .preview(.teaHouse)])
+    }
+
     func testPreviewFadesBeforeReturningToSoloMusic() async {
         let music = BackgroundMusic()
         defer { music.update(.init()) }
