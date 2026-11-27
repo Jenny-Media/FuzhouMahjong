@@ -1076,17 +1076,19 @@ final class TableFlowTests: XCTestCase {
             XCUIDevice.shared.orientation = orientation
             let app = try launchSavedMatch(fixture)
             let rack = element("table-rack", in: app)
-            let original = rack.frame
             let east = element("seat-score-\(Seat.east.id)", in: app)
             let west = element("seat-score-\(Seat.west.id)", in: app)
-            XCTAssertTrue(east.isHittable)
-            XCTAssertTrue(west.isHittable)
+            // The Duo can expose the table while its navigation insets are still changing.
+            let seatsHittable = NSPredicate { _, _ in east.isHittable && west.isHittable }
+            let seatsReady = XCTWaiter.wait(for: [expectation(for: seatsHittable, evaluatedWith: app)], timeout: 5)
+            capture("live-melds-\(orientation.rawValue)")
+            XCTAssertEqual(seatsReady, .completed, "East: \(east.frame); west: \(west.frame)")
             XCTAssertLessThan(east.frame.midX, west.frame.midX)
+            let original = rack.frame
             let backs = element("concealed-rack-\(player.seat.id)", in: app)
             XCTAssertEqual(backs.label, "手牌 \(player.rackCount) 张")
             let seat = element("seat-score-\(player.seat.id)", in: app)
             XCTAssertTrue(seat.isHittable)
-            capture("live-melds-\(orientation.rawValue)")
             seat.tap()
             for meld in player.melds {
                 let shown = element("inspected-meld-\(meld.id)", in: app)
